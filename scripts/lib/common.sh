@@ -2379,6 +2379,95 @@ jig_check_newest_release() {
   printf '%s\n' "$best"
 }
 
+# jig_release_check_record <file> — ask the global framework checkout's origin
+# for the newest release (jig_check_newest_release) and record the answer in
+# <file>: `latest=<X.Y.Z>` and `checked_at=<UTC time>`, or `failed` and
+# `checked_at=` when the network did not answer. The one place the answer is
+# written, for housekeeping's per-project file (.ai/runtime/latest-release) and
+# for the machine's (`jig version --json`). Fails, writing nothing, only when
+# there is no global framework checkout to ask or <file> cannot be written; a
+# failed check is a recorded answer, not a failure.
+jig_release_check_record() {
+  local file="$1" exe root rc=0 best tmp now
+  tmp="$file.tmp.$$"
+  jig_cleanup_add "$tmp"
+  exe=$(jig_global_executable) || return 1
+  root="${exe%/scripts/jig}"
+  best=$(jig_check_newest_release "$root" "$_JIG_RELEASE_CHECK_TIMEOUT") || rc=$?
+  now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  if [ "$rc" -eq 0 ]; then
+    printf 'latest=%s\nchecked_at=%s\n' "${best#v}" "$now" > "$tmp" || return 1
+  else
+    printf 'failed\nchecked_at=%s\n' "$now" > "$tmp" || return 1
+  fi
+  mv "$tmp" "$file"
+}
+
+# The machine's own record of the newest release, for `jig version --json`,
+# which has no project and so no .ai/runtime: <cache dir>/jig/latest-release,
+# in the format jig_release_check_record writes. An answer is kept
+# _JIG_LATEST_FRESH_MIN minutes, a failed one _JIG_LATEST_RETRY_MIN, so an
+# offline machine does not ask on every read and comes back soon after it is
+# online again. Freshness is the file's age (`find -mmin`, portable), never a
+# parsed time.
+_JIG_LATEST_FRESH_MIN=360
+_JIG_LATEST_RETRY_MIN=60
+
+# jig_machine_latest_file — the path of that record; fails without a home.
+jig_machine_latest_file() {
+  local dir
+  if [ -n "${XDG_CACHE_HOME:-}" ]; then
+    dir="$XDG_CACHE_HOME"
+  elif [ -n "${HOME:-}" ]; then
+    dir="$HOME/.cache"
+  else
+    return 1
+  fi
+  printf '%s/jig/latest-release\n' "$dir"
+}
+
+# jig_machine_latest — set _JIG_LATEST (newest release, `X.Y.Z`) and
+# _JIG_LATEST_AT (when it was asked, UTC) from the machine's record, asking
+# the network first when the record is missing or older than it may be. Both
+# stay empty when nothing is known: no cache dir, no global checkout, or the
+# last check failed. Never fails and never prints.
+jig_machine_latest() {
+  local file line min stale=1
+  _JIG_LATEST=""
+  _JIG_LATEST_AT=""
+  file=$(jig_machine_latest_file) || return 0
+  if [ -f "$file" ]; then
+    min=$_JIG_LATEST_FRESH_MIN
+    grep -q '^latest=' "$file" 2>/dev/null || min=$_JIG_LATEST_RETRY_MIN
+    [ -z "$(find "$file" -mmin "-$min" 2>/dev/null)" ] || stale=0
+  fi
+  if [ "$stale" = 1 ]; then
+    mkdir -p "${file%/*}" 2>/dev/null || return 0
+    jig_release_check_record "$file" 2>/dev/null || true
+  fi
+  [ -f "$file" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      latest=*) _JIG_LATEST=${line#latest=} ;;
+      checked_at=*) _JIG_LATEST_AT=${line#checked_at=} ;;
+    esac
+  done < "$file"
+  jig_release_version "v$_JIG_LATEST" >/dev/null 2>&1 || _JIG_LATEST=""
+  return 0
+}
+
+# jig_version_json <installed> — the producer for `jig version --json`:
+# `{"installed", "latest", "checked_at"}` (schemas/json.md).
+jig_version_json() {
+  jig_machine_latest
+  json_quote "$1"
+  printf '{"installed":%s' "$_JSON"
+  json_str_or_null "$_JIG_LATEST"
+  printf ',"latest":%s' "$_JSON"
+  json_str_or_null "$_JIG_LATEST_AT"
+  printf ',"checked_at":%s}\n' "$_JSON"
+}
+
 # jig_fetch_branches <who> <name>... — refresh origin/<name> for each branch
 # from origin, one at a time, so that a branch origin does not have fails
 # alone. Does nothing without an origin. A failure is a warning, never fatal:
