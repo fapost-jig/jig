@@ -3503,7 +3503,10 @@ $(jig_gh_asked_as)"
   url=$(printf '%s\n' "$out" | tail -n 1)
   JIG_SHIP_URL="$url"
   printf 'pr %s\n' "$url"
-  [ -z "$reviewers" ] || printf '%s: review requested from %s\n' "$who" "$(printf '%s' "$reviewers" | sed 's/,/, /g')"
+  if [ -n "$reviewers" ]; then
+    _jig_list_words_v reviewers "$reviewers"
+    printf '%s: review requested from %s\n' "$who" "$reviewers"
+  fi
 }
 
 # _jig_ship_pr_reviewers_not_added <who> <reviewers> — say so when reviewers
@@ -3511,7 +3514,9 @@ $(jig_gh_asked_as)"
 # on one this ship opens.
 _jig_ship_pr_reviewers_not_added() {
   [ -n "$2" ] || return 0
-  printf '%s: no review requested from %s: the pull request was already open, and reviewers are requested only when the ship opens it\n' "$1" "$(printf '%s' "$2" | sed 's/,/, /g')"
+  local __jsr_names
+  _jig_list_words_v __jsr_names "$2"
+  printf '%s: no review requested from %s: the pull request was already open, and reviewers are requested only when the ship opens it\n' "$1" "$__jsr_names"
 }
 
 # _jig_ship_pr_gitlab <who> <head> <base> <title> <body-file> <draft>
@@ -3540,7 +3545,10 @@ $out"
   url=$(printf '%s\n' "$out" | grep -oE 'https://[^[:space:]]+' | tail -n 1)
   JIG_SHIP_URL="$url"
   printf 'pr %s\n' "${url:-$out}"
-  [ -z "$reviewers" ] || printf '%s: review requested from %s\n' "$who" "$(printf '%s' "$reviewers" | sed 's/,/, /g')"
+  if [ -n "$reviewers" ]; then
+    _jig_list_words_v reviewers "$reviewers"
+    printf '%s: review requested from %s\n' "$who" "$reviewers"
+  fi
 }
 
 # --- merging a shipped pull request ----------------------------------------------
@@ -4089,7 +4097,7 @@ jig_pr_approval_v() {
     case "$__jpav_kind" in
       github)
         if __jpav_out=$(jig_net jig_gh pr view "$__jpav_url" --json reviewDecision,latestReviews,reviewRequests \
-          --jq '"\(.reviewDecision // "")|\([.latestReviews[]?.state] | join(","))|\([.reviewRequests[]? | (if .login then .login elif .slug then .slug else .name end) | select(. != null)] | join(","))"' 2>/dev/null); then
+          --jq '"\(.reviewDecision | if . == null then "" else . end)|\([.latestReviews[]?.state] | join(","))|\([.reviewRequests[]? | (if .login then .login elif .slug then .slug else .name end) | select(. != null)] | join(","))"' 2>/dev/null); then
           __jpav_out=${__jpav_out%%$'\n'*}
           __jpav_out=${__jpav_out%$'\r'}
           __jpav_dec=${__jpav_out%%|*}
@@ -5107,6 +5115,12 @@ jig_glob_pattern_v() {
     */) __jgp_out="$__jgp_out*" ;;
   esac
   printf -v "$1" '%s' "$__jgp_out"
+}
+
+# _jig_list_words_v <var> <csv> — a comma list as a person reads it ("a, b"):
+# the one place that decides how reviewers are named in a message.
+_jig_list_words_v() {
+  _jig_replace_all_v "$1" "$2" "," ", "
 }
 
 # _jig_replace_all_v <var> <text> <find> <with> — every <find> in <text>, left

@@ -187,6 +187,22 @@ Telegram message as an autopilot stop. The person connects it in their own setti
 offers the lines (ADR-0024, adr-20261010-a-waiting-session-reaches-telegram). Codex has no
 equivalent.
 
+## Gate Hook
+
+A project's own script named in `.ai/config.yaml` under `hooks.ready`, `hooks.consolidate` or
+`hooks.ship`, run by the completion gate of that name after Jig's own checks. Its exit code decides:
+`0` passes (output shown as a warning), anything else refuses the gate. A project key only; a hook
+checks and never writes (adr-20261113-a-project-script-can-refuse-a-completion-gate). Not a Session
+Hook or Notify Hook, which a Runtime runs.
+
+## Hook Waiver
+
+A person's record, with a reason, that sets aside one Gate Hook's refusal at one gate for one task:
+`jig task waive <id> <gate> <path> --reason <text>`, kept in the task's `waivers` file. The waived
+hook still runs and its refusal becomes a warning; the check that it wrote nothing is never waived.
+Shown by `jig status` and in the commit and pull request; autopilot never waives
+(adr-20261114-a-person-waives-a-gate-hooks-refusal-for-one-task).
+
 ## Domain Pack
 
 The three documents a domain may keep under `.ai/knowledge/domains/<domain>/`:
@@ -282,9 +298,10 @@ stub's place, and `source_hash` records the text a human approved (ADR-0036). In
 
 ## Load Policy
 
-A knowledge document's `load` field — `always`, `domain` or `matched` — stating how
+A knowledge document's `load` field — `always`, `domain`, `matched` or `stage` — stating how
 strongly it applies. Decides whether `jig context resolve` requires its body or lists it
-in the Catalog.
+in the Catalog. `stage` requires it only at the stages its `stages` names, in every task, and
+never lists it in the Catalog.
 
 ## Catalog (Context Catalog)
 

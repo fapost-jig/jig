@@ -344,7 +344,7 @@ _prdo_request_review_body() {
   jig_reviewers_self self \
     || jig_fail forge-unavailable "$who: the forge could not say which account asks for the review: $_RV_WHY"
   for arg in "${names[@]}"; do
-    jig_reviewers_resolve "$who" login "$arg"
+    jig_reviewers_resolve "$who" login "$arg" "$self"
     if [ "$login" = "$self" ]; then
       jig_info "$who: --reviewer $arg: $login opens the pull request, and its author is not asked to review it"
       left_out=1
@@ -539,7 +539,8 @@ _prdo_merge_checks() {
     changes) jig_fail not-approved "$who: $url is not approved: changes requested" ;;
     waiting)
       if [ -n "$apending" ]; then
-        why="waiting for $(printf '%s' "$apending" | sed 's/,/, /g')"
+        _jig_list_words_v why "$apending"
+        why="waiting for $why"
       else
         why="waiting for more approvals"
       fi

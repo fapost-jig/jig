@@ -161,16 +161,17 @@ jig_reviewers_candidates() {
   jig_reviewers_self _RV_SELF || return 1
   jig_reviewers_assignable assignable || return 1
   jig_reviewers_history history "$base" || return 1
-  _RV_LINES=$(RV_ASSIGNABLE="$assignable" RV_HISTORY="$history" awk -v self="$_RV_SELF" '
-    BEGIN {
-      FS = "\t"
-      na = split(ENVIRON["RV_ASSIGNABLE"], a, "\n")
-      for (i = 1; i <= na; i++) {
-        if (a[i] == "") continue
-        split(a[i], f, "\t")
-        if (f[1] == self) continue
-        name[f[1]] = f[2]; order[++n] = f[1]
-      }
+  # The assignable list, which grows with the repository, goes in on stdin: one
+  # environment string is capped (128 KiB on Linux, 32767 characters on
+  # Windows), and an awk that cannot start answers with nothing. The history is
+  # at most REVIEWERS_HISTORY pull requests of reviewers, so it stays in the
+  # environment, as shell.md has free text go.
+  _RV_LINES=$(printf '%s\n' "$assignable" | RV_HISTORY="$history" awk -v self="$_RV_SELF" '
+    BEGIN { FS = "\t" }
+    $0 == "" { next }
+    $1 == self { next }
+    { name[$1] = $2; order[++n] = $1 }
+    END {
       nh = split(ENVIRON["RV_HISTORY"], h, "\n")
       for (i = 1; i <= nh; i++) {
         if (h[i] == "") continue
@@ -180,21 +181,23 @@ jig_reviewers_candidates() {
       }
       if (found) exit
       for (i = 1; i <= n; i++) printf "%s\t%s\t\n", order[i], name[order[i]]
-    }')
+    }') || { _RV_WHY="awk could not read the list of people the repository may ask"; return 1; }
   case "$_RV_LINES" in
     *"	"*[0-9]) _RV_SOURCE=history ;;
     *) _RV_SOURCE=assignable ;;
   esac
 }
 
-# jig_reviewers_resolve <who> <out-var> <value> — the login <value> names: a
-# login itself (`@` allowed in front), or a part of a login or a person's name
-# that fits exactly one person the repository may ask (any case, as far as the
-# local awk folds it). Dies naming the matches when several fit, and when none
-# does or <value> names a team (code `reviewer-unknown`; `forge-unavailable`
-# when the forge could not be asked).
+# jig_reviewers_resolve <who> <out-var> <value> [<self>] — the login <value>
+# names: a login itself (`@` allowed in front), or a part of a login or a
+# person's name that fits exactly one person the repository may ask (any case,
+# as far as the local awk folds it). <self>, the account that opens the pull
+# request, answers to its exact login only: a part of its name is not a
+# second person to choose from, since it is never asked. Dies naming the
+# matches when several fit, and when none does or <value> names a team (code
+# `reviewer-unknown`; `forge-unavailable` when the forge could not be asked).
 jig_reviewers_resolve() {
-  local __rr_who="$1" __rr_q="${3#@}" __rr_all __rr_hits __rr_login __rr_n
+  local __rr_who="$1" __rr_q="${3#@}" __rr_self="${4:-}" __rr_all __rr_hits __rr_login __rr_n
   case "$__rr_q" in
     '') jig_fail reviewer-unknown "$__rr_who: --reviewer needs a login or a name" ;;
     */*) jig_fail reviewer-unknown "$__rr_who: --reviewer $__rr_q: a team is not asked for a review, only people: name each of them" ;;
@@ -202,20 +205,19 @@ jig_reviewers_resolve() {
   jig_reviewers_assignable __rr_all \
     || jig_fail forge-unavailable "$__rr_who: --reviewer $__rr_q: the forge could not be asked who it may be: $_RV_WHY"
   # An exact login first (`=` lines), else every login or name holding it
-  # (`~` lines); awk reads to the end and takes the value from the environment.
-  __rr_hits=$(RV_Q="$__rr_q" RV_ALL="$__rr_all" awk '
-    BEGIN {
-      FS = "\t"; q = tolower(ENVIRON["RV_Q"])
-      n = split(ENVIRON["RV_ALL"], a, "\n")
-      for (i = 1; i <= n; i++) {
-        if (a[i] == "") continue
-        split(a[i], f, "\t")
-        if (tolower(f[1]) == q) exact = f[1]
-        else if (index(tolower(f[1]), q) || index(tolower(f[2]), q)) some = some "~" f[1] "\t" f[2] "\n"
-      }
+  # (`~` lines). The list goes in on stdin (see jig_reviewers_candidates for
+  # why); the value and the author's login stay in the environment.
+  __rr_hits=$(printf '%s\n' "$__rr_all" | RV_Q="$__rr_q" RV_SELF="$__rr_self" awk '
+    BEGIN { FS = "\t"; q = tolower(ENVIRON["RV_Q"]); self = ENVIRON["RV_SELF"] }
+    $0 == "" { next }
+    {
+      if (tolower($1) == q) exact = $1
+      else if ($1 != self && (index(tolower($1), q) || index(tolower($2), q))) some = some "~" $1 "\t" $2 "\n"
+    }
+    END {
       if (exact != "") print "=" exact
       else printf "%s", some
-    }')
+    }') || jig_fail forge-unavailable "$__rr_who: --reviewer $__rr_q: awk could not read the list of people the repository may ask"
   case "$__rr_hits" in
     =*) __rr_login=${__rr_hits#=} ;;
     '') jig_fail reviewer-unknown "$__rr_who: --reviewer $__rr_q: nobody this repository may ask for a review matches it; give the login" ;;
