@@ -7122,6 +7122,8 @@ _task_actions() {
 # state from the snapshot it inherits.
 _task_actions_v() {
   local __ta_out="" id="$2" pr_state="$3" pr_ci="${4:-}" pr_mergeable="${5:-}" pr_url_state="${6-$3}" base_state="${7-$3}" status action command reason by="" mode spec gate parked ahead
+  # The ship gates are asked by two rows of this table; read once (_task_ship_refusal_v).
+  _TASK_SHIP_MEMO_ON=1 _TASK_SHIP_MEMO_KEY=""
   task_state_var status "$id" status
   for action in $_TASK_ACTIONS; do
     reason=""
@@ -7214,7 +7216,11 @@ _task_actions_v() {
         else
           # In the command's order: the level, the gates, the branch.
           _task_actions_ask_v reason "$id" "$action" _task_ship_level_refusal "$id"
-          [ -n "$reason" ] || _task_actions_guard_v reason "$id" "$action" _task_ship_refusal "$id" 0
+          # The gates are read in this shell and once per task: the `land` row
+          # asks the same ones (_task_ship_refusal_v).
+          if [ -z "$reason" ]; then
+            _task_ship_refusal_v reason "$id" 0 || reason="jig could not check whether $id may $action now"
+          fi
           [ -n "$reason" ] || _task_actions_ask_v reason "$id" "$action" _task_ship_branch_refusal "$id"
         fi ;;
       *:land) _task_actions_ask_v reason "$id" "$action" _task_land_refusal "$id" "$pr_state" human ;;
@@ -7241,6 +7247,7 @@ _task_actions_v() {
       __ta_out="$__ta_out$action"$'\t'"true"$'\t'"$command"$'\t'$'\n'
     fi
   done
+  _TASK_SHIP_MEMO_ON="" _TASK_SHIP_MEMO_KEY=""
   printf -v "$1" '%s' "$__ta_out"
 }
 
@@ -8173,32 +8180,81 @@ EOF
 # shows where it stopped — usually with the blocking finding still open — so
 # the three completion gates are not asked for one.
 _task_ship_refusal() {
-  local id="$1" draft="$2" blocking msg
+  local out rc=0
+  _task_ship_refusal_v out "$@" || rc=$?
+  [ "$rc" -eq 0 ] || return "$rc"
+  [ -z "$out" ] || printf '%s\n' "$out"
+  return 0
+}
+
+# _task_ship_refusal_v <var> <id> <draft> — _task_ship_refusal's answer into
+# <var> (without the trailing newline), in the caller's shell, with its exit
+# status. A `$(...)` is started only for a gate that reads a file — the
+# findings ledger, the receipt, the route's records — so a task that has none
+# of them costs a listing no process. Inside one actions table
+# (_task_actions_v) the answer is read once per task and the `ship` and `land`
+# rows share it (_TASK_SHIP_MEMO_*): they ask the same gates.
+_TASK_SHIP_MEMO_ON=""
+_TASK_SHIP_MEMO_KEY=""
+_TASK_SHIP_MEMO_OUT=""
+_TASK_SHIP_MEMO_RC=0
+_task_ship_refusal_v() {
+  local __tsr_var="$1" __tsr_rc=0 __tsr_out=""
+  if [ -n "$_TASK_SHIP_MEMO_ON" ] && [ "$_TASK_SHIP_MEMO_KEY" = "$2:$3" ]; then
+    printf -v "$__tsr_var" '%s' "$_TASK_SHIP_MEMO_OUT"
+    return "$_TASK_SHIP_MEMO_RC"
+  fi
+  _task_ship_gates_v __tsr_out "$2" "$3" || __tsr_rc=$?
+  if [ -n "$_TASK_SHIP_MEMO_ON" ]; then
+    _TASK_SHIP_MEMO_KEY="$2:$3"
+    _TASK_SHIP_MEMO_OUT=$__tsr_out
+    _TASK_SHIP_MEMO_RC=$__tsr_rc
+  fi
+  printf -v "$__tsr_var" '%s' "$__tsr_out"
+  return "$__tsr_rc"
+}
+
+# _task_ship_gates_v <var> <id> <draft> — the gates themselves, _task_ship_refusal_v's.
+_task_ship_gates_v() {
+  local __tsg_var="$1" id="$2" draft="$3" kc blocking="" msg="" dir class route
+  printf -v "$__tsg_var" '%s' ""
   if [ "$draft" -eq 0 ]; then
-    if [ "$(task_state_get "$id" knowledge_consolidated)" != "true" ]; then
-      printf 'task ship: requires knowledge_consolidated true; record the knowledge decision first: jig task set %s knowledge_consolidated true\n' "$id"
+    task_state_var kc "$id" knowledge_consolidated
+    if [ "$kc" != "true" ]; then
+      printf -v "$__tsg_var" 'task ship: requires knowledge_consolidated true; record the knowledge decision first: jig task set %s knowledge_consolidated true' "$id"
       return 0
     fi
+    task_dir_v dir "$id"
     # Checked again, independently of knowledge_consolidated above (design §4):
     # a fix landed after consolidation can plant a new finding, and ADR-0030's
     # order check alone would not see it.
-    blocking=$(_task_blocking_findings "$id") || return 1
-    if [ -n "$blocking" ]; then
-      printf 'task ship: %s\n' "$(_task_gate_blocking_message "$id" "$blocking")"
-      return 0
+    if [ -f "$dir/findings" ]; then
+      blocking=$(_task_blocking_findings "$id") || return 1
+      if [ -n "$blocking" ]; then
+        msg=$(_task_gate_blocking_message "$id" "$blocking") || return 1
+        printf -v "$__tsg_var" 'task ship: %s' "$msg"
+        return 0
+      fi
     fi
     # Same independent recheck as the findings ledger above, for the same
     # reason: a receipt gone stale after knowledge_consolidated was set true —
     # a later code edit, or a re-review nobody ran — must still refuse here.
-    msg=$(_task_receipt_gate_message "$id") || return 1
-    if [ -n "$msg" ]; then
-      printf 'task ship: %s\n' "$msg"
-      return 0
+    # Without a receipt only a T4 task is refused, and that is its class.
+    task_state_var class "$id" class
+    if [ -f "$dir/receipt" ] || [ "$class" = T4 ]; then
+      msg=$(_task_receipt_gate_message "$id") || return 1
+      if [ -n "$msg" ]; then
+        printf -v "$__tsg_var" 'task ship: %s' "$msg"
+        return 0
+      fi
     fi
     # And the route, for the same reason: the gate's approval goes stale the
     # moment the design changes after it, whenever that happens.
-    msg=$(_task_route_evidence_refusal "$id" consolidate "task ship") || return 1
-    [ -z "$msg" ] || printf '%s\n' "$msg"
+    task_state_var route "$id" route_evidence
+    if [ "$route" = required ]; then
+      msg=$(_task_route_evidence_refusal "$id" consolidate "task ship") || return 1
+      printf -v "$__tsg_var" '%s' "$msg"
+    fi
   fi
   return 0
 }
@@ -8946,7 +9002,7 @@ _task_land_refusal() {
       return 0
     fi
   fi
-  refusal=$(_task_ship_refusal "$id" 0) || return 1
+  _task_ship_refusal_v refusal "$id" 0 || return 1
   [ -z "$refusal" ] || printf 'task land: %s\n' "${refusal#task ship: }"
   return 0
 }

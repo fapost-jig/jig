@@ -2816,7 +2816,7 @@ _status_attention_phase_stops() {
 # _status_json [--json] — the producer json_run runs for `jig status --json`.
 _status_json() {
   local arg attn rec kind stype sid tasks title detail todo url extra objs="" o t tl hk stale root vers
-  local xb xbase xst xat xto xk xl extra0 xt=$'\t' xurl xci xmg xa xo xc xr xmove xrows xrv xwf xrj xparked xparkedrv
+  local xb xbase xst xat xto xk xl extra0 xt=$'\t' xurl xci xmg xa xo xc xr xmove xrows xrv xwf xrj pr_sids=""
   for arg in "$@"; do
     [ "$arg" = --json ] || jig_fail usage "status --json: unknown argument: $arg (usage: jig status --json)"
   done
@@ -2849,6 +2849,29 @@ _status_json() {
   _status_live_collect page
   _status_hk_load
   attn=$(_status_attention)
+  # The action rows of the pull-request items ask git about each task's
+  # staging state (the `close` row above all). Read once for the items'
+  # tasks, as a listing does, so an item starts no process of its own for it
+  # (_task_list_staging_read).
+  # shellcheck source=lib/forgecache.sh
+  . "$JIG_LIB/forgecache.sh"
+  while IFS= read -r rec; do
+    [ -n "$rec" ] || continue
+    IFS="$_STATUS_US" read -r kind stype sid tasks title detail todo url extra <<REC
+$rec
+REC
+    case "$kind" in
+      pull-request-waiting | pull-request-was-open)
+        ! jig_valid_id "$sid" || pr_sids="$pr_sids$sid
+" ;;
+    esac
+  done <<ATTN
+$attn
+ATTN
+  if [ -n "$pr_sids" ]; then
+    _TASK_LIST_FORGE_CACHE=$(forgecache_read)
+    _task_list_staging_read "$pr_sids"
+  fi
   while IFS= read -r rec; do
     [ -n "$rec" ] || continue
     IFS="$_STATUS_US" read -r kind stype sid tasks title detail todo url extra <<REC
@@ -2921,17 +2944,7 @@ X
         json_str_or_null "$xmg"; o="$o,\"mergeable\":$_JSON"
         _task_review_json_v xrj "$xrv" "$xwf"
         o="$o,\"review\":$xrj}"
-        # The resume row asks whether the task is parked, which the records
-        # were drawn from in another shell: read it for this task alone, and
-        # leave what this shell holds as it was.
-        if [ "$xmove" = resume ]; then
-          xparked=$_TASK_PARKED xparkedrv=$_TASK_PARKED_REVIEW
-          _task_parked_read "$sid"
-          _task_actions_v xrows "$sid" "$xst" "$xci" "$xmg"
-          _TASK_PARKED=$xparked _TASK_PARKED_REVIEW=$xparkedrv
-        else
-          _task_actions_v xrows "$sid" "$xst" "$xci" "$xmg"
-        fi
+        _task_actions_v xrows "$sid" "$xst" "$xci" "$xmg"
         xl=""
         while IFS="$xt" read -r xa xo xc xr; do
           case "$xa" in "$xmove" | pr-status) ;; *) continue ;; esac
