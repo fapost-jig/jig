@@ -276,7 +276,9 @@ spec_count() {
 
 # spec_title <spec.md> — the text of the first level-one heading, or empty.
 spec_title() {
-  sed -n 's/^#[[:space:]]\{1,\}//p' "$1" | head -n 1
+  local t
+  jig_spec_title_v t "$1"
+  [ -z "$t" ] || printf '%s\n' "$t"
 }
 
 # spec_progress <roadmap.md> — "roadmap D/T done, F filed, fog G": the sum of

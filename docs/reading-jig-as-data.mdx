@@ -173,6 +173,7 @@ Each task carries what Jig knows about it:
   "updated_at": "2026-10-15",
   "branch": "task/booking-message",
   "base_branch": "main",
+  "spec": {"id": "booking-flow", "title": "Booking flow", "phase": 2, "epic": "epic/booking-flow"},
   "worktree": {"path": "/home/me/shop.worktrees/booking-message", "uncommitted": 2},
   "gate": null,
   "autopilot": null,
@@ -194,6 +195,12 @@ Each task carries what Jig knows about it:
   ]
 }
 ```
+
+`spec` names the spec a task was filed from, read from the `Spec:` line of its `task.md`: its `id`, its
+`title`, the `phase` of the roadmap it belongs to (`null` when the line names none) and the `epic` branch
+its roadmap declares (`null` when it declares none, which is also the answer for a task whose pull request
+goes into `main`). It is `null` for a task that was not filed from a spec. Jig reads it from the files, so
+it asks no forge and costs nothing per task.
 
 A fact Jig does not have is `null`: `branch` is `null` for a task not started yet, `goal` for a task
 whose `## Goal` holds nothing but an HTML comment such as the template's `<!-- … -->` hint, `gate`

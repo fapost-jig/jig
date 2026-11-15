@@ -402,7 +402,7 @@ test_task_new_json_answers_with_the_filed_task() {
   assert_eq "" "$ERR"
   _tl_cut_actions
   # The filed task is the object `task list --json` lists for it.
-  assert_eq "{\"schema\":1,\"revision\":\"R\",\"generated_at\":\"T\",\"data\":{\"task\":{\"id\":\"T-1\",\"class\":\"T1\",\"status\":\"active\",\"issue\":null,\"goal\":\"File \\\"it\\\" from the page\",\"knowledge_consolidated\":false,\"paused\":false,\"pause_request\":null,\"created_at\":\"$today\",\"updated_at\":\"$today\",\"archived_at\":null,\"archived_reason\":null,\"archived_from\":null,\"absorbed_into\":null,\"absorbs\":[],\"absorbs_partly\":[],\"partly_in\":[],\"branch\":null,\"base_branch\":\"main\",\"worktree\":null,\"gate\":null,\"autopilot\":null,\"pull_request\":null,\"shipping\":null,\"housekeeping_flags\":[]}}}" "$OUT"
+  assert_eq "{\"schema\":1,\"revision\":\"R\",\"generated_at\":\"T\",\"data\":{\"task\":{\"id\":\"T-1\",\"class\":\"T1\",\"status\":\"active\",\"issue\":null,\"goal\":\"File \\\"it\\\" from the page\",\"knowledge_consolidated\":false,\"paused\":false,\"pause_request\":null,\"created_at\":\"$today\",\"updated_at\":\"$today\",\"archived_at\":null,\"archived_reason\":null,\"archived_from\":null,\"absorbed_into\":null,\"absorbs\":[],\"absorbs_partly\":[],\"partly_in\":[],\"branch\":null,\"base_branch\":\"main\",\"spec\":null,\"worktree\":null,\"gate\":null,\"autopilot\":null,\"pull_request\":null,\"shipping\":null,\"housekeeping_flags\":[]}}}" "$OUT"
   local actions=$ACTIONS
   _tl_json
   _tl_cut_actions
@@ -12390,7 +12390,7 @@ test_task_list_json_pins_a_task_with_every_fact() {
   assert_eq 0 "$RC" "$ERR"
   _tl_cut_actions
   assert_eq '[{"id":"start","command":"jig task start SRD-9-full","offered":true,"reason":null},{"id":"pause","command":"jig task pause SRD-9-full","offered":false,"reason":"task pause: already paused: SRD-9-full"},{"id":"resume","command":"jig task resume SRD-9-full","offered":true,"reason":null},{"id":"request-pause","command":"jig queue request task:SRD-9-full pause","offered":false,"reason":"queue request: task SRD-9-full is already paused"},{"id":"cancel-pause-request","command":"jig queue cancel task:SRD-9-full pause","offered":false,"reason":"queue cancel: no pause of task:SRD-9-full is requested"},{"id":"approve-gate","command":"jig task gate SRD-9-full approved","offered":false,"reason":"task gate: SRD-9-full is stopped; if a human answered, run: jig task autopilot SRD-9-full resume --answer <text> --by human; then approve with --by agent; or, if a person takes the task on: jig task autopilot SRD-9-full handover --by human --answer <text>"},{"id":"answer-stop","command":"jig task autopilot SRD-9-full answer --answer <text> --by human","offered":true,"reason":null},{"id":"handover","command":"jig task autopilot SRD-9-full handover --by human --answer <text>","offered":true,"reason":null},{"id":"set-class","command":"jig task set SRD-9-full class <Tn>","offered":true,"reason":null},{"id":"ship","command":"jig task ship SRD-9-full --message-file <file>","offered":false,"reason":"task ship: agent.git is none in this clone; the human commits"},{"id":"land","command":"jig task land SRD-9-full --by human","offered":false,"reason":"task land: SRD-9-full is not on the staging flow; a task in this project lands with jig task ship"},{"id":"request-review","command":"jig task request-review SRD-9-full --reviewer <login> --by human","offered":true,"reason":null},{"id":"merge","command":"jig task merge-pr SRD-9-full --by human","offered":false,"reason":"task merge-pr: the forge cache says the checks of SRD-9-full'"'"'s pull request are red; the table withholds the merge until they are green (the command itself looks at the forge now)"},{"id":"promote","command":"jig task promote SRD-9-full --by human","offered":false,"reason":"task promote: SRD-9-full is not on the staging flow; a task in this project reaches main with jig task ship"},{"id":"pr-status","command":"jig task pr-status SRD-9-full --json","offered":true,"reason":null},{"id":"close","command":"jig task set SRD-9-full status consolidated","offered":false,"reason":"task set: status consolidated requires knowledge_consolidated true; record the knowledge decision first: jig task set SRD-9-full knowledge_consolidated true"},{"id":"abandon","command":"jig task abandon SRD-9-full","offered":true,"reason":null},{"id":"archive","command":"jig task archive SRD-9-full","offered":true,"reason":null},{"id":"unarchive","command":"jig task unarchive SRD-9-full","offered":false,"reason":"task unarchive: task SRD-9-full is not archived"},{"id":"reopen","command":"jig task set SRD-9-full status active","offered":false,"reason":"task SRD-9-full is active, not abandoned"},{"id":"drop-item","command":"jig spec drop SRD-9-full --json","offered":false,"reason":"spec drop: SRD-9-full is active; abandon it first: jig task abandon SRD-9-full --reason <text>"}]' "$ACTIONS"
-  assert_eq "{\"schema\":1,\"revision\":\"R\",\"generated_at\":\"T\",\"data\":{\"tasks\":[{\"id\":\"SRD-9-full\",\"class\":\"T3\",\"status\":\"active\",\"issue\":\"SRD-9\",\"goal\":\"Ship the list as \\\"data\\\".\",\"knowledge_consolidated\":false,\"paused\":true,\"pause_request\":null,\"created_at\":\"2026-10-01\",\"updated_at\":\"$upd\",\"archived_at\":null,\"archived_reason\":null,\"archived_from\":null,\"absorbed_into\":null,\"absorbs\":[],\"absorbs_partly\":[],\"partly_in\":[],\"branch\":\"task/SRD-9-full\",\"base_branch\":\"main\",\"worktree\":{\"path\":\"$wt\",\"uncommitted\":1},\"gate\":{\"state\":\"approved\",\"by\":\"human\"},\"autopilot\":{\"state\":\"stopped\",\"mode\":\"unattended\",\"repairs\":1,\"stage\":\"implement\",\"stage_at\":\"2026-10-02T10:00:00Z\",\"stop_reason\":\"Which \\\"name\\\"?\",\"stop_at\":\"2026-10-02T11:00:00Z\",\"phase\":\"spec-x/1\",\"handover_at\":null,\"answered_at\":null},\"pull_request\":{\"url\":\"https://github.com/example/example/pull/7\",\"state\":\"open\",\"ci\":\"red\",\"fetched_at\":\"2026-10-02T12:00:00Z\",\"base\":\"main\",\"mergeable\":null,\"review\":null},\"shipping\":null,\"housekeeping_flags\":[\"wrong-base\",\"STALE_CANDIDATE\"]}],\"hidden\":0,\"archived\":0,\"housekeeping\":{\"ran_at\":\"2026-10-02T12:00:00Z\",\"forge\":\"github\"}}}" "$OUT"
+  assert_eq "{\"schema\":1,\"revision\":\"R\",\"generated_at\":\"T\",\"data\":{\"tasks\":[{\"id\":\"SRD-9-full\",\"class\":\"T3\",\"status\":\"active\",\"issue\":\"SRD-9\",\"goal\":\"Ship the list as \\\"data\\\".\",\"knowledge_consolidated\":false,\"paused\":true,\"pause_request\":null,\"created_at\":\"2026-10-01\",\"updated_at\":\"$upd\",\"archived_at\":null,\"archived_reason\":null,\"archived_from\":null,\"absorbed_into\":null,\"absorbs\":[],\"absorbs_partly\":[],\"partly_in\":[],\"branch\":\"task/SRD-9-full\",\"base_branch\":\"main\",\"spec\":null,\"worktree\":{\"path\":\"$wt\",\"uncommitted\":1},\"gate\":{\"state\":\"approved\",\"by\":\"human\"},\"autopilot\":{\"state\":\"stopped\",\"mode\":\"unattended\",\"repairs\":1,\"stage\":\"implement\",\"stage_at\":\"2026-10-02T10:00:00Z\",\"stop_reason\":\"Which \\\"name\\\"?\",\"stop_at\":\"2026-10-02T11:00:00Z\",\"phase\":\"spec-x/1\",\"handover_at\":null,\"answered_at\":null},\"pull_request\":{\"url\":\"https://github.com/example/example/pull/7\",\"state\":\"open\",\"ci\":\"red\",\"fetched_at\":\"2026-10-02T12:00:00Z\",\"base\":\"main\",\"mergeable\":null,\"review\":null},\"shipping\":null,\"housekeeping_flags\":[\"wrong-base\",\"STALE_CANDIDATE\"]}],\"hidden\":0,\"archived\":0,\"housekeeping\":{\"ran_at\":\"2026-10-02T12:00:00Z\",\"forge\":\"github\"}}}" "$OUT"
 }
 
 test_task_list_json_says_null_for_every_fact_a_task_does_not_have() {
@@ -12400,7 +12400,7 @@ test_task_list_json_says_null_for_every_fact_a_task_does_not_have() {
   assert_eq 0 "$RC" "$ERR"
   _tl_cut_actions
   assert_eq 21 "$(printf '%s\n' "$ACTIONS" | grep -o '{"id":' | wc -l | tr -d ' ')"
-  assert_eq '{"schema":1,"revision":"R","generated_at":"T","data":{"tasks":[{"id":"bare","class":null,"status":"active","issue":null,"goal":null,"knowledge_consolidated":false,"paused":false,"pause_request":null,"created_at":"2026-10-01","updated_at":"2026-10-01","archived_at":null,"archived_reason":null,"archived_from":null,"absorbed_into":null,"absorbs":[],"absorbs_partly":[],"partly_in":[],"branch":null,"base_branch":"main","worktree":null,"gate":null,"autopilot":null,"pull_request":null,"shipping":null,"housekeeping_flags":[]}],"hidden":0,"archived":0,"housekeeping":null}}' "$OUT"
+  assert_eq '{"schema":1,"revision":"R","generated_at":"T","data":{"tasks":[{"id":"bare","class":null,"status":"active","issue":null,"goal":null,"knowledge_consolidated":false,"paused":false,"pause_request":null,"created_at":"2026-10-01","updated_at":"2026-10-01","archived_at":null,"archived_reason":null,"archived_from":null,"absorbed_into":null,"absorbs":[],"absorbs_partly":[],"partly_in":[],"branch":null,"base_branch":"main","spec":null,"worktree":null,"gate":null,"autopilot":null,"pull_request":null,"shipping":null,"housekeeping_flags":[]}],"hidden":0,"archived":0,"housekeeping":null}}' "$OUT"
 }
 
 # _tl_staging_of <id> — the `staging` value OUT gives the task <id>: on,
@@ -12425,7 +12425,7 @@ test_task_list_json_says_whether_a_task_is_on_staging() {
   assert_eq null "$(_tl_staging_of fresh)"
   assert_eq null "$(_tl_staging_of unstarted)"
   # Right after the base, as schemas/json.md places it.
-  assert_contains "$OUT" '"branch":"task/on","base_branch":"main","staging":"on","parked":null,"worktree":null'
+  assert_contains "$OUT" '"branch":"task/on","base_branch":"main","staging":"on","parked":null,"spec":null,"worktree":null'
   # The fix pushed and merged into staging: on staging again.
   git checkout -q -b staging origin/staging
   git merge -q --no-ff -m "ship the fix" task/behind
@@ -12531,7 +12531,7 @@ test_task_list_says_which_tasks_are_parked_at_staging() {
   assert_eq null "$(_tl_parked_of never)"
   assert_eq null "$(_tl_parked_of fresh)"
   assert_eq null "$(_tl_parked_of unstarted)"
-  assert_contains "$OUT" '"staging":"on","parked":{"reason":"signal","hint":null,"review":null},"worktree":null'
+  assert_contains "$OUT" '"staging":"on","parked":{"reason":"signal","hint":null,"review":null},"spec":null,"worktree":null'
 
   # A fix with a pull request into staging open waits for review. Nobody has
   # said it is approved (the cache's review column is `-`): not a landing yet.
@@ -14568,6 +14568,56 @@ test_task_list_json_starts_a_fixed_number_of_processes_per_task() {
   # None per task: the listing forks for none of these tasks, so a process
   # per task is a regression (one allowed for a once-per-run record).
   [ "$few" -le 1 ] || fail "4 more tasks started $few more processes (2 tasks: $two, 6: $six)"
+}
+
+# A task filed from a spec names it in the listing: the id, the spec's title,
+# the link's phase and the epic its roadmap declares; a task without a link, or
+# with two, has null.
+test_task_list_json_names_the_spec_of_a_task() {
+  task_setup
+  mkdir -p .ai/specs/alpha .ai/specs/beta .ai/specs/gamma
+  printf '# Alpha thing\n\ntext\n' > .ai/specs/alpha/spec.md
+  printf 'Epic: epic/alpha\n\n## Phase 1 — x\n- [ ] `a-1` — one\n' > .ai/specs/alpha/roadmap.md
+  printf '# Beta "quoted"\n' > .ai/specs/beta/spec.md
+  printf '## Phase 1 — x\n- [ ] `b-1` — one\n' > .ai/specs/beta/roadmap.md
+  fixture_task a-1 "" active "class:T1"
+  fixture_task b-1 "" active "class:T1"
+  fixture_task c-1 "" active "class:T1"
+  fixture_task d-1 "" active "class:T1"
+  fixture_task e-1 "" active "class:T1"
+  fixture_task f-1 "" active "class:T1"
+  printf '# a-1\n\nSpec: .ai/specs/alpha/ — Phase 2\n' > .ai/workspace/tasks/a-1/task.md
+  printf '# b-1\n\nSpec: .ai/specs/beta/\n' > .ai/workspace/tasks/b-1/task.md
+  printf '# c-1\n\nSpec: .ai/specs/gamma/ - Phase 1\n' > .ai/workspace/tasks/c-1/task.md
+  printf '# d-1\n\nNo link.\n' > .ai/workspace/tasks/d-1/task.md
+  printf '# e-1\n\nSpec: .ai/specs/alpha/\nSpec: .ai/specs/beta/\n' > .ai/workspace/tasks/e-1/task.md
+  run_split jig task list --all --json
+  assert_eq 0 "$RC" "$ERR"
+  assert_contains "$OUT" '"id":"a-1"'
+  assert_contains "$OUT" '"spec":{"id":"alpha","title":"Alpha thing","phase":2,"epic":"epic/alpha"}'
+  assert_contains "$OUT" '"spec":{"id":"beta","title":"Beta \"quoted\"","phase":null,"epic":null}'
+  assert_contains "$OUT" '"spec":{"id":"gamma","title":null,"phase":1,"epic":null}'
+  # d-1 (no link), e-1 (two specs) and f-1 (no task.md line): null.
+  assert_eq 3 "$(printf '%s' "$OUT" | grep -o '"spec":null' | wc -l | tr -d ' ')"
+}
+
+# The spec of a task costs the listing no process: four tasks that name specs
+# start as many as four that name none.
+test_task_list_json_names_the_spec_without_a_process_per_task() {
+  task_setup
+  local plain linked i
+  mkdir -p .ai/specs/alpha
+  printf '# Alpha\n' > .ai/specs/alpha/spec.md
+  printf 'Epic: epic/alpha\n' > .ai/specs/alpha/roadmap.md
+  _tl_live_tasks base 2
+  _tl_forks task list --all --json >/dev/null || fail "task list --json failed under the probe"
+  _tl_live_tasks plain 4
+  linked=$(_tl_forks task list --all --json) || fail "task list --json failed under the probe"
+  for i in 1 2 3 4; do
+    printf '# l-%s\n\nSpec: .ai/specs/alpha/ — Phase %s\n' "$i" "$i" > ".ai/workspace/tasks/plain-$i/task.md"
+  done
+  plain=$(_tl_forks task list --all --json) || fail "task list --json failed under the probe"
+  _tl_same_cost "$linked" "$plain"
 }
 
 # A task's staging state is one answer for the whole listing
