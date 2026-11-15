@@ -245,6 +245,9 @@ cannot be observed keeps its workspace, closed and unflagged, because housekeepi
 destroys on `unknown` — unless it was never started (no branch, nothing at its branch name), which
 goes to trash too; a triage task waits there until its source task's workspace is gone. A problem found after the close is a new task.
 
+Where the task ran in a session of its own (`jig-autopilot` §7, "A session per task"), archiving that
+session once the task is `consolidated` is the set coordinator's, when the person asked for it; it is the runtime's, not a task state.
+
 ## 7. Report
 
 Ask the repository what changed, rather than reporting from memory:
