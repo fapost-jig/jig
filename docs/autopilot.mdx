@@ -449,6 +449,12 @@ answered runs under `resume first:`, most urgent first, then the one that stoppe
 task is never pushed out to make room. A task that depends on a waiting one in the queue waits too
 (`its autopilot run is stopped, waiting for an answer or a free slot`).
 
+In Claude Code desktop, when you ask for it, the coordinator of a set may run each task in a session of
+its own, in its own worktree: the sidebar shows which ones wait, and the last message of a stopped
+session is its question. Answer in that session. The session runs the filed Jig task as usual; once
+the task is consolidated the coordinator archives the session if you asked it to. Other runtimes are
+unchanged, and a phase run keeps using subagents.
+
 A [whole phase](#running-a-whole-phase) asks the queue the same way before starting each of its
 tasks.
 

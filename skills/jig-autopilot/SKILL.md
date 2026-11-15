@@ -57,7 +57,8 @@ entered. End the session there — say the task is paused at their request and h
   `start_session`). A run goes on in turns an event began — a helper finishing, CI — and a
   runtime may refuse to start a session in a turn the person did not begin, leaving only a card
   for them to click. An `executor:` process (above) is not a session either. Without subagents,
-  see phase-run.md, "A runtime without subagents".
+  see phase-run.md, "A runtime without subagents". The one session the app may open is a set
+  run's task, which is a run and not a helper (§7, "A session per task").
 - **The full set is CI's under `verify.full_run: ci`.** Verify with `jig verify`, never with
   `--full` or the stack's runner unfiltered; `full set left to CI` is not a gap to fill.
 - **Each repair costs one attempt.** A repair is one loop of fixing after a blocking finding or
@@ -244,3 +245,24 @@ ask:
   when you hand back. Never take someone else's T3/T4 task to approve its gate as the agent.
 - **A task it names as taken by another session** is not free, in the set or out of it: never
   start it; skip it and name it when you hand back.
+
+**A session per task (Claude Code desktop only).** Where the runtime can open a session, and the
+person asked in words for the set to run in sessions (`start_session`, `initiation: user_asked`),
+each task of a set may get one. Per task: `jig task start <id> --worktree`, then a fresh session
+with `cwd` the task's worktree, `use_worktree: false` and `wake_when_done: true`, briefed with the
+task id and "run it on autopilot": it begins at §1 itself. Count the sessions you opened as
+building, since `slots:` sees a run only once its session has started it. The coordinator keeps
+§7's queue reading; the sidebar shows who waits, and a stopped session's last message is its
+question. Such a session executes a filed Jig task with its route, workspace and consolidation, so
+it does not break the `spawn_task` row of `AGENTS.md`.
+
+- **Only the turn the person began may open sessions.** A start the app refuses stays a card for
+  the person: do not start that task's run; name it when you hand back.
+- **An answer goes into the session that holds the run.** The person answers in the session, or you
+  forward their answer there (`send_message`) and the session runs `resume`. Do not record `answer`
+  for it yourself, and if `resume first:` lists it anyway, forward the answer, do not resume it here.
+- **Archive its session once the task is `consolidated`**, when the person asked for that: the app
+  asks them on each call. Otherwise, and at `pr`, where the set is handed back before the merge,
+  name the session when you hand back.
+
+Other runtimes, and phase runs (phase-run.md), ignore this: subagents, one session.
