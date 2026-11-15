@@ -4574,11 +4574,14 @@ jig_spec_link() {
 
 # jig_spec_link_v <var> <task.md> — the same id into <var>, read in the
 # caller's shell; exit 2 on two different specs, as above, or when the file
-# cannot be read.
+# cannot be read. Also sets _JIG_SPEC_PHASE to the phase number of the first
+# link line (empty when it names none), for a caller that shows it.
+_JIG_SPEC_PHASE=""
 jig_spec_link_v() {
   local __jsl_line __jsl_id __jsl_found="" __jsl_conflict=0
-  local __jsl_re='^Spec: \.ai/specs/([A-Za-z0-9._-]+)/([[:space:]]+(—|-|--)[[:space:]]+Phase[[:space:]]+[0-9]+)?[[:space:]]*$'
+  local __jsl_re='^Spec: \.ai/specs/([A-Za-z0-9._-]+)/([[:space:]]+(—|-|--)[[:space:]]+Phase[[:space:]]+([0-9]+))?[[:space:]]*$'
   printf -v "$1" '%s' ""
+  _JIG_SPEC_PHASE=""
   [ -r "$2" ] && [ -f "$2" ] || return 2
   while IFS= read -r __jsl_line || [ -n "$__jsl_line" ]; do
     case "$__jsl_line" in "Spec: "*) ;; *) continue ;; esac
@@ -4587,6 +4590,7 @@ jig_spec_link_v() {
     case "$__jsl_id" in .* | -*) continue ;; esac
     if [ -z "$__jsl_found" ]; then
       __jsl_found=$__jsl_id
+      _JIG_SPEC_PHASE=${BASH_REMATCH[4]}
     elif [ "$__jsl_found" != "$__jsl_id" ]; then
       __jsl_conflict=1
     fi
@@ -4673,22 +4677,54 @@ jig_roadmap_open_ids() {
 # would be a guess. The branch name is not validated here; a caller that
 # builds a ref from it runs `git check-ref-format --branch` first.
 jig_spec_epic() {
-  awk '
-    /^Epic:[[:space:]]+[^[:space:]]+([[:space:]]+(—|-|--)[[:space:]]+finished)?[[:space:]]*$/ {
-      line = $0
-      sub(/^Epic:[[:space:]]+/, "", line)
-      b = line
-      sub(/[[:space:]].*$/, "", b)
-      st = (line ~ /finished[[:space:]]*$/) ? "finished" : "open"
-      v = b " " st
-      if (found == "") found = v
-      else if (found != v) conflict = 1
-    }
-    END {
-      if (conflict) exit 2
-      if (found != "") print found
-    }
-  ' "$1"
+  local v rc=0
+  jig_spec_epic_v v "$1" || rc=$?
+  [ "$rc" -eq 0 ] || return "$rc"
+  [ -z "$v" ] || printf '%s\n' "$v"
+}
+
+# jig_spec_epic_v <var> <roadmap.md|-> — the same answer into <var>, read in
+# the caller's shell with no process (the task listing asks it per task); exit
+# 2 on two lines that disagree, or a file that cannot be read.
+jig_spec_epic_v() {
+  local __jse_line __jse_found="" __jse_conflict=0 __jse_v
+  local __jse_re='^Epic:[[:space:]]+([^[:space:]]+)([[:space:]]+(—|-|--)[[:space:]]+finished)?[[:space:]]*$'
+  printf -v "$1" '%s' ""
+  if [ "$2" = "-" ]; then
+    exec 8<&0
+  else
+    [ -r "$2" ] && [ -f "$2" ] || return 2
+    exec 8< "$2"
+  fi
+  while IFS= read -r __jse_line <&8 || [ -n "$__jse_line" ]; do
+    case "$__jse_line" in "Epic:"*) ;; *) continue ;; esac
+    [[ $__jse_line =~ $__jse_re ]] || continue
+    __jse_v="${BASH_REMATCH[1]} open"
+    [ -z "${BASH_REMATCH[2]}" ] || __jse_v="${BASH_REMATCH[1]} finished"
+    if [ -z "$__jse_found" ]; then
+      __jse_found=$__jse_v
+    elif [ "$__jse_found" != "$__jse_v" ]; then
+      __jse_conflict=1
+    fi
+  done
+  exec 8<&-
+  [ "$__jse_conflict" -eq 0 ] || return 2
+  printf -v "$1" '%s' "$__jse_found"
+}
+
+# jig_spec_title_v <var> <spec.md> — the text of the first level-one heading
+# into <var>, empty when there is none or the file cannot be read; no process.
+# What `spec_title` answers, so the listing and the task JSON cannot disagree.
+jig_spec_title_v() {
+  local __jst_line
+  printf -v "$1" '%s' ""
+  [ -r "$2" ] && [ -f "$2" ] || return 0
+  while IFS= read -r __jst_line || [ -n "$__jst_line" ]; do
+    if [[ $__jst_line =~ ^#[[:space:]]+(.*)$ ]]; then
+      printf -v "$1" '%s' "${BASH_REMATCH[1]}"
+      return 0
+    fi
+  done < "$2"
 }
 
 # jig_task_epic <task.md> — which epic a task is built on, by its `Spec:` line

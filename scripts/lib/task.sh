@@ -6698,6 +6698,29 @@ EOF
   set +f
 }
 
+# _task_spec_json_v <var> <task.md> — the `spec` of a task's JSON into <var>:
+# `{"id","title","phase","epic"}` or `null`. `title` is the first heading of
+# the spec's spec.md and `epic` the branch its roadmap.md declares (open or
+# finished), each `null` when the spec does not have it in this checkout;
+# `phase` the number of the link's `Phase <n>`, `null` when it names none.
+_task_spec_json_v() {
+  local __tsj_var="$1" __tsj_sid __tsj_phase __tsj_dir __tsj_t __tsj_e __tsj_o
+  printf -v "$__tsj_var" '%s' null
+  [ -f "$2" ] || return 0
+  jig_spec_link_v __tsj_sid "$2" || return 0
+  [ -n "$__tsj_sid" ] || return 0
+  __tsj_phase=$_JIG_SPEC_PHASE
+  __tsj_dir="$JIG_PROJECT/$JIG_AI_DIR/specs/$__tsj_sid"
+  jig_spec_title_v __tsj_t "$__tsj_dir/spec.md"
+  __tsj_e=""
+  jig_spec_epic_v __tsj_e "$__tsj_dir/roadmap.md" || __tsj_e=""
+  json_quote "$__tsj_sid"; __tsj_o="{\"id\":$_JSON"
+  json_str_or_null "$__tsj_t"; __tsj_o="$__tsj_o,\"title\":$_JSON"
+  json_int_or_null "$__tsj_phase"; __tsj_o="$__tsj_o,\"phase\":$_JSON"
+  json_str_or_null "${__tsj_e% *}"; __tsj_o="$__tsj_o,\"epic\":$_JSON}"
+  printf -v "$__tsj_var" '%s' "$__tsj_o"
+}
+
 # _task_json_one <id> — one task as `task list --json` lists it, for a write
 # that answers with the task it wrote (`task resume --json`): the same
 # producer, with the worktrees, the forge cache and the housekeeping flags
@@ -6848,6 +6871,13 @@ EOF
       o="$o,\"parked\":null"
     fi
   fi
+
+  # The spec the task was filed from, read from its task.md and the spec's own
+  # files, offline and with no process (jig_spec_link_v and the readers
+  # beside it): null without a link, or with two to different specs.
+  task_dir_v v "$id"
+  _task_spec_json_v v "$v/task.md"
+  o="$o,\"spec\":$v"
 
   wt=""
   [ -z "$branch" ] || _task_worktree_for_v wt "$branch" "$worktrees"
