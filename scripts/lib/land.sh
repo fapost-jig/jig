@@ -280,7 +280,8 @@ _land_approval_gate() {
     changes) why="changes requested" ;;
     waiting)
       if [ -n "$pending" ]; then
-        why="waiting for $(printf '%s' "$pending" | sed 's/,/, /g')"
+        _jig_list_words_v why "$pending"
+        why="waiting for $why"
       else
         why="waiting for more approvals"
       fi ;;
