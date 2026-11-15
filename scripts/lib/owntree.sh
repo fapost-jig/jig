@@ -670,7 +670,8 @@ ot_judge() {
 # Nothing moves here. A branch that has to catch up leaves _OT_FF_TO and _OT_FF_FROM,
 # and a tracking ref origin no longer backs leaves _OT_STALE_REF: ot_commit moves the one,
 # inside the tree that holds the branch, and removes the other, so a refusal before then
-# has left every ref where it was, and the next write sees what this one saw.
+# has left every ref where it was, and the next write sees what this one saw — except
+# after ot_take_in_base, which moves the one to origin's tip before its merge.
 _OT_START=""
 _OT_FF_TO=""
 _OT_FF_FROM=""
@@ -793,7 +794,8 @@ _ot_plan_move() {
 # branch that exists the tree is on it, and one git says is taken elsewhere is the race
 # _ot_holder could not see. One that has to catch up stays where it is until ot_commit,
 # while the tree's files and index already show what it will be at: validation reads
-# that, and a refusal leaves no ref moved.
+# that, and a refusal leaves no ref moved. ot_take_in_base, when a writer calls it, moves
+# or cuts the branch to origin's tip before its merge instead.
 _OT_CUT=""
 ot_open() {
   local path out rc=0
@@ -887,6 +889,50 @@ $out"
   fi
   OT_COMMIT=$(_ot_sha "refs/heads/$OT_BRANCH")
   jig_record_changed
+}
+
+# ot_take_in_base — merge the base, as OT_BASE_REF reads it, into the tree, uncommitted
+# (adr-20261115-the-decisions-branch-takes-in-the-base). For a writer whose change needs
+# what reached the base after its waiting branch was cut. The tree keeps holding the
+# branch, so git still refuses a checkout of it meanwhile and hooks see the real branch.
+# A branch that has to catch up with origin is brought to origin's tip first, inside the
+# tree, and one only on origin is cut there: that ref moves before the commit, but only to
+# what origin already holds, so nothing is lost — as when a commit is refused after a
+# fast-forward. The merge is left in the index and files: validation reads the merged
+# state, and ot_commit makes it one merge commit, its parents the tip and the base. The
+# base is origin's when origin is known, so nothing that is not Jig's leaves with it.
+# OT_TOOK_IN <- the base's commit taken in, empty when the tip had it already. Returns 1
+# when the merge conflicts, with nothing merged and _OT_CONFLICTS naming the files.
+OT_TOOK_IN=""
+_OT_CONFLICTS=""
+ot_take_in_base() {
+  local base out rc=0
+  OT_TOOK_IN=""
+  _OT_CONFLICTS=""
+  base=$(_ot_sha "$OT_BASE_REF")
+  [ -n "$base" ] || jig_die "$OT_WHO: $OT_BASE_REF names no commit to take in"
+  # The tree holds the branch; its index and files are at _OT_FF_TO already (ot_open).
+  if [ -n "$_OT_FF_TO" ]; then
+    git -C "$OT_TREE" update-ref HEAD "$_OT_FF_TO" "$_OT_FF_FROM" 2>/dev/null \
+      || jig_die "$OT_WHO: could not move $OT_BRANCH to $_OT_FF_TO"
+    _OT_FF_TO=""
+  fi
+  if [ -n "$_OT_CUT" ]; then
+    out=$(git -C "$OT_TREE" switch -q -c "$OT_BRANCH" 2>&1) \
+      || jig_die "$OT_WHO: could not cut $OT_BRANCH: $out"
+    _OT_CUT=""
+  fi
+  out=$(git -C "$OT_TREE" merge -q --no-commit --no-ff "$base" 2>&1) || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    _OT_CONFLICTS=$(git -C "$OT_TREE" -c core.quotepath=off diff --name-only --diff-filter=U 2>/dev/null)
+    git -C "$OT_TREE" merge --abort >/dev/null 2>&1 || true
+    [ -n "$_OT_CONFLICTS" ] || jig_die "$OT_WHO: could not take $OT_BASE in: $out"
+    return 1
+  fi
+  # The tip had the base already: nothing taken in, and the write goes on as it was.
+  git -C "$OT_TREE" rev-parse --verify --quiet MERGE_HEAD >/dev/null 2>&1 || return 0
+  # shellcheck disable=SC2034 # read by knowledge.sh for its commit message
+  OT_TOOK_IN=$base
 }
 
 # _ot_capture <command...> — run a ship step that may die, in a subshell from the

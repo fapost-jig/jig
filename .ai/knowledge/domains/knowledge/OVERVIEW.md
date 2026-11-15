@@ -13,7 +13,7 @@ paths:
   - scripts/lib/frontmatter.sh
   - schemas/frontmatter.md
   - "templates/knowledge/**"
-reviewed_at: 2026-11-06
+reviewed_at: 2026-11-15
 ---
 # Knowledge
 
@@ -49,8 +49,10 @@ them an agent has to read.
 - A decision from outside a session (`jig knowledge accept|reject|reviewed` with `--revision` or
   `--json`): committed on `knowledge/decisions` in Jig's own tree, `waiting` on the reads until it
   lands; the plain text forms write the working tree (adr-20261104-a-write-goes-in-jigs-own-tree).
-  What is only in the checkout reads `decidable: false` and is refused `not-on-base` or
-  `not-on-branch`, one predicate for both (`_km_ref_holds`). What `origin/<base>` decided already
+  What is only in the checkout reads `decidable: false` and is refused `not-on-base`; what the base
+  has and the waiting branch, cut before it got there, does not is decidable, and the write takes
+  the base in (`ot_take_in_base`), refusing `not-on-branch` only on a merge conflict
+  (adr-20261115-the-decisions-branch-takes-in-the-base). One predicate for both (`_km_ref_holds`). What `origin/<base>` decided already
   and this checkout is only behind on reads `landed` (`_km_landed_paths`), and `jig status` counts
   leave it out; `jig refresh` brings it here (adr-20261112-refresh-brings-the-clone-up-to-origin).
 - Which documents a task must read, how much of each, and the record that it did:
