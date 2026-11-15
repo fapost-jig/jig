@@ -214,6 +214,7 @@ _status_report() {
   printf '%s\n' "initialised: yes"
   [ -n "$_SC_READY" ] || _status_counts
   _status_config_local
+  _status_gate_hooks
   _status_agent_git
   _status_autopilot_git
   _status_github_account
@@ -344,6 +345,7 @@ $rel"
   [ "$waiting" -eq 0 ] || printf 'writes: %s waiting (jig writes)\n' "$waiting"
 
   local found=0 rec line default_base blocking bcount autopilot_note qlines qon qreason qago
+  local waivers nwaived wgate wpath wreason
   [ -n "$_STATUS_LIVE_READY" ] || _status_live_collect
   default_base=$_STATUS_DEFAULT_BASE
   # The project's git flow and where its tasks stand on the staging branch:
@@ -402,6 +404,24 @@ EOF
     # never quieter than the gate it may have skipped
     # (adr-20261004-a-route-stage-is-proven-by-its-record).
     [ -z "$_ST_LOWERED" ] || line="$line lowered=$_ST_LOWERED"
+    # A hook's refusal a person set aside for this task is never quieter than
+    # the gate it set aside (adr-20261114-a-person-waives-a-gate-hooks-refusal-for-one-task):
+    # a count in the head, where _status_task_needs reads it — a token at the
+    # end would hide the `blocking=`, `review=stale` and `autopilot=` words it
+    # peels from there — and a line each below. Read through task.sh's reader,
+    # one file per task.
+    _task_waivers_v waivers "$_ST_ID"
+    if [ -n "$waivers" ]; then
+      nwaived=0
+      while IFS=$'\t' read -r wgate wpath _ wreason; do
+        [ -n "$wgate" ] || continue
+        nwaived=$((nwaived + 1))
+        qlines="$qlines  hook waived: hooks.$wgate $wpath: $wreason"$'\n'
+      done <<EOF
+$waivers
+EOF
+      [ "$nwaived" -eq 0 ] || line="$line waived=$nwaived"
+    fi
     # A start against the queue's answer is shown beside the lowering, with
     # the reason on a line of its own (adr-20261022-the-next-task-is-advised-from-the-queue).
     if [ -n "$_ST_OOO" ]; then
@@ -718,7 +738,7 @@ _status_need() {
 # _status_task_needs <task line> — exit 0 when a `task ...` line asks for the
 # reader: paused, blocking findings, a stale review, a lowered
 # class (adr-20261004-a-route-stage-is-proven-by-its-record), a start ahead of
-# the queue. Only the fields
+# the queue, a waived gate hook. Only the fields
 # the line builder writes are looked at, never the text a person wrote — a
 # worktree path or a pause reason may hold any of those words.
 _status_task_needs() {
@@ -727,7 +747,7 @@ _status_task_needs() {
   head=${t%% worktree=*}
   head=${head%% base=*}
   head=${head%% paused*}
-  case "$head" in *" lowered="* | *" out_of_order="*) return 0 ;; esac
+  case "$head" in *" lowered="* | *" out_of_order="* | *" waived="*) return 0 ;; esac
   # The words after the pause reason, peeled off from the end.
   while :; do
     last=${t##* }
@@ -785,7 +805,12 @@ _status_terminal() {
           continue
         fi
         case "$tline" in
-          need) _status_need_detail queue "${l#  }"; continue ;;
+          need)
+            case "$l" in
+              "  hook waived: "*) _status_need_detail waived "${l#  hook waived: }" ;;
+              *) _status_need_detail queue "${l#  }" ;;
+            esac
+            continue ;;
           task)
             _STT_TASKS[${#_STT_TASKS[@]} - 1]="${_STT_TASKS[${#_STT_TASKS[@]} - 1]}"$'\t'"${l#  }"
             continue ;;
@@ -830,6 +855,7 @@ _status_terminal() {
         ;;
       "config.local: "*) _STT_CFG+=("${l#config.local: }") ;;
       "notify: "*) _status_need warn "$l" ;;
+      "gate hook: "*) _status_need fail "$l" ;;
       "agent.git: invalid value "*) _status_need fail "$l" ;;
       "agent.git: "*) _STT_AGENT=${l#agent.git: } ;;
       "autopilot.git: invalid value "*) _status_need fail "$l" ;;
@@ -3256,11 +3282,13 @@ _status_html_task_table() {
 # _status_html_task_row — the row of the task _status_rec last read, on one
 # line.
 _status_html_task_row() {
-  local blocking bline receipt cls
+  local blocking bline receipt cls waivers
   printf '<tr><td class="id"><code>%s</code></td><td>%s' \
     "$(_status_h "$_ST_ID")" "$(_status_h "${_ST_CLASS:--}")"
   [ "$_ST_DEPTH" != lean ] || printf ' <span class="badge">lean</span>'
   [ -z "$_ST_LOWERED" ] || printf ' <span class="badge warn">lowered from %s</span>' "$(_status_h "$_ST_LOWERED")"
+  _task_waivers_v waivers "$_ST_ID"
+  [ -z "$waivers" ] || printf ' <span class="badge warn">hook waived</span>'
   [ -z "$_ST_OOO" ] || printf ' <span class="badge warn" title="%s">out of order</span>' \
     "$(_status_h "ahead of $_ST_OOO${_ST_OOO_REASON:+: $_ST_OOO_REASON}")"
   printf '</td><td>%s' "$(_status_h "$_ST_STATUS")"
@@ -3748,6 +3776,20 @@ _status_config_local() {
     printf 'config.local: %s in %s is ignored (set it in %s)\n' \
       "$pkey" "$JIG_AI_DIR/config.yaml" "$JIG_AI_DIR/config.local.yaml"
   done < <(jig_config_project_ignored)
+}
+
+# _status_gate_hooks — one line per hook path the project names that its
+# gate would refuse (jig_gate_hook_problems, task.sh), so the person learns it
+# before a task reaches the gate. Checks paths only; never runs a hook
+# (adr-20261113-a-project-script-can-refuse-a-completion-gate).
+_status_gate_hooks() {
+  local key path problem gate
+  while IFS=$'\t' read -r key path problem; do
+    [ -n "$key" ] || continue
+    gate=${key#hooks.}
+    printf 'gate hook: %s names %s, which %s; every %s gate refuses until it is fixed\n' \
+      "$key" "$path" "$problem" "$gate"
+  done < <(jig_gate_hook_problems)
 }
 
 # _status_notify — one line while the latest Telegram message failed
