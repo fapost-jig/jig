@@ -24,9 +24,9 @@ Every `--json` read prints exactly one line on stdout, whether it succeeded or w
 
 The exit status is the command's: 0 with `data`, non-zero with `error`. What the command says to a
 person — warnings, notices — goes to stderr unchanged and never into the envelope. Reading never
-touches the network: no forge CLI, no fetch — with two exceptions, `jig pr reviewers --json` and
+touches the network: no forge CLI, no fetch — with three exceptions, `jig pr reviewers --json` and
 `jig task pr-status --json`, whose subject is the forge itself (below): each is called when a person
-asks, never on a timer.
+asks, never on a timer; and `jig version --json`, which asks for the newest release at most every few hours (below).
 
 Strings escape `"`, `\` and every control byte (`\n`, `\t`, `\r`, the rest as `\u00XX`); other
 bytes pass through as they are, so a value is UTF-8 when what Jig read was. A value Jig has no
@@ -1391,6 +1391,25 @@ Refusals: `not-merged` when the pull request is still open; `upgrade-blocked` wi
 once; `usage` for any other argument. Both change nothing. No origin, no signed-in forge CLI, or a
 forge that did not answer read `failed` and change nothing either.
 
+## `jig version --json`
+
+Jig's version on this machine and the newest release, for a header that shows both. Machine level:
+it needs no project and works outside a repository (`revision` is `0` there). Takes no argument but
+`--json`.
+
+```json
+{"installed": "0.45.0", "latest": "0.46.0", "checked_at": "2026-11-15T12:00:00Z"}
+```
+
+| Field | Type | Value |
+|---|---|---|
+| `installed` | string | what `jig version` prints after `jig `: `X.Y.Z`, or `X.Y.Z+<sha>` for unreleased code. Compare as `upgrade-available` does: the `+<sha>` part takes no part in the order |
+| `latest` | string or null | the newest release tag at the global Jig's origin, without the `v`; `null` when it is not known: no global Jig, no network, or the last check failed. Never an error |
+| `checked_at` | string or null | when the network was last asked, UTC; `null` when never. Set with `latest: null` after a check that failed |
+
+A read that may touch the network: the answer is kept on the machine in `$XDG_CACHE_HOME/jig/latest-release` (`~/.cache/jig/`
+by default), for 6 hours, or 1 hour after a failed check, and only then asked again, within 5
+seconds. 
 ## `jig config keys --json`
 
 Every key Jig reads, in the order of its registry (`jig_config_key_rows`, `scripts/lib/config.sh`),

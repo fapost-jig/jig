@@ -734,30 +734,15 @@ _hk_fetch() {
 # claims "up to date" without having actually heard so, and `jig status`
 # (_status_latest_release_available) treats "failed" exactly like "no file".
 _hk_check_latest_release() {
-  local dry="$1" runtime="$2" exe root rc best file tmp
+  local dry="$1" runtime="$2"
   if ! cfg_bool housekeeping.fetch true; then
     return 0
   fi
   if [ "$dry" = 1 ]; then
     return 0
   fi
-  file="$runtime/latest-release"
-  tmp="$file.tmp.$$"
-  jig_cleanup_add "$tmp"
   mkdir -p "$runtime" 2>/dev/null || return 0
-  if ! exe=$(jig_global_executable); then
-    return 0
-  fi
-  root="${exe%/scripts/jig}"
-  rc=0
-  best=$(jig_check_newest_release "$root" "$_JIG_RELEASE_CHECK_TIMEOUT") || rc=$?
-  if [ "$rc" -eq 0 ]; then
-    printf 'latest=%s\nchecked_at=%s\n' "${best#v}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$tmp" \
-      && mv "$tmp" "$file"
-  else
-    printf 'failed\nchecked_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$tmp" \
-      && mv "$tmp" "$file"
-  fi
+  jig_release_check_record "$runtime/latest-release" || true
   return 0
 }
 

@@ -1032,6 +1032,21 @@ the message:
 
 The whole shape is in `schemas/json.md`.
 
+## Which Jig is installed
+
+`jig version --json` works anywhere, with no project, and answers with the envelope above:
+
+```json
+{"schema":1,"revision":0,"generated_at":"2026-11-15T12:00:00Z","data":{"installed":"0.45.0","latest":"0.46.0","checked_at":"2026-11-15T12:00:00Z"}}
+```
+
+- `installed` is the version on your machine, `X.Y.Z`, or `X.Y.Z+<sha>` when it runs unreleased
+  code. The `+<sha>` part does not count when you compare it with `latest`.
+- `latest` is the newest release, or `null` when Jig does not know it: it is offline, or there is no
+  global Jig to ask. That is not an error. `checked_at` says when Jig last asked.
+- Jig asks the network at most every 6 hours (every hour after a failed try) and keeps the answer
+  in `~/.cache/jig/latest-release`; reading it more often costs nothing.
+
 ## Your settings
 
 A page can show the settings of a project and change the person's own. `jig config keys --json`

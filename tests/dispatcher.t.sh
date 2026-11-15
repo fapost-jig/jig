@@ -7,6 +7,87 @@ test_version_prints_semver() {
   case "$OUT" in jig\ [0-9]*.[0-9]*.[0-9]*) ;; *) fail "bad version output: $OUT" ;; esac
 }
 
+# --- `jig version --json` (task version-json-latest) -------------------------
+#
+# Machine level: no project, a cache under $XDG_CACHE_HOME, the network asked
+# through the global checkout's origin only. Every origin here is a local bare
+# repository.
+
+# _vj_source <dir> <version> — a minimal framework source root at <dir>, tagged
+# v<version>, whose origin is the bare repository <dir>.upstream.
+_vj_source() {
+  local dir="$1" version="$2"
+  mkdir -p "$dir"
+  cp -R "$JIG_HOME/scripts" "$JIG_HOME/skills" "$JIG_HOME/templates" "$dir/"
+  sed 's/^JIG_VERSION=.*/JIG_VERSION="'"$version"'"/' "$JIG_HOME/scripts/lib/version.sh" \
+    > "$dir/scripts/lib/version.sh"
+  (cd "$dir" && git init -q . && git symbolic-ref HEAD refs/heads/main \
+     && git add -A && git commit -q -m "v$version" && git tag -a "v$version" -m "v$version")
+  git init -q --bare "$dir.upstream"
+  (cd "$dir" && git remote add origin "$dir.upstream" && git push -q origin main --tags)
+}
+
+test_version_json_without_a_global_jig_has_no_latest() {
+  local bin
+  bin=$(path_without_jig)
+  run env PATH="$bin" XDG_CACHE_HOME="$PWD/cache" "$JIG_BIN" version --json
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" '"schema":1'
+  assert_contains "$OUT" '"installed":"'
+  assert_contains "$OUT" '"latest":null,"checked_at":null'
+}
+
+test_version_json_names_the_newest_release_and_caches_it() {
+  local src bin
+  src=$(mktemp -d "${TMPDIR:-/tmp}/jig-vj.XXXXXX")
+  _vj_source "$src" 0.1.0
+  bin="$src/scripts"
+  run env PATH="$bin:$PATH" XDG_CACHE_HOME="$PWD/cache" "$JIG_BIN" version --json
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" '"latest":"0.1.0","checked_at":"20'
+  assert_file_contains cache/jig/latest-release "latest=0.1.0"
+  # A fresh record answers without the network: break the origin and ask again.
+  rm -rf "$src.upstream"
+  run env PATH="$bin:$PATH" XDG_CACHE_HOME="$PWD/cache" "$JIG_BIN" version --json
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" '"latest":"0.1.0"'
+  rm -rf "$src"
+}
+
+test_version_json_asks_again_when_the_record_is_old() {
+  local src bin
+  src=$(mktemp -d "${TMPDIR:-/tmp}/jig-vj.XXXXXX")
+  _vj_source "$src" 0.1.0
+  bin="$src/scripts"
+  mkdir -p cache/jig
+  printf 'latest=0.0.9\nchecked_at=2026-01-01T00:00:00Z\n' > cache/jig/latest-release
+  touch -t 202601010000 cache/jig/latest-release
+  run env PATH="$bin:$PATH" XDG_CACHE_HOME="$PWD/cache" "$JIG_BIN" version --json
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" '"latest":"0.1.0"'
+  rm -rf "$src" "$src.upstream"
+}
+
+test_version_json_offline_is_null_without_an_error() {
+  local src bin
+  src=$(mktemp -d "${TMPDIR:-/tmp}/jig-vj.XXXXXX")
+  _vj_source "$src" 0.1.0
+  (cd "$src" && git remote set-url origin "$src/does-not-exist.git")
+  bin="$src/scripts"
+  run env PATH="$bin:$PATH" XDG_CACHE_HOME="$PWD/cache" "$JIG_BIN" version --json
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" '"latest":null'
+  assert_not_contains "$OUT" '"error"'
+  assert_file_contains cache/jig/latest-release "failed"
+  rm -rf "$src" "$src.upstream"
+}
+
+test_version_rejects_an_unknown_option() {
+  run jig version --bogus
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "unknown option"
+}
+
 test_help_lists_commands() {
   run jig help
   assert_eq 0 "$RC"
