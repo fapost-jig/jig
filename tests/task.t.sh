@@ -14577,8 +14577,10 @@ test_task_list_json_names_the_spec_of_a_task() {
   task_setup
   mkdir -p .ai/specs/alpha .ai/specs/beta .ai/specs/gamma
   printf '# Alpha thing\n\ntext\n' > .ai/specs/alpha/spec.md
+  # shellcheck disable=SC2016 # backticks are roadmap text
   printf 'Epic: epic/alpha\n\n## Phase 1 — x\n- [ ] `a-1` — one\n' > .ai/specs/alpha/roadmap.md
   printf '# Beta "quoted"\n' > .ai/specs/beta/spec.md
+  # shellcheck disable=SC2016 # backticks are roadmap text
   printf '## Phase 1 — x\n- [ ] `b-1` — one\n' > .ai/specs/beta/roadmap.md
   fixture_task a-1 "" active "class:T1"
   fixture_task b-1 "" active "class:T1"
