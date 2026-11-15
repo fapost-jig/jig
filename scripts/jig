@@ -184,7 +184,7 @@ Usage: jig <command> [args]
   measure                        knowledge quality, process weight, change size
   doctor                         check the local environment jig runs in
   self-update                    move the global framework checkout to the newest release
-  version                        print version
+  version [--json]               print version (--json: with the newest release)
 EOF
 }
 
@@ -205,7 +205,16 @@ main() {
       if [ -n "$root" ] && jig_is_source_root "$root"; then
         v=$(jig_source_version "$root" 2>/dev/null) || v=""
       fi
-      printf 'jig %s\n' "${v:-$JIG_VERSION}" ;;
+      v="${v:-$JIG_VERSION}"
+      case "${1:-}" in
+        --json)
+          [ $# -eq 1 ] || jig_die "version: unexpected argument: $2"
+          # shellcheck source=lib/json.sh
+          . "$JIG_LIB/json.sh"
+          json_run jig_version_json "$v" ;;
+        '') printf 'jig %s\n' "$v" ;;
+        *) jig_die "version: unknown option: $1" ;;
+      esac ;;
     init|upgrade|status|task|context|verify|knowledge|spec|queue|writes|refresh|staging|pr|gh|housekeeping|measure|doctor|config|notify)
       if [ ! -f "$JIG_LIB/$cmd.sh" ]; then
         jig_die "command '$cmd' is not available in jig $JIG_VERSION"

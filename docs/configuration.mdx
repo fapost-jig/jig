@@ -41,7 +41,7 @@ selected.
 | `git.flow` | `direct` | How a task travels. `direct` takes it straight to the base branch. `staging` lands it on a staging branch first, for testing, and on to the base branch after: `jig task ship` opens the task's pull request into the staging branch ([Test on staging first](/staging-flow)). |
 | `git.staging_branch` | none | The staging flow's branch, for example `staging`. The flow needs it, and it cannot be the base branch. |
 | `git.staging_land` | `pr` | In the staging flow, how a task lands on the staging branch: `pr` (a pull request, merged directly only when it conflicts) or `external` (your CI merges it). |
-| `git.staging_review` | `ask` | In the staging flow, an approval before landing on the staging branch (`jig task land`, or `jig task ship` at `merge`): `ask` warns and asks, `require` waits for one, `none` lands without asking. An unattended run never lands without one. |
+| `git.staging_review` | `ask` | In the staging flow, an approval before landing on the staging branch (`jig task land`, or `jig task ship` at `merge`): `ask` warns and asks, `require` waits for one, `none` lands without asking. An unattended run never lands without one. A person's own landing (`jig task land --by human`) does not read `agent.git`, and with `ask` lands an unapproved pull request on `--without-review`; with `require` only an approval lands it. |
 | `git.promote_merge` | `human` | In the staging flow, who merges the pull request into the base branch: `human`, or `auto` — the forge's auto-merge, switched on only where the forge allows it, at `agent.git: merge` or on a CI runner, never for a release: on GitHub the repository allows auto-merge and merge commits and the base requires a status check; on GitLab the project requires a successful pipeline and merges with a merge commit. See [let the forge merge promotions](/staging-flow#let-the-forge-merge-promotions). |
 | `git.staging_stale_after` | `14d` | In the staging flow, how long a task's work may wait on the staging branch with no promotion open before `jig status` and housekeeping name it ([the staging drift report](/manual-control#the-staging-drift-report)). A duration: `14d`, `36h`. |
 | `worktree.carry` | `[]` | Extra paths copied into a new worktree, beyond what the active profiles already declare — for state your project keeps outside Git that a profile does not know about. See [carrying state into a worktree](/working-with-tasks#several-agents-at-once). |
@@ -181,7 +181,7 @@ an invitation to look, and the reply is yours to write, or not. Doctor also warn
 round, about a line in `.ai/config.yaml` that sets a key Jig does not read at all — a misspelling,
 or a setting a later version dropped.
 
-Personal settings are left out of both: Jig never reads `agent.git`, `autopilot.git`, `agent.ci_timeout`,
+Personal settings are left out of both: Jig never reads `agent.git`, `autopilot.git`, `agent.git_staging`, `agent.ci_timeout`,
 `autopilot.unattended`, `autopilot.parallel`, `route.depth`, `release.merge`, `github.account`, `run.exec`, `run.path`,
 `claude.implement_model`, `claude.review_model`, `codex.implement_model`,
 `codex.review_model`, or any `executor.*` key from the project's file, so naming them there
@@ -208,12 +208,18 @@ Some settings are a matter of personal taste rather than project policy. Put the
   than the work you watch — `agent.git: pr` with `autopilot.git: merge`: the tasks you take step by
   step end in a pull request you merge, and a run merges its own once CI passed — or less. Local
   only, like `agent.git`. See [Letting the agent ship](/agent-ships#autopilot-has-its-own-level).
+- `agent.git_staging` — the same levels, for a task whose pull request goes into the
+  [staging branch](/staging-flow): its ship and its landing. Not set (the default), `agent.git`
+  answers there too. Set it to let your agent land on the staging branch without letting it merge
+  anything into your main branch — `agent.git: pr` with `agent.git_staging: merge`. Local only,
+  like `agent.git`. See [Staging flow](/staging-flow#ship-and-land).
 - `agent.ci_timeout` — minutes the `merge` level waits for the pull request's checks (default 30);
   local only, like `agent.git`.
 - `autopilot.unattended` — `true` lets an autopilot run go on without asking you anything; local
   only. See [Autopilot: without stops](/autopilot#without-stops).
-- `autopilot.parallel` — how many tasks of a roadmap phase agents may build at the same time
-  (default 2, at most 16); local only. See
+- `autopilot.parallel` — how many tasks autopilot builds at the same time: a roadmap phase's wave,
+  or a run over a set of tasks (default 2, at most 16); a run stopped for a person holds no slot;
+  local only. See
   [Autopilot: running a whole phase](/autopilot#running-a-whole-phase).
 - `route.depth` — how much process your tasks get: `full` (the default) runs each class's whole
   route; `lean` trims what does not change the risk assessment — a short analysis for T1, the plan
@@ -325,7 +331,7 @@ jig config show --local
 checkout that every worktree reads. It creates the file when it is missing, replaces a setting that
 is already there and adds one that is not. It accepts only the personal settings listed above, and
 only values Jig reads the way you mean them: whole days for `housekeeping.cadence`, a duration such
-as `7d` or `12h` for the other housekeeping settings, `true` or `false`, a level for `agent.git` and `autopilot.git`,
+as `7d` or `12h` for the other housekeeping settings, `true` or `false`, a level for `agent.git`, `autopilot.git` and `agent.git_staging`,
 whole minutes for `agent.ci_timeout`, a count from 1 to 16 for `autopilot.parallel`, `full` or
 `lean` for `route.depth`, any name for the four `claude.*_model` and `codex.*_model` settings, `auto`,
 `host` or a command of plain words — no quotes, `$` or backslashes — for `run.exec`, `auto` or a

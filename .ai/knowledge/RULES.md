@@ -91,7 +91,12 @@
   empty. The path is checked to end in `.ai/runtime/verify` before either runs, and the same
   two deletions take back a record whose holder is gone. Nothing else under that directory is
   touched, and there is no `rm -rf` on it.
-  (adr-20260925-one-test-run-per-clone-and-a-dead-run-is-not-a-pass) A write in Jig's own tree holds
+  (adr-20260925-one-test-run-per-clone-and-a-dead-run-is-not-a-pass) The record of a `jig task
+  ship` waiting for CI is the same shape: `<clone root>/.ai/runtime/shipping/<id>`, the path built
+  by one function from a validated id, removed by `rm -f` of that one file only by the ship that
+  wrote it — the record still names its own pid — when its wait ends or it exits; a record whose
+  process is gone is read as absent and never removed by a reader
+  (adr-20261114-a-persons-pull-request-action-does-not-read-agent-git). A write in Jig's own tree holds
   its lock the same way, under `.ai/runtime/writes/lock/`, or `<git-common-dir>/jig/writes/lock/`
   where that directory is not named `.git`, the path checked to end so before either deletion: it
   gives back only a lock that still names its own pid, and takes back one whose holder is gone
@@ -162,13 +167,20 @@
   protects is `irm … | iex`, where a warning scrolls past unread. Beside the deletion paragraph
   above, this is the other half of the same idea: what the installer may remove, and where it
   may write at all. (adr-20260926-the-installer-refuses-a-folder-it-must-not-own)
-- Housekeeping never destroys a workspace whose remote state is `unknown`, and it never deletes a task
+- Housekeeping never destroys a workspace whose remote state is `unknown`, save a closed task that was
+  never started (see below), and it never deletes a task
   nobody finished. A task a human ended with `jig task abandon` (directly, or through
   `jig spec remove --abandon-unstarted`), once older than `housekeeping.abandoned_ttl`, and an
   `active` or `ready` task untouched for longer than `housekeeping.stale_after` (no worktree, no
   other flag, remote state not `open`, `merged` or `closed`), is **archived**: its `status` becomes
   `archived` and its workspace stays where it is, without a time limit. Only `consolidated` and
-  merged tasks are purged to trash (ADR-0006). The worktree of an abandoned task goes only by
+  merged tasks are purged to trash (ADR-0006), and `consolidated` tasks that were never started:
+  their `unknown` hides no change — no `branch`, no `base_commit`, no ref or pull request at the
+  template branch name (a forge that was asked and failed keeps it; with no forge in use, git's
+  refs alone decide), a branch template that names one, no triage source still in the workspace,
+  no `commit-message.md` (a task ADR-0030 closed before its commit), and no roadmap still waiting
+  on it (an unchecked item naming it, or a `Spec:` link whose current roadmap cannot be read here)
+  (adr-20261114-a-closed-task-never-started-goes-to-trash). The worktree of an abandoned task goes only by
   `git worktree remove` without `--force`; branch, commits and pull request are never touched, and
   `jig task unarchive` undoes the archive. (adr-20261027-a-task-nobody-finished-is-archived-not-purged,
   `domains/housekeeping`)
@@ -201,7 +213,7 @@
   spec ids, profile names, adapter names and knowledge domain names are checked at the
   single function that builds the path (`task_dir` and its `task_dir_v`; common.sh's state
   readers `jig_task_state_var` and `jig_task_base_v`, which check with `jig_valid_id`; `spec_new` and the `spec_ids` walk,
-  `spec_task_dir` and `spec_remove`, `profiles_dir`, `adapters_dir`, `km_domain_dir`, and for a pull request's number `_pr_state_dir` and `_pr_worktree_path`), before
+  `spec_task_dir` and `spec_remove`, owntree.sh's `ot_spec_drop_refusal`, `profiles_dir`, `adapters_dir`, `km_domain_dir`, and for a pull request's number `_pr_state_dir` and `_pr_worktree_path`), before
   any read, write or `sed` expression that embeds them. A path supplied by a caller rather
   than derived from a name is validated the same way at the point it is joined to the
   project root — `_ctx_check_knowledge_path` for an
