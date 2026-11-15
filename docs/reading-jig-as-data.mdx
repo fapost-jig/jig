@@ -94,7 +94,7 @@ be reworded.
 | `not-linkable` | the task cannot be linked to the roadmap item, or the item is done. Nothing was written |
 | `not-proposed` | the knowledge document is not a proposal, nor, for `reject`, a stub whose linked file changed since it was approved: it was decided already, perhaps on a branch that still waits. Nothing was written |
 | `not-on-base` | the knowledge document, or the change to the file a stub links, is in your checkout but not on the base the decision is judged on: not committed, or not pushed. Nothing was written — push it first |
-| `not-on-branch` | the knowledge document, or that change, reached the base after the branch the decisions wait on was cut. Nothing was written — decide it once the decisions waiting there have landed |
+| `not-on-branch` | the knowledge document, or that change, reached the base after the branch the decisions wait on was cut, and bringing the base into that branch conflicts. Nothing was written — merge or close the decisions waiting there, then decide. Without a conflict the decision brings the base in and joins the pull request that waits |
 | `source-missing` | the file a knowledge stub links is missing or not tracked. Nothing was written |
 | `not-closable` | the task you asked to close is not one Jig offers to close: its knowledge decision is not recorded, its pull request is not merged, or, on the staging flow, its work is not in the base yet. Nothing was written — show the person the message, which is the reason |
 | `not-paused` | the task you asked to resume is neither paused nor parked at the staging branch: somebody resumed it first. Nothing was written — read again |
@@ -685,8 +685,9 @@ its path, and no agent is handed the file any more. A stub whose file is unchang
 
 A decision is judged on the branch it is written on, not on your checkout. A proposal committed only
 here, or a file edited only here, is not there yet: the read says so with `decidable: false` and the
-`reason` the write would be refused with, `not-on-base` or `not-on-branch`, so a page can say "push it
-first" or "after the decisions waiting land" before anyone presses the button.
+`reason` the write would be refused with, `not-on-base`, so a page can say "push it first" before
+anyone presses the button. What reached the base after the decisions waiting were cut is decidable:
+the write brings the base into their branch and the decision joins their pull request.
 
 ## Asking a running task to pause
 
@@ -983,7 +984,7 @@ still reads `proposed` or `changed`, and its `waiting` says what was decided and
 `{"decision":"accepted","branch":"knowledge/decisions","pr":"https://…"}`, `null` when nothing waits.
 The `waiting` beside the list is the write itself. Each proposal and each source also carries
 `decidable` and `reason`: `true` and `null` when a decision sent now would be judged on what the read
-shows, as of the last fetch; otherwise `false` and `not-on-base` or `not-on-branch`, the code the
+shows, as of the last fetch; otherwise `false` and `not-on-base`, the code the
 decision would be refused with, or `landed`: origin's base decided it already and this checkout is
 only behind, so no decision is owed — show it as decided, and offer `jig refresh`.
 

@@ -10,7 +10,7 @@ paths:
   - skills/jig-accept/SKILL.md
   - schemas/json.md
 summary: Why reject drops the link of an accepted stub whose source changed, why the stub becomes rejected, and why the knowledge reads and writes name what a decision cannot take yet (not-on-base, not-on-branch)
-reviewed_at: 2026-11-06
+reviewed_at: 2026-11-15
 ---
 # A changed link is dropped by `reject`, and a read says when a decision cannot be taken yet
 
@@ -58,7 +58,7 @@ Both are lifecycle semantics: which transitions a document may take, and what a 
   must not be the approved text. One `git ls-tree` per ref answers every document (`_km_ref_holds`).
 - **The write refuses what is only here with a code of its own**, before the claim, with nothing written
   and no branch cut. It asks the read's question with the read's rows and `_km_ref_holds`, at the commit
-  its tree stands on, so the two cannot disagree on what is there: `not-on-branch` when the base has it and the branch does not, `not-on-base` otherwise
+  its tree stands on, so the two cannot disagree on what is there: `not-on-branch` when the base has it and the branch does not, `not-on-base` otherwise (amended 2026-11-15: what the base has and the branch does not, the write takes the base in, and `not-on-branch` is left for a merge conflict, which no read predicts; adr-20261115-the-decisions-branch-takes-in-the-base)
   — only in this checkout, or only in commits origin's base does not have. The read's `reason` is the same
   word. An id no document has, here or there, is still `not-found`. A decision already waiting is still
   `not-proposed`, and `waiting` says so; `decidable` does not judge it. A document is looked for by its

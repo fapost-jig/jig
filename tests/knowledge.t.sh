@@ -5189,23 +5189,239 @@ test_knowledge_a_proposal_only_in_local_commits_is_not_decidable_and_refused_wit
   own_tree_gone
 }
 
-test_knowledge_a_proposal_that_reached_the_base_after_the_branch_was_cut_is_not_on_branch() {
+test_knowledge_a_proposal_that_reached_the_base_after_the_branch_was_cut_takes_the_base_in() {
   _kd_repo commit
   run jig knowledge accept feature-alpha --json
   assert_eq 0 "$RC"
+  local before base
+  before=$(git rev-parse knowledge/decisions)
   jig knowledge new feature gamma --proposed >/dev/null
   git add -A .ai/knowledge
   git commit -q -m gamma
   git push -q origin main
   git fetch -q origin
+  base=$(git rev-parse origin/main)
   run jig knowledge proposed --json
   assert_contains "$OUT" '"id":"feature-beta","type":"feature","domains":[],"path":".ai/knowledge/features/beta.md","paths":[],"summary":null,"source":null,"waiting":null,"decidable":true,"reason":null,"lossy":false}'
-  assert_contains "$OUT" '"path":".ai/knowledge/features/gamma.md","paths":[],"summary":null,"source":null,"waiting":null,"decidable":false,"reason":"not-on-branch","lossy":false}'
+  assert_contains "$OUT" '"path":".ai/knowledge/features/gamma.md","paths":[],"summary":null,"source":null,"waiting":null,"decidable":true,"reason":null,"lossy":false}'
+  run jig knowledge reject feature-gamma --json
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" '"branch":"knowledge/decisions"'
+  # One merge commit on the same branch: the tip it waited at, and the base.
+  assert_eq "$before $base" "$(git log -1 --format=%P knowledge/decisions)"
+  assert_eq "Reject knowledge: feature-gamma" "$(git log -1 --format=%s knowledge/decisions)"
+  assert_contains "$(git log -1 --format=%b knowledge/decisions)" "Takes in origin/main at $base: feature-gamma reached it after knowledge/decisions was cut."
+  assert_eq rejected "$(_kd_status gamma)"
+  assert_eq active "$(_kd_status alpha)"
+  # What the pull request shows is the decisions alone.
+  assert_eq ".ai/knowledge/features/alpha.md
+.ai/knowledge/features/gamma.md" "$(git diff --name-only origin/main knowledge/decisions)"
+  # The next decision the branch already has what it needs for goes on top, unmerged.
+  run jig knowledge accept feature-beta --json
+  assert_eq 0 "$RC"
+  assert_eq 1 "$(git log -1 --format=%P knowledge/decisions | wc -w | tr -d ' ')"
+  own_tree_gone
+}
+
+test_knowledge_a_decision_the_branch_has_what_for_goes_on_top_when_the_base_moved() {
+  _kd_repo commit
+  run jig knowledge accept feature-alpha --json
+  assert_eq 0 "$RC"
+  printf 'more\n' > docs/y.md
+  git add docs
+  git commit -q -m "base moves"
+  git push -q origin main
+  git fetch -q origin
+  run jig knowledge accept feature-beta --json
+  assert_eq 0 "$RC"
+  assert_eq 1 "$(git log -1 --format=%P knowledge/decisions | wc -w | tr -d ' ')"
+  if git merge-base --is-ancestor origin/main knowledge/decisions; then
+    fail "a decision that needed nothing from the base took it in"
+  fi
+  own_tree_gone
+}
+
+test_knowledge_a_source_change_that_reached_the_base_after_the_branch_was_cut_takes_the_base_in() {
+  _kd_repo commit
+  run jig knowledge accept feature-alpha --json
+  assert_eq 0 "$RC"
+  printf 'second text\n' > docs/x.md
+  git add docs
+  git commit -q -m "source changed"
+  git push -q origin main
+  git fetch -q origin
+  run jig knowledge sources --json
+  assert_contains "$OUT" '"decidable":true'
+  assert_not_contains "$OUT" '"reason":"not-on-branch"'
+  run jig knowledge reject convention-stub --json
+  assert_eq 0 "$RC"
+  assert_eq 2 "$(git log -1 --format=%P knowledge/decisions | wc -w | tr -d ' ')"
+  own_tree_gone
+}
+
+test_knowledge_taking_the_base_in_refuses_a_conflict_with_nothing_written() {
+  _kd_repo commit
+  run jig knowledge accept feature-alpha --json
+  assert_eq 0 "$RC"
+  local before
+  before=$(git rev-parse knowledge/decisions)
+  # The base decides the document the branch decided, the other way, and adds one the
+  # branch lacks.
+  jig knowledge reject feature-alpha >/dev/null
+  jig knowledge new feature gamma --proposed >/dev/null
+  git add -A .ai/knowledge
+  git commit -q -m "alpha rejected, gamma"
+  git push -q origin main
+  git fetch -q origin
   run jig knowledge reject feature-gamma --json
   assert_eq 1 "$RC"
   assert_contains "$OUT" '"code":"not-on-branch"'
   assert_contains "$OUT" 'reached main after knowledge/decisions was cut'
-  assert_eq "Accept knowledge: feature-alpha" "$(git log -1 --format=%s knowledge/decisions)"
+  assert_contains "$OUT" 'conflicts on .ai/knowledge/features/alpha.md'
+  assert_eq "$before" "$(git rev-parse knowledge/decisions)"
+  own_tree_gone
+}
+
+# _kd_hook_records_head — a pre-commit hook that writes the branch the committing tree
+# holds (empty when detached) to held.txt here, kept out of git.
+_kd_hook_records_head() {
+  printf 'held.txt\n' >> .git/info/exclude
+  printf '#!/bin/sh\ngit symbolic-ref -q HEAD > "%s/held.txt" || : > "%s/held.txt"\n' "$PWD" "$PWD" > .git/hooks/pre-commit
+  chmod +x .git/hooks/pre-commit
+}
+
+_kd_gamma_on_the_base() {
+  jig knowledge new feature gamma --proposed >/dev/null
+  git add -A .ai/knowledge
+  git commit -q -m gamma
+  git push -q origin main
+  git fetch -q origin
+}
+
+test_knowledge_a_refused_hook_on_taking_the_base_in_leaves_the_branch() {
+  _kd_repo commit
+  run jig knowledge accept feature-alpha --json
+  assert_eq 0 "$RC"
+  local before
+  before=$(git rev-parse knowledge/decisions)
+  _kd_gamma_on_the_base
+  printf '#!/bin/sh\necho needs-node-modules >&2\nexit 1\n' > .git/hooks/pre-commit
+  chmod +x .git/hooks/pre-commit
+  run jig knowledge reject feature-gamma --json
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" '"code":"commit-refused"'
+  assert_contains "$OUT" 'needs-node-modules'
+  assert_eq "$before" "$(git rev-parse knowledge/decisions)"
+  own_tree_gone
+}
+
+test_knowledge_taking_the_base_in_goes_on_origins_tip_when_the_branch_is_behind() {
+  _kd_repo push
+  run jig knowledge accept feature-alpha --json
+  assert_eq 0 "$RC"
+  local first second base
+  first=$(git rev-parse knowledge/decisions)
+  run jig knowledge accept feature-beta --json
+  assert_eq 0 "$RC"
+  second=$(git rev-parse knowledge/decisions)
+  # Here the branch is behind what origin holds of it.
+  git branch -f knowledge/decisions "$first"
+  _kd_gamma_on_the_base
+  base=$(git rev-parse origin/main)
+  _kd_hook_records_head
+  run jig knowledge reject feature-gamma --json
+  assert_eq 0 "$RC"
+  # The tree held the branch through the merge: the hook saw it, not a detached HEAD.
+  assert_eq refs/heads/knowledge/decisions "$(cat held.txt)"
+  assert_contains "$OUT" '"pushed":true'
+  assert_eq "$second $base" "$(git log -1 --format=%P knowledge/decisions)"
+  assert_eq "$(git rev-parse knowledge/decisions)" "$(git --git-dir=origin.git rev-parse knowledge/decisions)"
+  assert_eq active "$(_kd_status beta)"
+  own_tree_gone
+}
+
+test_knowledge_a_squash_after_taking_the_base_in_cuts_a_new_name() {
+  _kd_repo push
+  run jig knowledge accept feature-alpha --json
+  assert_eq 0 "$RC"
+  _kd_gamma_on_the_base
+  run jig knowledge reject feature-gamma --json
+  assert_eq 0 "$RC"
+  local old
+  old=$(git rev-parse knowledge/decisions)
+  # The pull request is squashed into the base.
+  git checkout -q knowledge/decisions -- .ai/knowledge
+  git commit -q -m squashed
+  git push -q origin main
+  git fetch -q origin
+  run jig knowledge accept feature-beta --json
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" '"branch":"knowledge/decisions-2"'
+  assert_eq "$old" "$(git rev-parse knowledge/decisions)"
+  own_tree_gone
+}
+
+test_knowledge_a_merge_after_taking_the_base_in_fast_forwards_the_next_write() {
+  _kd_repo push
+  run jig knowledge accept feature-alpha --json
+  assert_eq 0 "$RC"
+  _kd_gamma_on_the_base
+  run jig knowledge reject feature-gamma --json
+  assert_eq 0 "$RC"
+  # The pull request is merged into the base with a merge commit.
+  git merge -q --no-ff -m merged knowledge/decisions
+  git push -q origin main
+  git fetch -q origin
+  run jig knowledge accept feature-beta --json
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" '"branch":"knowledge/decisions"'
+  assert_eq "$(git rev-parse origin/main)" "$(git log -1 --format=%P knowledge/decisions)"
+  own_tree_gone
+}
+
+test_knowledge_taking_the_base_in_joins_the_pull_request_that_waits() {
+  _kd_repo pr
+  own_tree_stub_gh
+  run jig knowledge accept feature-alpha --json
+  assert_eq 0 "$RC"
+  _kd_gamma_on_the_base
+  run jig knowledge reject feature-gamma --json
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" '"pr":"https://github.com/example/example/pull/42"'
+  assert_eq 1 "$(grep -c '^--base$' stub-gh/create.argv)"
+  assert_eq 2 "$(git log -1 --format=%P knowledge/decisions | wc -w | tr -d ' ')"
+  own_tree_gone
+}
+
+test_knowledge_taking_the_base_in_cuts_a_branch_only_on_origin() {
+  _kd_repo push
+  run jig knowledge accept feature-alpha --json
+  assert_eq 0 "$RC"
+  local first base
+  first=$(git rev-parse knowledge/decisions)
+  git branch -q -D knowledge/decisions
+  _kd_gamma_on_the_base
+  base=$(git rev-parse origin/main)
+  _kd_hook_records_head
+  run jig knowledge reject feature-gamma --json
+  assert_eq 0 "$RC"
+  assert_eq refs/heads/knowledge/decisions "$(cat held.txt)"
+  assert_contains "$OUT" '"branch":"knowledge/decisions"'
+  assert_eq "$first $base" "$(git log -1 --format=%P knowledge/decisions)"
+  own_tree_gone
+}
+
+test_knowledge_a_refusal_after_taking_the_base_in_leaves_the_branch() {
+  _kd_repo commit
+  run jig knowledge accept feature-alpha --json
+  assert_eq 0 "$RC"
+  local before
+  before=$(git rev-parse knowledge/decisions)
+  _kd_gamma_on_the_base
+  run jig knowledge decide --reject feature-gamma --accept feature-nope --json
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" '"code":"not-found"'
+  assert_eq "$before" "$(git rev-parse knowledge/decisions)"
   own_tree_gone
 }
 

@@ -68,7 +68,7 @@ need to tell it apart (`already-filed`, out of `already-exists`); the release no
 | `not-linkable` | `jig spec item file` cannot link this task or file this item: the task is finished, started or linked to another spec, or the item is checked. Nothing was written |
 | `not-proposed` | `jig knowledge accept` or `reject` named a document that is not a proposal — for `reject`, nor an accepted stub whose source is `changed`, `unrecorded` or `missing`: decided already, on the branch if that decision still waits. Nothing was written |
 | `not-on-base` | `jig knowledge accept`, `reject` or `reviewed` with `--json` or `--revision` named a document this checkout has and the base the decision is judged on does not — for `reject` of a stub, also a change to its source the base does not carry: not committed, or not on origin's base. Nothing was written |
-| `not-on-branch` | the same, for what the base has and `knowledge/decisions`, cut before it got there and still waiting, does not. Nothing was written; decide it once that branch has landed |
+| `not-on-branch` | the base has it and `knowledge/decisions`, cut before it got there and still waiting, does not, and taking the base into that branch conflicts (the message names the files). A decision that needs the base and does not conflict takes it in, one merge commit on the same branch, and joins the pull request that waits (adr-20261115-the-decisions-branch-takes-in-the-base). Nothing was written; merge or close the decisions waiting, then decide |
 | `source-missing` | `jig knowledge accept` or `reviewed` named a stub whose source is missing, invalid or not tracked. Nothing was written |
 | `upgrade-blocked` | `jig upgrade` would not start here and changed nothing: uncommitted changes, a started task's branch checked out, `jig verify` running in this checkout, or line endings Jig's files are not pinned against. For `jig upgrade --land`: uncommitted changes, a checkout on another branch than the base or the upgrade's, the base checked out in another worktree, or a base that cannot be fast-forwarded to origin's. `message` lists every reason, one per line, each with what to do |
 | `unreleased-source` | `jig init` or `jig upgrade` in copy mode (dry run too) found the framework source checkout not at the release tag of its version, or at it with uncommitted changes, and `--unreleased` was not given. `message` names where the checkout stands and the two ways out. Nothing was changed |
@@ -407,8 +407,10 @@ kind commits under that kind's subject (`Accept knowledge: …`); one of several
 whose source is `changed`, `unrecorded` or `missing` (as `jig knowledge sources` names it): that drops
 its link, and the stub is `rejected` (adr-20261106-a-changed-link-is-dropped-by-reject). A document is
 judged as it is on the branch, so one already decided and waiting is `not-proposed`. Refusals: `usage`;
-`not-found` for an id no document has, here or on the branch; `not-on-base` and `not-on-branch` for a
-document, or a change to a stub's source, this checkout has and the branch does not; `not-proposed` for
+`not-found` for an id no document has, here or on the branch; `not-on-base` for a document, or a
+change to a stub's source, this checkout has and the base does not; `not-on-branch` when the base has
+it, the waiting branch does not, and taking the base in conflicts — without a conflict the base is
+taken in, one merge commit on the branch, and `commit` names it; `not-proposed` for
 an `accept` of a document that is not a proposal, or a `reject` of one that is neither a proposal nor
 such a stub; `source-missing` for a stub whose source is missing (`accept`, `reviewed`); and the
 refusals of every write, below.
@@ -1227,7 +1229,7 @@ The knowledge waiting for a person, and the files its stubs link. Both read the 
 | `proposals[].source` | string or null | for a stub, the file it links, relative to the repository; `null` for any other document |
 | `proposals[].waiting` | object or null | a decision on this document committed in Jig's own tree that has not landed: `decision` (`accepted`, `rejected`), `branch` and `pr` (string or null). The document here still says `proposed`, and it is until that lands. `null` when none waits |
 | `proposals[].decidable` | boolean | a decision sent now (`accept` or `reject` with `--json`) would be judged on this document: its file is on the tip of the decisions waiting, or, when none waits, on the base as `origin/<base>` has it (the local base without origin), as of the last fetch. The write asks the same question of the commit its tree stands on. Whether it was decided already is `waiting`'s to say, and an id that differs there is still `not-found` |
-| `proposals[].reason` | string or null | `null` when `decidable`; otherwise the code the decision would be refused with: `not-on-base` (only in this checkout or in commits the base does not have: commit and push it), `not-on-branch` (on the base, but not on the decisions waiting, cut before it got there), or `landed` (`origin/<base>` decided it already — the proposal is no longer `proposed` there — and this checkout is only behind: no decision is owed, `jig refresh` brings it here; a decision sent anyway is refused by the checks the write makes where it is judged) |
+| `proposals[].reason` | string or null | `null` when `decidable`; otherwise the code the decision would be refused with: `not-on-base` (only in this checkout or in commits the base does not have: commit and push it), or `landed` (`origin/<base>` decided it already — the proposal is no longer `proposed` there — and this checkout is only behind: no decision is owed, `jig refresh` brings it here; a decision sent anyway is refused by the checks the write makes where it is judged) |
 | `proposals[].lossy` | boolean | `true` when a string of this proposal held bytes that are not UTF-8 and they were dropped: a `path` or `source` read without them may name another file. `false` otherwise |
 | `waiting` | object or null | the [write](#jig-writes---json) those decisions are on; `null` when none waits |
 
