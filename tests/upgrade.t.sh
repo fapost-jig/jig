@@ -2768,6 +2768,34 @@ test_upgrade_land_from_another_branch_never_moves_a_base_being_rebased() {
   rm -rf "$LAND_REMOTE"
 }
 
+# A main another worktree is rebasing that already equals origin's needs no
+# move: the landing does not ask git to move it, so git's refusal of a branch
+# in use never stops it, and main stays where it is.
+test_upgrade_land_from_another_branch_leaves_a_base_being_rebased_that_needs_no_move() {
+  _land_project merged
+  PATH=$LAND_PATH
+  local wt
+  git checkout -q -b task/elsewhere
+  git branch -q -f main origin/main
+  wt=$(mktemp -d "${TMPDIR:-/tmp}/jig-land-wt.XXXXXX")
+  rmdir "$wt"
+  git worktree add -q "$wt" main
+  ( cd "$wt" && GIT_SEQUENCE_EDITOR="sed -i.bak s/^pick/edit/" git rebase -q -i HEAD~1 >/dev/null 2>&1 ) || true
+  git -C "$wt" status | grep -q "rebase in progress" || fail "the fixture is not rebasing"
+
+  run jig upgrade --land
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "upgrade: landed jig/upgrade-9.9.9 (https://github.com/example/example/pull/12); main at"
+  assert_contains "$OUT" "this checkout stays on task/elsewhere"
+  assert_not_contains "$OUT" "could not be fast-forwarded"
+  assert_eq "$(git rev-parse origin/main)" "$(git rev-parse main)"
+  assert_eq task/elsewhere "$(git symbolic-ref --short HEAD)"
+
+  git -C "$wt" rebase --abort >/dev/null 2>&1 || true
+  git worktree remove --force "$wt"
+  rm -rf "$LAND_REMOTE"
+}
+
 # From another branch, main checked out in another worktree is that
 # worktree's to move, and a main with a commit origin's lacks is never moved:
 # both named at once, nothing moves.

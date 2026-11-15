@@ -2102,14 +2102,20 @@ _upgrade_land_let_go() {
 # go. `git fetch .` moves the ref, not `update-ref`: it takes a fast-forward
 # only, so a commit that reached the base since the checks is never lost, and
 # it refuses a branch any worktree has checked out or is rebasing or
-# bisecting, which `git worktree list` shows as a detached HEAD. A clone with
-# no local base gets one, set to track origin's.
+# bisecting, which `git worktree list` shows as a detached HEAD. A base that
+# already equals origin's needs no move, so it is not fetched: git would
+# refuse it in use whatever its value. A clone with no local base gets one,
+# set to track origin's.
 _upgrade_land_stay() {
-  local base="$1" head="$2" sha="$3" url="$4" cur="$5" had=1 now
+  local base="$1" head="$2" sha="$3" url="$4" cur="$5" had=1 now mine theirs
   git -C "$JIG_PROJECT" show-ref --verify --quiet "refs/heads/$base" || had=0
-  git -C "$JIG_PROJECT" fetch -q --no-tags --no-recurse-submodules . \
-    "refs/remotes/origin/$base:refs/heads/$base" >/dev/null 2>&1 \
-    || jig_die "upgrade --land: $base could not be fast-forwarded to origin/$base (another worktree uses it, or it moved while this ran); nothing was changed"
+  mine=$(git -C "$JIG_PROJECT" rev-parse --verify --quiet "refs/heads/$base" 2>/dev/null || true)
+  theirs=$(git -C "$JIG_PROJECT" rev-parse --verify --quiet "refs/remotes/origin/$base" 2>/dev/null || true)
+  if [ "$had" = 0 ] || [ -z "$theirs" ] || [ "$mine" != "$theirs" ]; then
+    git -C "$JIG_PROJECT" fetch -q --no-tags --no-recurse-submodules . \
+      "refs/remotes/origin/$base:refs/heads/$base" >/dev/null 2>&1 \
+      || jig_die "upgrade --land: $base could not be fast-forwarded to origin/$base (another worktree uses it, or it moved while this ran); nothing was changed"
+  fi
   if [ "$had" = 0 ]; then
     git -C "$JIG_PROJECT" branch -q --set-upstream-to="origin/$base" "$base" >/dev/null 2>&1 || true
   fi
