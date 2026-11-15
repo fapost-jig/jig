@@ -8788,7 +8788,7 @@ _task_ship_reviewers() {
     || jig_die "task ship: --reviewer: the forge could not say which account opens the pull request: $_RV_WHY
 Nothing was sent; the commit is on this machine, and running this again goes on from it."
   for arg in "${reviewer_args[@]}"; do
-    jig_reviewers_resolve "task ship" login "$arg"
+    jig_reviewers_resolve "task ship" login "$arg" "$self"
     if [ "$login" = "$self" ]; then
       printf 'task ship: --reviewer %s: %s opens the pull request, and its author is not asked to review it\n' "$arg" "$login"
       continue

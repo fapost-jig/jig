@@ -5468,6 +5468,8 @@ test_task_ship_unknown_task_dies() {
 #   gh-self      the login `api user` answers (default: me)
 #   gh-assignable `<login>\t<name>` lines, the repository's assignable users
 #                (default: alice, bob, carol and me)
+#   gh-self.rc   when present, `api user` fails (HTTP 401)
+#   gh-assignable.rc when present, the assignable-users query fails (HTTP 502)
 #   gh-history   the logins that reviewed recent merged pull requests, one per
 #                pull request and line, as the `--jq` filter prints them
 #                (default: none)
@@ -5488,8 +5490,11 @@ printf '%s\n' "\$*" >> "\$d/gh.log"
 val() { if [ -f "\$d/\$1" ]; then cat "\$d/\$1"; else printf '%s\n' "\$2"; fi; }
 case "\$1 \$2" in
   "auth status") exit 0 ;;
-  "api user") val gh-self me ;;
+  "api user")
+    [ ! -f "\$d/gh-self.rc" ] || { printf 'HTTP 401: Bad credentials\\n' >&2; exit 1; }
+    val gh-self me ;;
   "api graphql")
+    [ ! -f "\$d/gh-assignable.rc" ] || { printf 'HTTP 502: bad gateway\\n' >&2; exit 1; }
     q=""
     for a in "\$@"; do case "\$a" in q=*) q=\${a#q=} ;; esac; done
     all=\$(val gh-assignable "\$(printf 'alice\tAlice Smith\nbob\tBob Sikora\ncarol\tCarol Sikora\nme\tMe Myself')")
@@ -7061,6 +7066,63 @@ test_pr_reviewers_reads_gitlab() {
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" '"candidates":[{"login":"bob","name":"Bob Sikora","reviews":2},{"login":"carol","name":"Carol Sikora","reviews":1}]'
   assert_contains "$(cat glab.log)" "merge_requests?state=merged&per_page=30&target_branch=%73%74%61%67%69%6e%67"
+}
+
+# Every way the names can fail to resolve says so in words: the forge could not
+# be asked, it answered with something that is no login, or could not say which
+# account opens the pull request.
+test_task_ship_reviewer_says_why_a_name_could_not_be_resolved() {
+  sship_setup merge
+
+  : > gh-assignable.rc
+  run jig task ship T-1 --message-file msg.txt --reviewer alice
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "task ship: --reviewer alice: the forge could not be asked who it may be: HTTP 502: bad gateway"
+  assert_no_file gh-create.argv
+  rm gh-assignable.rc
+
+  printf 'bad!x\tNobody\n' > gh-assignable
+  run jig task ship T-1 --message-file msg.txt --reviewer bad
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "task ship: --reviewer bad: the forge answered 'bad!x', which is no login"
+  assert_no_file gh-create.argv
+  rm gh-assignable
+
+  : > gh-self.rc
+  run jig task ship T-1 --message-file msg.txt --reviewer alice
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "task ship: --reviewer: the forge could not say which account opens the pull request: HTTP 401: Bad credentials"
+  assert_no_file gh-create.argv
+}
+
+# The author is never asked, so a name it shares with a colleague is the
+# colleague's; its exact login still says it is the author.
+test_task_ship_reviewer_name_shared_with_the_author_is_the_colleagues() {
+  sship_setup merge
+  printf 'me\tIvan Sikora\nbob\tPetr Sikora\n' > gh-assignable
+
+  run jig task ship T-1 --message-file msg.txt --reviewer Sikora
+  assert_eq 3 "$RC" "$OUT"
+  assert_contains "$OUT" "task ship: --reviewer Sikora: bob"
+  assert_contains "$(cat gh-create.argv)" "$(printf -- '--reviewer\nbob\n')"
+}
+
+# The assignable list is handed to awk on stdin, not in the environment, whose
+# strings are capped: a repository with tens of thousands of people still
+# resolves a name, and `jig pr reviewers` still lists who reviewed.
+test_task_ship_and_pr_reviewers_read_a_large_assignable_list() {
+  sship_setup merge
+  awk 'BEGIN { for (i = 1; i <= 40000; i++) printf "user%d\tPerson Number %d of the repository\n", i, i; print "me\tMe Myself" }' > gh-assignable
+  assert_eq 1 "$(( $(wc -c < gh-assignable) > 1048576 ))"
+
+  run jig task ship T-1 --message-file msg.txt --reviewer user39999
+  assert_eq 3 "$RC" "$OUT"
+  assert_contains "$(cat gh-create.argv)" "$(printf -- '--reviewer\nuser39999\n')"
+
+  printf 'user39999\n' > gh-history
+  run jig pr reviewers --json
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" '"source":"history","author":"me","candidates":[{"login":"user39999","name":"Person Number 39999 of the repository","reviews":1}]'
 }
 
 # What the commands are not given: refused before anything is asked.
