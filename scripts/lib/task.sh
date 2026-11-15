@@ -4870,7 +4870,18 @@ task_waive() {
   if [ "$withdraw" -eq 0 ]; then
     # Only a path the gate names: a typo must not leave a record that waives
     # nothing. A withdrawal skips this, since the hook may have left the config.
-    printf '%s\n' "$(_task_gate_hook_paths "$gate")" | grep -Fxq -- "$path" \
+    # A case on the list, not `printf | grep -q`: grep -q leaves at the first
+    # match, printf's write then fails, and pipefail turns that into a refusal.
+    local named
+    named=$(_task_gate_hook_paths "$gate")
+    case "
+$named
+" in
+      *"
+$path
+"*) ;;
+      *) false ;;
+    esac \
       || jig_die "task waive: $path is not named by hooks.$gate in this checkout (it names: $(_task_gate_hook_paths "$gate" | paste -sd ' ' -))"
   else
     [ -n "$(_task_waiver_reason "$id" "$gate" "$path")" ] \
