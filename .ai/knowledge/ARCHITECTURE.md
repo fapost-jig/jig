@@ -46,7 +46,10 @@ with a single caller: `lib/bootstrap.sh` (carrying state into a new worktree, wi
 lifecycle; so is `lib/land.sh`, landing a task's pull request on the staging branch — the approval,
 the merge on the forge, the direct merge in a temporary tree, the unforced push
 (adr-20261111-a-task-lands-on-staging-through-its-pull-request), tested in `tests/task.t.sh` with the
-ship it ends. `lib/prgitlab.sh` is the same for `jig pr`: the GitLab half of it (glab and its
+ship it ends; so is `lib/prdo.sh`, a person's pull-request actions (`jig task request-review`,
+`merge-pr`, `pr-status`), beside land.sh and promote.sh, tested in `tests/prdo.t.sh`; land.sh, a
+part of the same `task` command, sources it too for `_prdo_view`, the forge's word on where a
+pull request goes when no ship recorded it. `lib/prgitlab.sh` is the same for `jig pr`: the GitLab half of it (glab and its
 account, the merge request, its diff, the read-back and the post) is sourced by `lib/pr.sh` alone
 and tested through `tests/pr.t.sh`. `lib/reviewers.sh` is shared by two commands, `pr` and
 `task`: who may review a pull request this clone opens, read from the forge — `jig pr reviewers`
@@ -66,7 +69,8 @@ own: `jig_checkout_occupants` ("who occupies this checkout's HEAD"), the one rul
 `lib/owntree.sh` holds the steps of a write made in Jig's own tree, which never moves a checkout
 (adr-20261104-a-write-goes-in-jigs-own-tree): `spec` and `knowledge` write through it, `writes` is
 its command (`jig writes`, what waits and carrying it further), and `housekeeping` and `status` read
-it; it sources nothing and calls the `jig_ship_*` steps every ship takes.
+it; `task` reads it for the actions table's `drop-item` row, which asks `ot_spec_drop_refusal`, the
+one guard of `jig spec drop --json`, of local refs; it sources nothing and calls the `jig_ship_*` steps every ship takes.
 A helper that two commands must never disagree about lives in `lib/common.sh` instead —
 `jig_git_touched_files` ("what did this task touch"), `jig_staging_in_use` and `jig_staging_states`
 ("is this project on a sound staging flow, and which tasks' work is on its staging branch" —

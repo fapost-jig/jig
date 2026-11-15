@@ -200,7 +200,7 @@ person's decision — no approval yet (ask: land without review, `jig task land 
 every listed path in the temporary worktree it names, any file, run the tests that cover them
 there, `git add`, write how each conflict was resolved to a file outside the repository, and run
 `jig task land <id> --resolved --note-file <file>`; name the resolution in your report. The task
-stays `ready` and is not closed: it waits on staging for "prepare for prod". The step it stopped at is the human's; never finish
+stays `ready` and is not closed: it waits on staging for "prepare for prod". `--by human` is a person's form of land, promote, merge-pr and request-review, for the person or their UI; the agent never passes it. The step it stopped at is the human's; never finish
 it by hand with git. The first line of the message is the pull request's title, the rest its
 body: the task's goal and what verified it. When the task edited a file a stub links, the body carries
 the block `jig knowledge changed --task <id> --to-review` prints, as it is (an autopilot run's
@@ -220,7 +220,7 @@ epic, and closes then like any other. Housekeeping keeps its workspace until the
 default branch, so the final review can still read it.
 
 A task whose landing cannot be observed closes now, in §6: `jig task list` shows no
-`branch` for it, or the base branch. Housekeeping never sees such a task land (ADR-0025).
+`branch` for it, or the base branch. Housekeeping never sees such a task land (ADR-0025); it keeps the workspace while it holds the commit message.
 
 ## 6. Close the task
 
@@ -247,7 +247,11 @@ finding, this one command closes it as done — it has no class and no route, an
 the knowledge decision itself. Never `jig task abandon` a decided triage. Once the task's branch
 is confirmed merged, housekeeping moves the workspace to trash; a task whose landing
 cannot be observed keeps its workspace, closed and unflagged, because housekeeping never
-destroys on `unknown`. A problem found after the close is a new task.
+destroys on `unknown` — unless it was never started (no branch, nothing at its branch name), which
+goes to trash too; a triage task waits there until its source task's workspace is gone. A problem found after the close is a new task.
+
+Where the task ran in a session of its own (`jig-autopilot` §7, "A session per task"), archiving that
+session once the task is `consolidated` is the set coordinator's, when the person asked for it; it is the runtime's, not a task state.
 
 ## 7. Report
 

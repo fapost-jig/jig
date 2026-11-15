@@ -77,10 +77,10 @@ test_queue_list_shows_order_priority_and_what_waits() {
   run jig queue
   assert_eq 0 "$RC" "$OUT"
   assert_eq "$(printf '%s\n' \
-    'task:a  P1' \
     'epic:big  P0' \
     '  task:t1  -' \
     '  task:t2  -' \
+    'task:a  P1' \
     'task:b  -' \
     '    waits for task:a: needs the format')" "$OUT"
 }
@@ -128,9 +128,9 @@ test_queue_list_json_is_every_item_in_the_writers_order() {
   assert_eq 0 "$RC" "$ERR"
   local items
   items=$(printf '%s,' \
+    '{"ref":"epic:big","kind":"epic","id":"big","level":null,"position":50,"priority":0,"depends_on":[]}' \
     '{"ref":"task:a","kind":"task","id":"a","level":null,"position":100,"priority":1,"depends_on":[]}' \
-    '{"ref":"epic:big","kind":"epic","id":"big","level":null,"position":200,"priority":0,"depends_on":[]}' \
-    '{"ref":"task:b","kind":"task","id":"b","level":null,"position":300,"priority":null,"depends_on":[{"on":"epic:big","reason":"say \"why\""},{"on":"task:a","reason":"needs the format"}]}' \
+    '{"ref":"task:b","kind":"task","id":"b","level":null,"position":200,"priority":null,"depends_on":[{"on":"epic:big","reason":"say \"why\""},{"on":"task:a","reason":"needs the format"}]}' \
     '{"ref":"task:t1","kind":"task","id":"t1","level":"epic:big","position":50,"priority":null,"depends_on":[]}' \
     '{"ref":"task:t2","kind":"task","id":"t2","level":"epic:big","position":100,"priority":null,"depends_on":[]}')
   assert_eq "{\"schema\":1,\"revision\":$REV,\"generated_at\":\"T\",\"data\":{\"items\":[${items%,}]}}" "$(_q_data)"
@@ -216,7 +216,7 @@ test_queue_keeps_the_lines_of_a_kind_it_does_not_know() {
   printf '# jig queue 1\nitem\ttask:a\t-\t100\t-\nhold\ttask:a\tlater\n' > .ai/runtime/queue
   jig queue set b --priority 4 >/dev/null
   assert_contains "$(cat .ai/runtime/queue)" "$(printf 'hold\ttask:a\tlater')"
-  assert_eq "$(printf 'task:a - 100 -\ntask:b - 200 4')" "$(_q_items)"
+  assert_eq "$(printf 'task:b - 50 4\ntask:a - 100 -')" "$(_q_items)"
 }
 
 test_queue_refuses_to_rewrite_another_format_version() {
@@ -249,14 +249,65 @@ test_queue_is_shared_by_every_worktree_of_the_clone() {
 
 # --- set ---------------------------------------------------------------------------
 
-test_queue_set_adds_at_the_bottom_and_changes_only_the_priority() {
+test_queue_set_places_a_new_item_by_its_priority() {
   _q_setup a b
   run jig queue set a --priority 0
   assert_eq 0 "$RC" "$OUT"
   assert_eq "queue: task:a at 100 on the top level, priority 0" "$OUT"
+  # P5 goes after the P0 one; clearing a priority puts the item after every
+  # numbered one, since `none` counts as 6.
   jig queue set b --priority 5 >/dev/null
+  assert_eq "$(printf 'task:a - 100 0\ntask:b - 200 5')" "$(_q_items)"
   jig queue set a --priority none >/dev/null
-  assert_eq "$(printf 'task:a - 100 -\ntask:b - 200 5')" "$(_q_items)"
+  assert_eq "$(printf 'task:b - 200 5\ntask:a - 300 -')" "$(_q_items)"
+}
+
+test_queue_set_puts_a_more_urgent_item_above_a_less_urgent_one() {
+  _q_setup a b c d
+  jig queue set a --priority 4 >/dev/null
+  jig queue set b --priority 2 >/dev/null
+  assert_eq "$(printf 'task:b - 50 2\ntask:a - 100 4')" "$(_q_items)"
+  # A second P2 goes after the first, not above it.
+  jig queue set c --priority 2 >/dev/null
+  assert_eq "$(printf 'task:b - 50 2\ntask:c - 75 2\ntask:a - 100 4')" "$(_q_items)"
+  # No priority goes to the bottom.
+  jig queue set d --priority none >/dev/null
+  assert_eq "$(printf 'task:b - 50 2\ntask:c - 75 2\ntask:a - 100 4\ntask:d - 200 -')" "$(_q_items)"
+}
+
+test_queue_set_with_the_same_priority_leaves_the_place_alone() {
+  _q_setup a b c
+  jig queue set a --priority 2 >/dev/null
+  jig queue set b --priority 2 >/dev/null
+  jig queue set c --priority 2 >/dev/null
+  jig queue move c --top >/dev/null
+  local before
+  before=$(_q_items)
+  jig queue set b --priority 2 >/dev/null
+  jig queue set c --priority 2 >/dev/null
+  assert_eq "$before" "$(_q_items)"
+  assert_eq "task:c" "$(_q_items | awk 'NR == 1 { print $1 }')"
+}
+
+test_queue_set_with_a_changed_priority_moves_the_item() {
+  _q_setup a b c
+  jig queue set a --priority 2 >/dev/null
+  jig queue set b --priority 3 >/dev/null
+  jig queue set c --priority 4 >/dev/null
+  assert_eq "task:a task:b task:c" "$(_q_items | awk '{ printf "%s%s", (NR > 1 ? " " : ""), $1 }')"
+  # c to P1 goes to the top; a to P3 goes after b, the last item up to P3.
+  jig queue set c --priority 1 >/dev/null
+  assert_eq "task:c task:a task:b" "$(_q_items | awk '{ printf "%s%s", (NR > 1 ? " " : ""), $1 }')"
+  jig queue set c --priority 3 >/dev/null
+  assert_eq "task:a task:b task:c" "$(_q_items | awk '{ printf "%s%s", (NR > 1 ? " " : ""), $1 }')"
+}
+
+test_queue_move_and_depend_still_add_a_new_item_at_the_bottom() {
+  _q_setup a b c
+  jig queue set a --priority 1 >/dev/null
+  jig queue move b --bottom >/dev/null
+  jig queue depend c --on a --reason r >/dev/null
+  assert_eq "task:a task:b task:c" "$(_q_items | awk '{ printf "%s%s", (NR > 1 ? " " : ""), $1 }')"
 }
 
 test_queue_set_refuses_what_is_not_a_priority() {
@@ -770,29 +821,30 @@ test_queue_next_on_an_empty_queue_says_none() {
   _qn_next
   assert_eq "$(printf '%s\n' \
     'next: none — the queue holds no task to take' \
-    'not queued: 1 task — jig queue set <id> --priority <p>')" "$NEXT"
+    'not queued: 1 task — jig queue set <id> --priority <p>' \
+    'slots: 2 of 2 free (0 building)')" "$NEXT"
   _q_json next
   assert_eq 0 "$RC" "$ERR"
-  assert_contains "$OUT" '"data":{"next":null,"reason":"empty","waiting":[],"taken":[],"not_queued":1}}'
+  assert_contains "$OUT" '"data":{"next":null,"reason":"empty","waiting":[],"taken":[],"in_progress":[],"not_queued":1,"resume":[],"slots":{"limit":2,"building":0,"free":2}}}'
   assert_no_file .ai/runtime/queue
   _qn_task a new closed
   jig queue set a --priority 1 >/dev/null
   _qn_next
-  assert_eq 'next: none — the queue holds no task to take' "$NEXT"
+  assert_eq "$(printf '%s\n' 'next: none — the queue holds no task to take' 'slots: 2 of 2 free (0 building)')" "$NEXT"
 }
 
 test_queue_next_takes_the_most_urgent_priority_and_none_last() {
   fixture_jig_repo
-  _qn_task a started
-  _qn_task b started
-  _qn_task c started
-  _qn_task d started
+  _qn_task a new
+  _qn_task b new
+  _qn_task c new
+  _qn_task d new
   jig queue set a --priority none >/dev/null
   jig queue set b --priority 3 >/dev/null
   jig queue set c --priority 1 >/dev/null
   jig queue set d --priority 5 >/dev/null
   _qn_next
-  assert_contains "$NEXT" "next: task:c — 3 of 4 on the top level, priority 1, started"
+  assert_contains "$NEXT" "next: task:c — 1 of 4 on the top level, priority 1, not started"
   jig queue remove c >/dev/null
   _qn_next
   assert_contains "$NEXT" "next: task:b — "
@@ -801,10 +853,10 @@ test_queue_next_takes_the_most_urgent_priority_and_none_last() {
   assert_contains "$NEXT" "next: task:d — "
   jig queue remove d >/dev/null
   _qn_next
-  assert_contains "$NEXT" "next: task:a — 1 of 1 on the top level, priority none, started"
+  assert_contains "$NEXT" "next: task:a — 1 of 1 on the top level, priority none, not started"
 }
 
-test_queue_next_prefers_a_started_task_then_the_position() {
+test_queue_next_never_advises_a_started_task() {
   fixture_jig_repo
   _qn_task a new
   _qn_task b started
@@ -813,22 +865,62 @@ test_queue_next_prefers_a_started_task_then_the_position() {
   jig queue set a --priority 2 >/dev/null
   jig queue set b --priority 2 >/dev/null
   jig queue set c --priority 2 >/dev/null
-  jig queue set d --priority 2 >/dev/null
-  # Order a b c d: the started ones first, each by position.
+  jig queue set d --priority 1 >/dev/null
+  # A P1 task is started, so it is not advised; among the rest, by position.
   _qn_next
-  assert_contains "$NEXT" "next: task:b — 2 of 4 on the top level, priority 2, started"
-  jig queue move d --top >/dev/null
+  assert_eq "$(printf '%s\n' \
+    'next: task:a — 2 of 4 on the top level, priority 2, not started' \
+    'in progress: task:d (P1), task:b (P2)' \
+    'slots: 2 of 2 free (0 building)')" "$NEXT"
+  jig queue move c --top >/dev/null
   _qn_next
-  assert_contains "$NEXT" "next: task:d — 1 of 4 on the top level, priority 2, started"
-  jig task abandon d >/dev/null 2>&1 || fail "abandon failed"
-  jig task abandon b >/dev/null 2>&1 || fail "abandon failed"
-  _qn_next
+  assert_contains "$NEXT" "next: task:c — 1 of 4 on the top level, priority 2, not started"
+  jig task abandon c >/dev/null 2>&1 || fail "abandon failed"
+  jig task abandon a >/dev/null 2>&1 || fail "abandon failed"
   # An abandoned task leaves the queue (adr-20261107-a-finished-task-leaves-the-queue).
-  assert_contains "$NEXT" "next: task:a — 1 of 2 on the top level, priority 2, not started"
-  # A higher priority still beats a started task.
-  jig queue set c --priority 0 >/dev/null
   _qn_next
-  assert_contains "$NEXT" "next: task:c — "
+  assert_eq "$(printf '%s\n' \
+    'next: none — every queued task left is in progress' \
+    'in progress: task:d (P1), task:b (P2)' \
+    'slots: 2 of 2 free (0 building)')" "$NEXT"
+  _q_json next
+  assert_contains "$OUT" '"data":{"next":null,"reason":"in_progress","waiting":[],"taken":[],"in_progress":[{"ref":"task:d","id":"d","priority":1},{"ref":"task:b","id":"b","priority":2}],"not_queued":0,"resume":[],"slots":{"limit":2,"building":0,"free":2}}}'
+  # A task with no priority reads as such, and a new one is advised again.
+  _qn_task e started
+  jig queue set e --priority none >/dev/null
+  _qn_task f new
+  jig queue set f --priority none >/dev/null
+  _qn_next
+  assert_eq "$(printf '%s\n' \
+    'next: task:f — 4 of 4 on the top level, priority none, not started' \
+    'in progress: task:d (P1), task:b (P2), task:e (no priority)' \
+    'slots: 2 of 2 free (0 building)')" "$NEXT"
+}
+
+test_queue_next_reason_in_progress_comes_after_waiting_and_taken() {
+  fixture_jig_repo
+  _qn_task w new
+  _qn_task t new
+  _qn_task p started
+  _qn_task z new active paused:true
+  jig queue set w --priority 1 >/dev/null
+  jig queue set t --priority 1 >/dev/null
+  jig queue set p --priority 1 >/dev/null
+  jig queue set z --priority 1 >/dev/null
+  jig queue depend w --on p --reason "after p" >/dev/null
+  mkdir -p .ai/runtime/taken/t
+  printf 'checkout: /x/shop\nsince: 2026-10-30T15:09:12Z\n' > .ai/runtime/taken/t/s1
+  _q_json next
+  assert_contains "$OUT" '"next":null,"reason":"waiting",'
+  jig queue remove w >/dev/null
+  _q_json next
+  assert_contains "$OUT" '"next":null,"reason":"taken",'
+  jig queue remove t >/dev/null
+  _q_json next
+  assert_contains "$OUT" '"next":null,"reason":"in_progress",'
+  jig queue remove p >/dev/null
+  _q_json next
+  assert_contains "$OUT" '"next":null,"reason":"paused","waiting":[],"taken":[],"in_progress":[],'
 }
 
 test_queue_next_orders_levels_by_the_top_level_position() {
@@ -910,7 +1002,8 @@ test_queue_next_reads_a_task_dependency_by_what_is_known_of_it() {
     '  task:w waits for task:gone_t: broken — jig queue undepend task:w --on task:gone_t' \
     '  task:w waits for task:open_t: open' \
     '  task:w waits for task:unk_t: unknown — jig housekeeping' \
-    'not queued: 4 tasks — jig queue set <id> --priority <p>')" "$NEXT"
+    'not queued: 4 tasks — jig queue set <id> --priority <p>' \
+    'slots: 2 of 2 free (0 building)')" "$NEXT"
 }
 
 # Only the newest housekeeping run counts: an older `merged` is not a merge.
@@ -985,12 +1078,12 @@ test_queue_next_reads_an_epic_dependency_and_inherits_it() {
 test_queue_next_skips_what_is_not_a_candidate() {
   fixture_jig_repo
   _q_epic big
-  _qn_task paused_t started active paused:true
-  _qn_task asked_t started
-  _qn_task ready_t started ready
-  _qn_task done_t started consolidated
-  _qn_task dead_t started abandoned
-  _qn_task gone_t started
+  _qn_task paused_t new active paused:true
+  _qn_task asked_t new
+  _qn_task ready_t new ready
+  _qn_task done_t new consolidated
+  _qn_task dead_t new abandoned
+  _qn_task gone_t new
   _qn_task ok_t new
   local t
   for t in paused_t asked_t ready_t done_t dead_t gone_t ok_t; do
@@ -1027,11 +1120,12 @@ test_queue_next_counts_the_active_tasks_the_queue_does_not_know() {
   _qn_next
   assert_eq "$(printf '%s\n' \
     'next: task:q1 — 1 of 1 on the top level, priority 1, not started' \
-    'not queued: 2 tasks — jig queue set <id> --priority <p>')" "$NEXT"
+    'not queued: 2 tasks — jig queue set <id> --priority <p>' \
+    'slots: 2 of 2 free (0 building)')" "$NEXT"
   jig queue set q2 --priority 1 >/dev/null
   jig queue set a --priority 1 >/dev/null
   _q_json next
-  assert_contains "$OUT" '"not_queued":0}'
+  assert_contains "$OUT" '"not_queued":0,'
   _qn_next
   assert_not_contains "$NEXT" "not queued"
 }
@@ -1059,7 +1153,7 @@ test_queue_next_names_why_it_has_nothing_to_advise() {
 
 test_queue_next_json_shape_is_pinned() {
   fixture_jig_repo
-  _qn_task a started
+  _qn_task a new
   _qn_task b new
   _qn_task c new
   _q_epic big t1
@@ -1073,14 +1167,13 @@ test_queue_next_json_shape_is_pinned() {
   assert_eq 0 "$RC" "$ERR"
   local pos
   pos=$(awk -F '\t' '$1 == "item" && $2 == "task:a" { print $4 }' .ai/runtime/queue)
-  assert_eq "{\"schema\":1,\"revision\":$REV,\"generated_at\":\"T\",\"data\":{\"next\":{\"ref\":\"task:a\",\"kind\":\"task\",\"id\":\"a\",\"level\":null,\"position\":$pos,\"priority\":2,\"started\":true},\"reason\":null,\"waiting\":[{\"ref\":\"task:b\",\"on\":\"task:c\",\"state\":\"unknown\",\"reason\":\"needs c\"}],\"taken\":[],\"not_queued\":1}}" \
+  assert_eq "{\"schema\":1,\"revision\":$REV,\"generated_at\":\"T\",\"data\":{\"next\":{\"ref\":\"task:a\",\"kind\":\"task\",\"id\":\"a\",\"level\":null,\"position\":$pos,\"priority\":2,\"started\":false},\"reason\":null,\"waiting\":[{\"ref\":\"task:b\",\"on\":\"task:c\",\"state\":\"unknown\",\"reason\":\"needs c\"}],\"taken\":[],\"in_progress\":[{\"ref\":\"task:t1\",\"id\":\"t1\",\"priority\":null}],\"not_queued\":1,\"resume\":[],\"slots\":{\"limit\":2,\"building\":0,\"free\":2}}}" \
     "$(printf '%s\n' "$OUT" | sed 's/"generated_at":"[^"]*"/"generated_at":"T"/')"
   # A task on an epic's level, with no priority.
   jig queue remove a >/dev/null
   jig queue remove b >/dev/null
   _q_json next
-  assert_contains "$OUT" '"next":{"ref":"task:t1","kind":"task","id":"t1","level":"epic:big","position":'
-  assert_contains "$OUT" ',"priority":null,"started":true},"reason":null,"waiting":[],"taken":[],"not_queued":3}}'
+  assert_contains "$OUT" '"next":null,"reason":"in_progress","waiting":[],"taken":[],"in_progress":[{"ref":"task:t1","id":"t1","priority":null}],"not_queued":3,"resume":[],"slots":{"limit":2,"building":0,"free":2}}}'
 }
 
 test_queue_next_refuses_an_extra_argument_and_a_foreign_format() {
@@ -1151,7 +1244,7 @@ test_queue_prune_takes_out_every_finished_task_and_keeps_the_rest() {
 # work that never landed stays and reads broken.
 test_queue_prune_drops_met_waits_and_keeps_broken_ones() {
   fixture_jig_repo
-  _qn_task w started
+  _qn_task w new
   _qn_task fin_t started consolidated
   _qn_task hk_t started ready
   _qn_task dead started abandoned
@@ -1566,7 +1659,7 @@ test_queue_next_json_taken_item_shape_is_pinned() {
   assert_eq 0 "$RC" "$ERR"
   local data
   data=$(printf '%s\n' "$OUT" | sed 's/"idle_seconds":[0-9]*/"idle_seconds":N/g')
-  assert_contains "$data" '"next":null,"reason":"taken","waiting":[],"taken":[{"ref":"task:a","checkout":"/x/shop","since":"2026-10-30T15:09:12Z","idle_seconds":N,"command":"task set a class T1"},{"ref":"task:b","checkout":null,"since":null,"idle_seconds":N,"command":null}],"not_queued":0}}'
+  assert_contains "$data" '"next":null,"reason":"taken","waiting":[],"taken":[{"ref":"task:a","checkout":"/x/shop","since":"2026-10-30T15:09:12Z","idle_seconds":N,"command":"task set a class T1"},{"ref":"task:b","checkout":null,"since":null,"idle_seconds":N,"command":null}],"in_progress":[],"not_queued":0,"resume":[],"slots":{"limit":2,"building":0,"free":2}}}'
   _qn_next
   assert_contains "$NEXT" "  task:b is taken by another session, last active "
 }
@@ -1600,4 +1693,177 @@ test_queue_next_does_not_advise_a_parked_task() {
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" '"next":null,"reason":"empty"'
   assert_contains "$OUT" '"not_queued":0'
+}
+
+# --- a stopped run that was answered, and the slots (adr-20261114-a-waiting-run-holds-no-slot) ---
+
+# _qr_run <id> <priority|-> <stop time|-> [answered] — a started task whose
+# autopilot run is stopped and was answered at <answered> (default
+# 2026-11-14T11:00:00Z); queued with <priority> unless it is `-`; its journal
+# ends with a stop at <stop time> unless that is `-`.
+_qr_run() {
+  local id="$1" pri="$2" stop="$3" ans="${4:-2026-11-14T11:00:00Z}"
+  _qn_task "$id" started active autopilot:stopped "autopilot_answered:$ans"
+  if [ "$stop" != "-" ]; then
+    printf '2026-11-14T05:00:00Z\tstart\tgo\n%s\tstop\tneeds a person\n' "$stop" > ".ai/workspace/tasks/$id/autopilot"
+  fi
+  if [ "$pri" != "-" ]; then jig queue set "$id" --priority "$pri" >/dev/null; fi
+  return 0
+}
+
+test_queue_next_lists_an_answered_run_to_resume_and_not_in_progress() {
+  fixture_jig_repo
+  _qr_run a 1 2026-11-14T09:00:00Z
+  # An earlier stop that a later one replaces.
+  printf '2026-11-14T05:00:00Z\tstart\tgo\n2026-11-14T06:00:00Z\tstop\tone\n2026-11-14T07:00:00Z\tresume\tx\n2026-11-14T09:00:00Z\tstop\ttwo\n' \
+    > .ai/workspace/tasks/a/autopilot
+  _qr_run b 0 2026-11-14T10:00:00Z
+  _qr_run c 1 2026-11-14T08:00:00Z
+  _qr_run e 1 -
+  _qr_run d - 2026-11-14T07:00:00Z
+  _qn_task n new
+  jig queue set n --priority 3 >/dev/null
+  _qn_next
+  assert_eq "next: task:n — 5 of 5 on the top level, priority 3, not started" "$(printf '%s\n' "$NEXT" | sed -n 1p)"
+  assert_not_contains "$NEXT" "in progress:"
+  assert_eq "resume first: task:b (P0, answered ago), task:c (P1, answered ago), task:a (P1, answered ago), task:e (P1, answered ago), task:d (no priority, answered ago)" \
+    "$(printf '%s\n' "$NEXT" | sed -n 's/^\(resume first: .*\)$/\1/p' | sed -E 's/answered ([0-9]+ [a-z]+ ago|just now)/answered ago/g')"
+  _q_json next
+  assert_eq 0 "$RC" "$ERR"
+  assert_contains "$OUT" '"in_progress":[]'
+  assert_contains "$OUT" '"resume":[{"ref":"task:b","id":"b","priority":0,"stopped_at":"2026-11-14T10:00:00Z","answered_at":"2026-11-14T11:00:00Z"},{"ref":"task:c","id":"c","priority":1,"stopped_at":"2026-11-14T08:00:00Z","answered_at":"2026-11-14T11:00:00Z"},{"ref":"task:a","id":"a","priority":1,"stopped_at":"2026-11-14T09:00:00Z",'
+  assert_contains "$OUT" '{"ref":"task:e","id":"e","priority":1,"stopped_at":null,'
+  assert_contains "$OUT" '{"ref":"task:d","id":"d","priority":null,"stopped_at":"2026-11-14T07:00:00Z",'
+  assert_contains "$OUT" '"next":{"ref":"task:n",'
+}
+
+test_queue_next_says_just_now_for_a_fresh_answer() {
+  fixture_jig_repo
+  _qr_run a 2 2026-11-14T09:00:00Z "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  _qn_next
+  assert_contains "$NEXT" "resume first: task:a (P2, answered just now)"
+}
+
+test_queue_next_a_stopped_run_nobody_answered_is_not_to_resume() {
+  fixture_jig_repo
+  _qn_task a started active autopilot:stopped
+  jig queue set a --priority 1 >/dev/null
+  _qn_next
+  assert_not_contains "$NEXT" "resume first"
+  assert_contains "$NEXT" "in progress: task:a (P1)"
+}
+
+test_queue_next_skips_an_answered_run_another_session_holds() {
+  fixture_jig_repo
+  _qr_run a 1 2026-11-14T09:00:00Z
+  _qr_run b 2 2026-11-14T09:00:00Z
+  _qt_take a other-session
+  CLAUDE_CODE_SESSION_ID=this-session
+  export CLAUDE_CODE_SESSION_ID
+  _qn_next
+  assert_contains "$NEXT" "resume first: task:b (P2, answered "
+  assert_not_contains "$NEXT" "task:a (P1, answered"
+  assert_contains "$NEXT" "  task:a is taken by another session"
+  _q_json next
+  assert_not_contains "$OUT" '{"ref":"task:a","id":"a","priority":1,"stopped_at"'
+}
+
+test_queue_next_counts_the_slots_by_what_is_being_built() {
+  fixture_jig_repo
+  _qn_task b1 started active autopilot:on
+  _qn_next
+  assert_contains "$NEXT" "slots: 1 of 2 free (1 building)"
+  # Neither a consolidated run, a stopped one, an answered one nor one that ended holds a slot.
+  _qn_task b2 started active autopilot:on knowledge_consolidated:true
+  _qn_task s1 started active autopilot:stopped
+  _qr_run s2 - 2026-11-14T09:00:00Z
+  _qn_task d1 started active autopilot:done
+  _qn_task nb new
+  _qn_next
+  assert_eq "slots: 1 of 2 free (1 building)" "$(printf '%s\n' "$NEXT" | tail -n 1)"
+  _q_json next
+  assert_contains "$OUT" '"slots":{"limit":2,"building":1,"free":1}}'
+  # A run building in a task whose status is not active still counts only by its run.
+  _qn_task b3 started active autopilot:on
+  _qn_task b4 started active autopilot:on
+  _q_json next
+  assert_contains "$OUT" '"slots":{"limit":2,"building":3,"free":0}}'
+  _qn_next
+  assert_eq "slots: 0 of 2 free (3 building)" "$(printf '%s\n' "$NEXT" | tail -n 1)"
+  printf 'autopilot.parallel: 5\n' >> .ai/config.local.yaml
+  _qn_next
+  assert_eq "slots: 2 of 5 free (3 building)" "$(printf '%s\n' "$NEXT" | tail -n 1)"
+  # A run left `on` in a task abandoned or archived holds no slot: abandon and
+  # archive leave `autopilot` as it was. A ready task still being built does.
+  _qn_task x1 started abandoned autopilot:on
+  _qn_task x2 started archived autopilot:on
+  _qn_task r1 started ready autopilot:on
+  _qn_next
+  assert_eq "slots: 1 of 5 free (4 building)" "$(printf '%s\n' "$NEXT" | tail -n 1)"
+}
+
+test_queue_next_reads_a_rejected_parallel_limit_as_one() {
+  fixture_jig_repo
+  _qn_task b1 started active autopilot:on
+  printf 'autopilot.parallel: 99\n' >> .ai/config.local.yaml
+  _q_json next
+  assert_eq 0 "$RC" "$ERR"
+  assert_contains "$OUT" '"slots":{"limit":1,"building":1,"free":0}}'
+}
+
+test_queue_next_keeps_the_verdict_first_and_slots_last() {
+  fixture_jig_repo
+  _qn_task a new
+  _qn_task t started
+  _qr_run r 1 2026-11-14T09:00:00Z
+  jig queue set a --priority 1 >/dev/null
+  jig queue set t --priority 2 >/dev/null
+  _qn_next
+  assert_eq "next: task:a — 2 of 3 on the top level, priority 1, not started" "$(printf '%s\n' "$NEXT" | sed -n 1p)"
+  assert_contains "$(printf '%s\n' "$NEXT" | sed -n 2p)" "in progress: task:t (P2)"
+  assert_contains "$(printf '%s\n' "$NEXT" | sed -n 3p)" "resume first: task:r (P1, answered "
+  assert_eq "slots: 2 of 2 free (0 building)" "$(printf '%s\n' "$NEXT" | sed -n 4p)"
+}
+
+test_queue_next_a_task_depending_on_a_stopped_run_waits_for_a_person() {
+  fixture_jig_repo
+  _qn_task w new
+  _qn_task s started active autopilot:stopped
+  jig queue set w --priority 1 >/dev/null
+  jig queue depend w --on task:s --reason "after s" >/dev/null
+  _qn_next
+  assert_eq "$(printf '%s\n' \
+    'next: none — every queued task waits for a dependency' \
+    '  task:w waits for task:s: its autopilot run is stopped, waiting for an answer or a free slot — jig status' \
+    'not queued: 1 task — jig queue set <id> --priority <p>' \
+    'slots: 2 of 2 free (0 building)')" "$NEXT"
+  _q_json next
+  assert_contains "$OUT" '"waiting":[{"ref":"task:w","on":"task:s","state":"waiting","reason":"after s"}]'
+  # Answered or not, the run is still waited for; and the line shows beside an advice.
+  jig task autopilot s answer --answer "go on" --by human >/dev/null
+  _qn_task z new
+  jig queue set z --priority 2 >/dev/null
+  _qn_next
+  assert_contains "$NEXT" "next: task:z"
+  assert_contains "$NEXT" "  task:w waits for task:s: its autopilot run is stopped, waiting for an answer or a free slot — jig status"
+  _q_json next
+  assert_contains "$OUT" '"state":"waiting"'
+  # Prune drops only a finished wait.
+  run jig queue prune
+  assert_eq 0 "$RC" "$OUT"
+  run jig queue list
+  assert_contains "$OUT" "after s"
+}
+
+test_queue_next_an_answered_run_does_not_change_what_task_start_refuses() {
+  fixture_jig_repo
+  _qn_task x new
+  _qn_task y new
+  jig queue set x --priority 1 >/dev/null
+  jig queue set y --priority 2 >/dev/null
+  _qr_run r 0 2026-11-14T09:00:00Z
+  run jig task start y
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" 'first in the queue is task:x (P1)'
+  assert_not_contains "$OUT" 'task:r'
 }

@@ -355,7 +355,8 @@ $rel"
   _status_drift
   [ -z "$_STATUS_DRIFT" ] || jig_staging_drift_lines "$_STATUS_DRIFT_STAGING" "$_STATUS_DRIFT"
   _status_parked_read "$_STATUS_STAGING"
-  local staging_state sid sst parked parked_line=""
+  local staging_state sid sst parked parked_line="" waiting_rows="" wt=$'\t'
+  local wf_reason wf_at wf_phase wf_answered wf_mark
   while IFS= read -r rec; do
     [ -n "$rec" ] || continue
     _status_rec "$rec"
@@ -375,7 +376,7 @@ $rel"
     # Read by the readers `jig context` and `task` read it by too
     # (jig_queue_place, jig_pause_request; common.sh). The words go before the
     # worktree, the base and the pause, where _status_task_needs reads only
-    # `lowered=`.
+    # `lowered=` and `out_of_order=`.
     qlines=""
     if jig_queue_place "$_ST_ID"; then
       line="$line queue=$_JIG_QUEUE_RANK/$_JIG_QUEUE_COUNT"
@@ -420,6 +421,12 @@ EOF
 $waivers
 EOF
       [ "$nwaived" -eq 0 ] || line="$line waived=$nwaived"
+    fi
+    # A start against the queue's answer is shown beside the lowering, with
+    # the reason on a line of its own (adr-20261022-the-next-task-is-advised-from-the-queue).
+    if [ -n "$_ST_OOO" ]; then
+      line="$line out_of_order=$_ST_OOO"
+      qlines="$qlines  started ahead of $_ST_OOO${_ST_OOO_REASON:+: $_ST_OOO_REASON}"$'\n'
     fi
     [ -z "$_ST_WT" ] || line="$line $_ST_WT_NOTE"
     # Only a failure is shown: a worktree the project's own command could not
@@ -474,12 +481,36 @@ EOF
       autopilot_note=$(_task_autopilot_note "$_ST_ID")
       [ -z "$autopilot_note" ] || line="$line $autopilot_note"
     fi
+    # A run waiting for a person and not yet answered goes to the `waiting for
+    # you:` block below, with its question verbatim (the journal's last stop,
+    # facts field 5); an answered run waits for a slot, not for a person.
+    if [ "$_ST_AUTOPILOT" = stopped ]; then
+      # The facts are collected for the page only: read them here, for a
+      # stopped run alone.
+      [ -n "$_ST_APFACTS" ] || _task_autopilot_facts_v _ST_APFACTS "$_ST_ID"
+      IFS="$wt" read -r _ _ _ _ wf_reason wf_at wf_phase _ wf_answered <<EOF
+$_ST_APFACTS
+EOF
+      if [ -z "$wf_answered" ] || [ "$wf_answered" = "-" ]; then
+        [ -n "$wf_reason" ] && [ "$wf_reason" != "-" ] || wf_reason="no reason recorded"
+        wf_mark=""
+        if _task_autopilot_at_limit "$_ST_ID"; then wf_mark="repairs used up: its draft, or a handover"; fi
+        if [ -n "$wf_phase" ] && [ "$wf_phase" != "-" ]; then
+          wf_mark="phase $wf_phase${wf_mark:+; $wf_mark}"
+        fi
+        if [ "$(_task_autopilot_mode "$_ST_ID")" = unattended ] && ! _task_autopilot_at_limit "$_ST_ID"; then
+          wf_mark="unattended${wf_mark:+; $wf_mark}"
+        fi
+        waiting_rows="$waiting_rows${wf_at:--}$wt$_ST_ID$wt${wf_mark:+ ($wf_mark)}: $wf_reason"$'\n'
+      fi
+    fi
     printf '%s\n%s' "$line" "$qlines"
   done <<EOF
 $_STATUS_LIVE
 EOF
   [ "$found" = 1 ] || [ -n "$parked_line" ] || printf '%s\n' "no active tasks"
   [ -z "$parked_line" ] || printf 'parked: %s\n' "$parked_line"
+  [ -z "$waiting_rows" ] || _status_waiting_block "$waiting_rows"
   [ "$_STATUS_FINISHED" -gt 0 ] && printf '(%d finished; jig task list --all)\n' "$_STATUS_FINISHED"
   [ "$_STATUS_ARCHIVED" -gt 0 ] && printf 'archived: %d (jig task list --status archived)\n' "$_STATUS_ARCHIVED"
   # Which queued task to take next, when the clone keeps a queue.
@@ -513,6 +544,24 @@ EOF
   _status_session_hook
   _status_notify_hook
   _status_instructions
+}
+
+# _status_waiting_block <rows> — the `waiting for you:` block: one header and a
+# line per autopilot run stopped for a person, from `<stop time><TAB><id><TAB>
+# <marker and reason>` rows, oldest stop first. The command in the header is
+# the one that answers a run without resuming it; a run started unattended is
+# marked `unattended` and answered `--by human` (its recorded mode, not the
+# clone's setting now).
+_status_waiting_block() {
+  local n by="" word=run id rest at tab=$'\t'
+  n=$(printf '%s' "$1" | grep -c '^')
+  [ "$n" -eq 1 ] || word=runs
+  case "$1" in *"(unattended"*) by="; add --by human for a run marked unattended" ;; esac
+  printf 'waiting for you: %s autopilot %s (answer: jig task autopilot <id> answer --answer <text>%s)\n' "$n" "$word" "$by"
+  while IFS="$tab" read -r at id rest; do
+    [ -n "$id" ] || continue
+    printf '  %s%s\n' "$id" "$rest"
+  done < <(printf '%s' "$1" | LC_ALL=C sort -t "$tab" -k1,1 -k2,2)
 }
 
 # _status_flow — the `flow:` line, printed only off the default `direct` flow:
@@ -687,8 +736,9 @@ _status_need() {
 }
 
 # _status_task_needs <task line> — exit 0 when a `task ...` line asks for the
-# reader: paused, blocking findings, a stale review, a stopped run, a lowered
-# class (adr-20261004-a-route-stage-is-proven-by-its-record), a waived gate hook. Only the fields
+# reader: paused, blocking findings, a stale review, a lowered
+# class (adr-20261004-a-route-stage-is-proven-by-its-record), a start ahead of
+# the queue, a waived gate hook. Only the fields
 # the line builder writes are looked at, never the text a person wrote — a
 # worktree path or a pause reason may hold any of those words.
 _status_task_needs() {
@@ -697,14 +747,14 @@ _status_task_needs() {
   head=${t%% worktree=*}
   head=${head%% base=*}
   head=${head%% paused*}
-  case "$head" in *" lowered="* | *" waived="*) return 0 ;; esac
+  case "$head" in *" lowered="* | *" out_of_order="* | *" waived="*) return 0 ;; esac
   # The words after the pause reason, peeled off from the end.
   while :; do
     last=${t##* }
     case "$last" in
       blocking=*[!0-9]* | blocking=) break ;;
-      blocking=* | review=stale | autopilot=stopped) return 0 ;;
-      autopilot=on) ;;
+      blocking=* | review=stale) return 0 ;;
+      autopilot=on | autopilot=answered | autopilot=stopped) ;;
       *) break ;;
     esac
     t=${t% *}
@@ -726,7 +776,7 @@ _status_need_detail() {
 # _status_terminal — read the plain report on stdin and print its terminal
 # form.
 _status_terminal() {
-  local l t v m version="" prev_need="" list="" tline="" finished="" ntasks=0 hk=""
+  local l t v m version="" prev_need="" list="" tline="" waitb="" finished="" ntasks=0 hk=""
   _STT_NEED_LEVEL=() _STT_NEED_TEXT=() _STT_NEED_DETAIL=() _STT_TASKS=() _STT_OTHERS=()
   _STT_INSTALL=() _STT_KNOW=() _STT_CFG=() _STT_REST=() _STT_HOOKS=() _STT_INSTR=()
   _STT_INSTR_OWN=()
@@ -739,6 +789,17 @@ _status_terminal() {
     # needs the reader.
     case "$l" in
       "  "*)
+        # A run of the `waiting for you:` block: its id (with a marker in
+        # parentheses, if any) is the label, its question the text.
+        if [ -n "$waitb" ]; then
+          t=${l#  }
+          v=${t%% *}
+          case "$v" in
+            *:) _status_need_detail "${t%%: *}" "${t#*: }" ;;
+            *) _status_need_detail "${t%%): *})" "${t#*): }" ;;
+          esac
+          continue
+        fi
         if [ -n "$list" ]; then
           _status_need_detail "$list" "${l#  }"
           continue
@@ -758,6 +819,7 @@ _status_terminal() {
     esac
     list=""
     tline=""
+    waitb=""
     # A hint is a detail of the line it follows; the newer-release hint is
     # an item of its own, since nothing above it asked for it.
     case "$l" in
@@ -869,6 +931,11 @@ _status_terminal() {
       "staging: "*) _status_need warn "$l" ;;
       # Waiting at the staging branch is a fact about the tasks, not an ask.
       "parked: "*) _STT_PARKED=${l#parked: } ;;
+      # Runs waiting for a person: one item, each run a detail under it.
+      "waiting for you: "*)
+        _status_need warn "$l"
+        waitb=1
+        ;;
       "working here: "*" (jig "*", "*" ago)")
         t=${l#working here: }
         v=${t%% (jig *}
@@ -1468,7 +1535,7 @@ _STATUS_US=$(printf '\037')
 # sed per key per task: the page is redrawn after every task command, and a
 # process per value made ten tasks cost seconds. One line per state file,
 # <task_id> <class> <status> <paused> <paused_reason> <branch> <base_branch>
-# <autopilot> <pr_url> <knowledge_consolidated> <route_depth> <class_lowered_from> <issue>, joined by \037; each value is
+# <autopilot> <pr_url> <knowledge_consolidated> <route_depth> <class_lowered_from> <issue> <setup> <out_of_order_over> <out_of_order_reason>, joined by \037; each value is
 # what `sed -n 's/^<key>:[[:space:]]*//p' | head -n 1` gave, the first match.
 _status_task_rows() {
   local f
@@ -1480,10 +1547,11 @@ _status_task_rows() {
   awk '
     function out() {
       if (have)
-        printf "%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\n",
+        printf "%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\n",
           v["task_id"], v["class"], v["status"], v["paused"], v["paused_reason"],
           v["branch"], v["base_branch"], v["autopilot"], v["pr_url"], v["knowledge_consolidated"],
-          v["route_depth"], v["class_lowered_from"], v["issue"], v["setup"]
+          v["route_depth"], v["class_lowered_from"], v["issue"], v["setup"],
+          v["out_of_order_over"], v["out_of_order_reason"]
     }
     FNR == 1 { out(); split("", v); split("", seen); have = 1 }
     /^[^:]+:/ {
@@ -1504,7 +1572,7 @@ _status_task_rows() {
 # `page`, also the answers only the page shows: the gate of a T3/T4 design
 # (_task_gate_state) and the autopilot run (_task_autopilot_facts).
 _status_live_collect() {
-  local page="${1:-}" row id class status paused reason branch base autopilot pr_url kc own_depth lowered issue setup
+  local page="${1:-}" row id class status paused reason branch base autopilot pr_url kc own_depth lowered issue setup ooo ooo_reason
   local wt wt_note receipt gate facts depth setting us="$_STATUS_US"
   _STATUS_FINISHED=0
   _STATUS_ARCHIVED=0
@@ -1515,7 +1583,7 @@ _status_live_collect() {
   setting=$(_task_route_setting)
   while IFS= read -r row; do
     [ -n "$row" ] || continue
-    IFS="$us" read -r id class status paused reason branch base autopilot pr_url kc own_depth lowered issue setup <<EOF
+    IFS="$us" read -r id class status paused reason branch base autopilot pr_url kc own_depth lowered issue setup ooo ooo_reason <<EOF
 $row
 EOF
     case "$status" in
@@ -1548,7 +1616,7 @@ EOF
     # person's route.depth, read once above.
     _task_route_depth_of_v depth "$own_depth" "$setting"
     depth=${depth%%$'\t'*}
-    _STATUS_LIVE="$_STATUS_LIVE$id$us$class$us$status$us$paused$us$reason$us$branch$us$base$us$autopilot$us$pr_url$us$kc$us$wt$us$wt_note$us$receipt$us$gate$us$depth$us$lowered$us$issue$us$setup$us$facts
+    _STATUS_LIVE="$_STATUS_LIVE$id$us$class$us$status$us$paused$us$reason$us$branch$us$base$us$autopilot$us$pr_url$us$kc$us$wt$us$wt_note$us$receipt$us$gate$us$depth$us$lowered$us$issue$us$setup$us$ooo$us$ooo_reason$us$facts
 "
   done <<EOF
 $(_status_task_rows)
@@ -1563,11 +1631,13 @@ EOF
 # the task was lowered from (`class_lowered_from`), empty when it never was.
 # _ST_ISSUE is the task's tracker issue (`issue`), empty when it has none.
 # _ST_SETUP is the outcome of the project's `worktree.setup` in the task's
-# worktree (`setup`): `ok`, a failure, or empty when none ran.
+# worktree (`setup`): `ok`, a failure, or empty when none ran. _ST_OOO is the
+# task the queue advised instead when this one was started against it
+# (`out_of_order_over`), _ST_OOO_REASON the reason given; both empty otherwise.
 _status_rec() {
   IFS="$_STATUS_US" read -r _ST_ID _ST_CLASS _ST_STATUS _ST_PAUSED _ST_REASON _ST_BRANCH _ST_BASE \
     _ST_AUTOPILOT _ST_PR_URL _ST_KC _ST_WT _ST_WT_NOTE _ST_RECEIPT _ST_GATE _ST_DEPTH _ST_LOWERED _ST_ISSUE \
-    _ST_SETUP _ST_APFACTS <<EOF
+    _ST_SETUP _ST_OOO _ST_OOO_REASON _ST_APFACTS <<EOF
 $1
 EOF
 }
@@ -2154,6 +2224,104 @@ _status_attn() {
     "$5" "$us" "$6" "$us" "$7" "$us" "${8:-}" "$us" "${9:-}"
 }
 
+# _status_pr_item_v <id> <fallback-detail> <task-url> <move> [<review>] — for an attention item about a
+# task's open pull request, from the forge cache housekeeping wrote (never the
+# forge): sets _STATUS_PR_DETAIL, the words for its state, and _STATUS_PR_EXTRA,
+# the item's data (tab-separated, `-` for none: branch, base, state,
+# fetched_at, url, ci, mergeable, move, review, waiting_for) read by `jig status
+# --json`. <review> is "<review><TAB><waiting>" (as _task_parked_review_lookup_v
+# gives it) when the caller knows the pull request's review better than the
+# cache line found here does, e.g. the one a parked task waits on. <move> is
+# `land` or `merge`, the person's action on it: `land` when the caller says so,
+# or when the cache holds the pull request as going into the staging branch,
+# which is where a task of the staging flow's pull request goes. The cache and
+# the staging branch are read once per report; no process per item.
+_STATUS_PR_CACHE=""
+_STATUS_PR_CACHE_READ=""
+_STATUS_PR_STAGING=""
+_STATUS_PR_DETAIL=""
+_STATUS_PR_EXTRA=""
+_STATUS_PR_MOVE=""
+_STATUS_PR_CMD=""
+_status_pr_item_v() {
+  local id="$1" fallback="$2" task_url="$3" move="$4" branch base state at url ci mergeable t=$'\t' words flow review waiting
+  [ -n "$_STATUS_PR_CACHE_READ" ] || {
+    _STATUS_PR_CACHE=$(forgecache_read)
+    _STATUS_PR_CACHE_READ=1
+    cfg_v flow git.flow direct
+    [ "$flow" != staging ] || _STATUS_PR_STAGING=$(jig_staging_branch)
+  }
+  # An id out of the housekeeping log may be malformed (see the loop's own
+  # guard): such a task has no branch to look up, and reading it would die.
+  branch="" base=""
+  if jig_valid_id "$id"; then
+    task_state_var branch "$id" branch
+    jig_task_base_v base "$id"
+  fi
+  # A task parked at the staging branch (<move> `land` from the caller) is
+  # judged by its pull request into staging, the one its review was read from
+  # (_task_parked_read), never by a promotion into its base.
+  _forgecache_clear
+  if [ "$move" = land ] && [ -n "$_STATUS_PR_STAGING" ] && [ -n "$branch" ]; then
+    forgecache_entry "$_STATUS_PR_CACHE" "$branch" "$_STATUS_PR_STAGING"
+    [ -z "$_FORGECACHE_STATE" ] || base=$_STATUS_PR_STAGING
+  fi
+  [ -n "$_FORGECACHE_STATE" ] || forgecache_entry "$_STATUS_PR_CACHE" "$branch" "$base"
+  if [ -z "$_FORGECACHE_STATE" ] && [ -n "$_STATUS_PR_STAGING" ] && [ -n "$branch" ]; then
+    forgecache_entry "$_STATUS_PR_CACHE" "$branch" "$_STATUS_PR_STAGING"
+    if [ -n "$_FORGECACHE_STATE" ]; then
+      base=$_STATUS_PR_STAGING
+      move=land
+    fi
+  fi
+  [ "$move" != land ] || [ -z "$_STATUS_PR_STAGING" ] || base=$_STATUS_PR_STAGING
+  state=$_FORGECACHE_STATE at=$_FORGECACHE_AT url=${_FORGECACHE_URL:-$task_url}
+  ci=$_FORGECACHE_CI mergeable=$_FORGECACHE_MERGEABLE
+  review=$_FORGECACHE_REVIEW waiting=$_FORGECACHE_WAITING
+  if [ -n "${5:-}" ]; then
+    review=${5%%"$t"*}
+    waiting=${5#*"$t"}
+    [ "$review" != "-" ] || review=""
+    [ "$waiting" != "-" ] || waiting=""
+  fi
+  words=$fallback
+  if [ -n "$state" ] && [ -n "$at" ]; then
+    case "$state:$mergeable:$ci" in
+      open:conflicting:*) words="it conflicts with $base, as of $at" ;;
+      open:mergeable:green) words="CI is green and it merges cleanly, as of $at" ;;
+      open:*:green) words="CI is green, as of $at" ;;
+      open:*:red) words="CI is red, as of $at" ;;
+      open:*:pending) words="CI is running, as of $at" ;;
+      open:*) words="open as of $at" ;;
+      *) words="$state as of $at" ;;
+    esac
+  fi
+  _STATUS_PR_DETAIL=$words
+  _STATUS_PR_MOVE=$move
+  _STATUS_PR_EXTRA="${branch:--}$t${base:--}$t${state:--}$t${at:--}$t${url:--}$t${ci:--}$t${mergeable:--}$t$move$t${review:--}$t${waiting:--}"
+}
+
+# _status_pr_move_v <move> — set the move (the eighth field) of
+# _STATUS_PR_EXTRA, after _status_pr_item_v: the action row the item carries
+# beside pr-status.
+_status_pr_move_v() {
+  local t=$'\t' f1 f2 f3 f4 f5 f6 f7 f9 f10
+  IFS="$t" read -r f1 f2 f3 f4 f5 f6 f7 _ f9 f10 <<X
+$_STATUS_PR_EXTRA
+X
+  _STATUS_PR_MOVE=$1
+  _STATUS_PR_EXTRA="$f1$t$f2$t$f3$t$f4$t$f5$t$f6$t$f7$t$1$t$f9$t$f10"
+}
+
+# _status_pr_todo_v <var> <id> — the words that name the person's move on a waiting
+# pull request, after _status_pr_item_v.
+_status_pr_todo_v() {
+  local cmd="jig task merge-pr $2 --by human" verb=Merge
+  [ "$_STATUS_PR_MOVE" != land ] || { cmd="jig task land $2 --by human"; verb=Land; }
+  _STATUS_PR_CMD=$cmd
+  printf -v "$1" '%s it: %s; see why it waits: jig task pr-status %s --json' "$verb" "$cmd" "$2"
+}
+
 # _status_attention — what only the reader can do, one record (_status_attn)
 # per item, most urgent first: a new jig release, a stopped autopilot run, a
 # design at its gate, a finished task waiting for its git step, a pull request
@@ -2169,6 +2337,7 @@ _status_attention() {
   local stopped="" gates="" git_steps="" rec id stop_reason stop_at ago level queue url live hk_note pr_ids="" parked
   [ -n "$_STATUS_PARKED_READY" ] || _status_parked_read
   local nc wrong kept closed open open_closed settled phase phase_stops="" todo
+  local rvl rv rw rwl title t=$'\t' verbatim by
   hk_note=""
   [ -z "$_STATUS_HK_AT" ] || hk_note="housekeeping at $_STATUS_HK_WHEN"
   level=$(jig_agent_git 2>/dev/null) || level=none
@@ -2249,9 +2418,13 @@ UPR
 "
     fi
     # 1. A stopped autopilot run waits on an answer (its journal's last stop).
-    if [ "$_ST_AUTOPILOT" = stopped ]; then
+    # An answered run is not here: it waits for a free slot, not for a person.
+    if [ "$_ST_AUTOPILOT" = stopped ] && [ -z "$(printf '%s\n' "$_ST_APFACTS" | cut -f 9 | tr -d '-')" ]; then
       stop_reason=$(printf '%s\n' "$_ST_APFACTS" | cut -f 5)
       stop_at=$(printf '%s\n' "$_ST_APFACTS" | cut -f 6)
+      # The question as the journal has it, for the item's own data.
+      verbatim=$stop_reason
+      [ "$verbatim" != "-" ] || verbatim=""
       if [ -z "$stop_reason" ] || [ "$stop_reason" = "-" ]; then
         stop_reason="no reason recorded"
       fi
@@ -2283,12 +2456,14 @@ UPR
       # An unattended run at its repair limit is resumed by nothing: what is
       # left is its draft, or a person taking the task over
       # (adr-20261108-a-person-takes-over-a-stopped-run).
-      todo="Answer the agent in this task's session; it resumes the run."
+      by=""
+      [ "$(_task_autopilot_mode "$_ST_ID")" != unattended ] || by=" --by human"
+      todo="Answer from any session: jig task autopilot $_ST_ID answer --answer <text>$by; the run resumes when a session with a free slot runs jig task autopilot $_ST_ID resume (jig queue next lists it under resume first)."
       if _task_autopilot_at_limit "$_ST_ID"; then
         todo="Nothing resumes this run: it ships a draft. To finish the task yourself, tell the agent in this task's session; it hands the run over to you."
       fi
       stopped="$stopped$(_status_attn autopilot-stopped task "$_ST_ID" "$_ST_ID" \
-        "Autopilot stopped and is waiting for you" "$stop_reason" "$todo")
+        "Autopilot stopped and is waiting for you" "$stop_reason" "$todo" "" "${verbatim:--}$t${stop_at:--}")
 "
       continue
     fi
@@ -2312,13 +2487,24 @@ UPR
     _task_parked_lookup_v parked "$_ST_ID"
     if [ "$_ST_STATUS" = ready ] && [ "$_ST_KC" = true ] && [ -z "$_ST_PR_URL" ] && [ -z "$parked" ]; then
       queue=""
-      case "$level" in
+      # The level `task ship` will actually use for this task
+      # (_task_ship_git_v), and the key it came from: autopilot.git in an `on`
+      # run that sets it, agent.git_staging for a task whose pull request goes
+      # into the staging branch, else the agent.git read once above.
+      local task_line task_level task_key
+      if _task_ship_git_v task_line "$_ST_ID"; then
+        task_level=${task_line%%$'\t'*}
+        task_key=${task_line#*$'\t'}
+      else
+        task_level=$level task_key=agent.git
+      fi
+      case "$task_level" in
         none) queue="Review the changes and commit them: the agent may not commit in this clone." ;;
         commit) queue="Push the task's branch: the agent may commit but not push in this clone." ;;
         push) queue="Open a pull request for the task's branch: the agent may push but not open one here." ;;
       esac
       [ -z "$queue" ] || git_steps="$git_steps$(_status_attn git-step task "$_ST_ID" "$_ST_ID" \
-        "Ready for your step in git" "agent.git: $level" "$queue")
+        "Ready for your step in git" "$task_key: $task_level" "$queue")
 "
     fi
   done <<LIVE
@@ -2376,10 +2562,42 @@ OPEN
     case "$parked" in
       signal$'\t'*) continue ;;
       *$'\t'landing)
+        _status_pr_item_v "$id" "parked at the staging branch" "$url" land
+        _status_pr_todo_v todo "$id"
         _status_attn pull-request-waiting task "$id" "$id" \
-          "A pull request is waiting for review and for you to land it" "parked at the staging branch" \
-          "Once it is reviewed, land it on the staging branch: jig task land $id, or merge it on the forge. jig lands it itself only at agent.git: merge." "$url"
+          "A pull request is waiting for review and for you to land it" "$_STATUS_PR_DETAIL" \
+          "$todo" "$url" "$_STATUS_PR_EXTRA"
         continue ;;
+      review$'\t'*)
+        # Parked for review and not landing yet: it waits for a review, or
+        # was sent back for changes. Approved and not landing (the person's
+        # agent.git is `merge`) is judged below as any open pull request.
+        _task_parked_review_lookup_v rvl "$id"
+        rv=${rvl%%"$t"*}
+        rw=${rvl#*"$t"}
+        [ "$rw" != "-" ] || rw=""
+        if [ "$rv" != approved ]; then
+          _status_pr_item_v "$id" "parked at the staging branch" "$url" land "$rvl"
+          if [ -n "$rw" ]; then
+            _jig_replace_all_v rwl "$rw" , ", "
+            rwl="waiting for review from $rwl"
+            _STATUS_PR_DETAIL="$rwl; $_STATUS_PR_DETAIL"
+          fi
+          case "$rv" in
+            changes)
+              # Its move is the fix, not a landing the command refuses:
+              # the item carries the resume row instead of land.
+              title="Changes were requested on a pull request"
+              todo="Take it back for a fix: jig task resume $id; see the review: jig task pr-status $id --json"
+              _status_pr_move_v resume ;;
+            *)
+              title="A pull request is waiting for review"
+              todo="Land it once it is approved: jig task land $id --by human; see where the review stands: jig task pr-status $id --json" ;;
+          esac
+          _status_attn pull-request-waiting task "$id" "$id" \
+            "$title" "$_STATUS_PR_DETAIL" "$todo" "$url" "$_STATUS_PR_EXTRA"
+          continue
+        fi ;;
     esac
     if [ "$live" = consolidated ] && [ -n "$url" ] && _status_in "$id" "$open" \
       && ! _status_in "$id" "$open_closed"; then
@@ -2408,13 +2626,17 @@ OPEN
       # one may have been merged since. Past tense, and the first thing asked
       # for is a refresh -- the imperative below it is the one the reader acts
       # on, so it must not tell them to merge what may already be merged.
+      _status_pr_item_v "$id" "open as of $hk_note" "$url" merge
+      _status_pr_todo_v todo "$id"
       _status_attn pull-request-was-open task "$id" "$id" \
-        "A pull request was open at the last housekeeping run" "open as of $hk_note" \
-        "It may have been merged since: jig last asked the forge then. Run jig housekeeping to refresh, then review and merge what is still open." "$url"
+        "A pull request was open at the last housekeeping run" "$_STATUS_PR_DETAIL" \
+        "It may have been merged since: jig last asked the forge then. Run jig housekeeping to refresh, or see it now: jig task pr-status $id --json; then, if it is still open: $_STATUS_PR_CMD" "$url" "$_STATUS_PR_EXTRA"
     else
+      _status_pr_item_v "$id" "opened by jig task ship" "$url" merge
+      _status_pr_todo_v todo "$id"
       _status_attn pull-request-waiting task "$id" "$id" \
-        "A pull request is waiting for review or merge" "opened by jig task ship" \
-        "Review it and merge it; jig merges one itself only at agent.git: merge, on green CI." "$url"
+        "A pull request is waiting for review or merge" "$_STATUS_PR_DETAIL" \
+        "$todo" "$url" "$_STATUS_PR_EXTRA"
     fi
   done <<PRS
 $pr_ids
@@ -2502,6 +2724,18 @@ IDS
     "Reopen it, or tell the agent to abandon the task."
   _status_attention_per_task worktree-kept "$kept" "A worktree was kept because it still holds work" "$hk_note" \
     "Commit or discard what is left in the task's worktree; the next housekeeping removes it."
+  # 6a. A live task started against the queue's answer: the reason was given
+  # to the person in words, and this is where they can check it.
+  while IFS= read -r rec; do
+    [ -n "$rec" ] || continue
+    _status_rec "$rec"
+    [ -n "$_ST_OOO" ] || continue
+    _status_attn started-out-of-order task "$_ST_ID" "$_ST_ID" \
+      "$_ST_ID was started ahead of the queue" "ahead of $_ST_OOO: $_ST_OOO_REASON" \
+      "Check the reason; if it does not hold, pause $_ST_ID and take ${_ST_OOO}."
+  done <<LIVE
+$_STATUS_LIVE
+LIVE
 
   # 6b. The base here is behind origin's, as of the last fetch: what lands there
   # (a decision, a merged task) is not in this checkout until it is brought up
@@ -2547,22 +2781,24 @@ IDS
 # says the same thing rather than handing them a card each
 # (adr-20260922-a-phase-run-is-coordinated).
 _status_attention_phase_stops() {
-  local lines="$1" phases="" phase id reason detail n ids todo
+  local lines="$1" phases="" phase id reason detail n ids todo by
   [ -n "$lines" ] || return 0
   phases=$(printf '%s\n' "$lines" | cut -f 1 | grep -v '^$' | sort -u)
   while IFS= read -r phase; do
     [ -n "$phase" ] || continue
-    detail="" n=0 ids=""
+    detail="" n=0 ids="" by=""
     while IFS="$(printf '\t')" read -r _ id reason; do
       [ -n "$id" ] || continue
       n=$((n + 1))
+      # The answer form follows each run's recorded mode.
+      [ "$(_task_autopilot_mode "$id")" != unattended ] || by=" --by human" 
       detail="$detail${detail:+; }$id — $reason"
       ids="$ids${ids:+ }$id"
     done < <(printf '%s\n' "$lines" | awk -F '\t' -v p="$phase" '$1 == p')
     if [ "$n" -gt 1 ]; then
-      todo="Answer in the coordinator's session; it resumes the tasks."
+      todo="Answer each from any session: jig task autopilot <id> answer --answer <text>$by; the coordinator resumes them."
     else
-      todo="Answer in the coordinator's session; it resumes the task."
+      todo="Answer from any session: jig task autopilot <id> answer --answer <text>$by; the coordinator resumes it."
     fi
     _status_attn phase-stopped phase "$phase" "$ids" "A phase run is waiting for you" "$detail" "$todo"
   done < <(printf '%s\n' "$phases")
@@ -2580,7 +2816,7 @@ _status_attention_phase_stops() {
 # _status_json [--json] — the producer json_run runs for `jig status --json`.
 _status_json() {
   local arg attn rec kind stype sid tasks title detail todo url extra objs="" o t tl hk stale root vers
-  local xb xbase xst xat xto xk xl extra0 xt=$'\t'
+  local xb xbase xst xat xto xk xl extra0 xt=$'\t' xurl xci xmg xa xo xc xr xmove xrows xrv xwf xrj xparked xparkedrv
   for arg in "$@"; do
     [ "$arg" = --json ] || jig_fail usage "status --json: unknown argument: $arg (usage: jig status --json)"
   done
@@ -2640,6 +2876,16 @@ REC
     # An upgrade's pull request: which branch, into what, as of when, and the
     # version it brings (schemas/json.md).
     case "$kind" in
+      # A stopped run's question as the journal has it, and when it stopped.
+      autopilot-stopped)
+        IFS="$xt" read -r xb xat <<X
+$extra
+X
+        [ "$xb" != - ] || xb=""
+        [ "$xat" != - ] || xat=""
+        json_str_or_null "$xb"; o="$o,\"question\":$_JSON"
+        json_str_or_null "$xat"; o="$o,\"stopped_at\":$_JSON"
+        ;;
       upgrade-pull-request-*)
         IFS="$(printf '\t')" read -r xb xbase xst xat xto <<X
 $extra
@@ -2652,6 +2898,50 @@ X
         json_str_or_null "$xat"; o="$o,\"fetched_at\":$_JSON}"
         json_str_or_null "$xto"; o="$o,\"versions\":{\"to\":$_JSON}"
         ;;
+      # A task's open pull request: the forge cache's data and the task's own
+      # action rows, the objects `jig task list --json` prints (schemas/json.md).
+      pull-request-waiting | pull-request-was-open)
+        IFS="$xt" read -r xb xbase xst xat xurl xci xmg xmove xrv xwf <<X
+$extra
+X
+        [ "$xb" != - ] || xb=""
+        [ "$xrv" != - ] || xrv=""
+        [ "$xbase" != - ] || xbase=""
+        [ "$xst" != - ] || xst=""
+        [ "$xat" != - ] || xat=""
+        [ "$xurl" != - ] || xurl=""
+        [ "$xci" != - ] || xci=""
+        [ "$xmg" != - ] || xmg=""
+        json_quote "$xb"; o="$o,\"pull_request\":{\"branch\":$_JSON"
+        json_quote "$xbase"; o="$o,\"base\":$_JSON"
+        json_str_or_null "$xst"; o="$o,\"state\":$_JSON"
+        json_str_or_null "$xat"; o="$o,\"fetched_at\":$_JSON"
+        json_str_or_null "$xurl"; o="$o,\"url\":$_JSON"
+        json_str_or_null "$xci"; o="$o,\"ci\":$_JSON"
+        json_str_or_null "$xmg"; o="$o,\"mergeable\":$_JSON"
+        _task_review_json_v xrj "$xrv" "$xwf"
+        o="$o,\"review\":$xrj}"
+        # The resume row asks whether the task is parked, which the records
+        # were drawn from in another shell: read it for this task alone, and
+        # leave what this shell holds as it was.
+        if [ "$xmove" = resume ]; then
+          xparked=$_TASK_PARKED xparkedrv=$_TASK_PARKED_REVIEW
+          _task_parked_read "$sid"
+          _task_actions_v xrows "$sid" "$xst" "$xci" "$xmg"
+          _TASK_PARKED=$xparked _TASK_PARKED_REVIEW=$xparkedrv
+        else
+          _task_actions_v xrows "$sid" "$xst" "$xci" "$xmg"
+        fi
+        xl=""
+        while IFS="$xt" read -r xa xo xc xr; do
+          case "$xa" in "$xmove" | pr-status) ;; *) continue ;; esac
+          json_quote "$xa"; xl="$xl${xl:+,}{\"id\":$_JSON"
+          json_quote "$xc"; xl="$xl,\"command\":$_JSON,\"offered\":$xo"
+          json_str_or_null "$xr"; xl="$xl,\"reason\":$_JSON}"
+        done <<X
+$xrows
+X
+        o="$o,\"actions\":[$xl]" ;;
       # The staging drift report's data (schemas/json.md).
       promotion-conflicting)
         IFS="$(printf '\t')" read -r xb xbase xst xat <<X
@@ -2999,6 +3289,8 @@ _status_html_task_row() {
   [ -z "$_ST_LOWERED" ] || printf ' <span class="badge warn">lowered from %s</span>' "$(_status_h "$_ST_LOWERED")"
   _task_waivers_v waivers "$_ST_ID"
   [ -z "$waivers" ] || printf ' <span class="badge warn">hook waived</span>'
+  [ -z "$_ST_OOO" ] || printf ' <span class="badge warn" title="%s">out of order</span>' \
+    "$(_status_h "ahead of $_ST_OOO${_ST_OOO_REASON:+: $_ST_OOO_REASON}")"
   printf '</td><td>%s' "$(_status_h "$_ST_STATUS")"
   if [ "$_ST_PAUSED" = "true" ]; then
     printf ' <span class="badge warn">paused</span>'
@@ -3079,9 +3371,10 @@ _status_html_stage() {
   # A run a person took over: no stage is tracked from here on, and the
   # gate, when there is one, follows.
   if [ "$_ST_AUTOPILOT" = "done" ]; then
-    # The handover time is the facts line's last field: read without a
+    # The handover time is the facts line's eighth field: read without a
     # process, as every per-row reader here must (conventions/shell.md).
-    handover=${_ST_APFACTS##*$'\t'}
+    handover=${_ST_APFACTS#*$'\t'*$'\t'*$'\t'*$'\t'*$'\t'*$'\t'*$'\t'}
+    handover=${handover%%$'\t'*}
     case "$handover" in
       '' | -) ;;
       *) printf '<span class="badge">taken over by a person</span> ' ;;

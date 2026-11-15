@@ -70,6 +70,12 @@ Begin work separately:
 jig task start booking-message
 ```
 
+When the queue's advice (`jig queue next`, below) is another task that outranks this one, the start
+is refused and names that task. To start this one anyway, say why:
+`jig task start booking-message --out-of-order --reason "<why>"`. The reason is kept in the task's
+state and `jig status` shows it, so a start against the queue is never quiet. A task that is not in
+the queue starts as it always did.
+
 By default, this switches to a task branch from the project's configured base. For a separate
 working copy, use `jig task start booking-message --worktree` instead, then work in the directory
 it prints. Tasks linked to a spec with an open epic start from that epic.
@@ -234,7 +240,7 @@ one thing, so that you and your agent set "bugs first" the same way:
 | `5` | Some day |
 
 Your agent gives a task a priority when it files it, and writes to the queue when you ask it to set
-priorities; a number already there it changes only when asked. `--priority none` takes the priority away. A move places one item
+priorities; a number already there it changes only when asked. `--priority none` takes the priority away. A task given a priority, or a new one, takes its place after the last item with the same or a more urgent number, so the order you read follows the numbers. A move places one item
 before or after another, or with `--top` and `--bottom` at an end; an epic (`epic:<spec-id>`) is
 ordered beside tasks, and the tasks built on it are ordered within it. A dependency always says why.
 `jig queue remove` takes an item out, and `jig queue undepend` drops a dependency. A program
@@ -253,18 +259,26 @@ To ask which task to take next, run `jig queue next`. It answers from the queue 
 already knows, over the network never, and changes nothing:
 
 ```text
-next: task:booking-form — 1 of 3 on the top level, priority 1, started
+next: task:booking-form — 1 of 3 on the top level, priority 1, not started
   task:booking-message waits for task:booking-form: unknown — jig housekeeping
+in progress: task:booking-export (P2)
+resume first: task:booking-import (P1, answered 5 min ago)
 not queued: 1 task — jig queue set <id> --priority <p>
+slots: 1 of 2 free (1 building)
 ```
 
-Only a task that is `active` and not paused is advised, and one waits while anything it depends
+`resume first:` names the autopilot runs that stopped for a person and were answered
+(`jig task autopilot <id> answer`): they resume on the next free slot before any new task starts,
+most urgent first, then the one that stopped first. A stopped run holds no slot; `slots:` counts
+`autopilot.parallel` against the runs that are on and not consolidated in the clone. A task that
+depends on one whose run is stopped waits with `its autopilot run is stopped, waiting for an answer or a free slot — jig status`.
+
+Only a task that is `active`, not paused and not started yet is advised: what is started is listed on the `in progress:` line, since the advice is what to start. One waits while anything it depends
 on, or the epic it is built on depends on, is not finished. A task is finished when it is closed
 or `jig housekeeping` saw its pull request merged; an epic when its branch has landed. Among the
 tasks that do not wait the lowest priority number goes first, with a task without one last; at the
-same priority a task already started goes before one not started; after that comes the place in
-the queue, a task on an epic taking its epic's place. When no task can be taken it says why:
-every queued task waits for a dependency, is taken by another session, is paused, or there is none. A wait that can never end
+same priority the place in the queue decides, a task on an epic taking its epic's place. When no task can be taken it says why:
+every queued task waits for a dependency, is taken by another session, is already in progress, is paused, or there is none. A wait that can never end
 (`broken`: the task it waits for was abandoned, archived or is gone) comes with the command that drops it;
 one Jig cannot tell (`unknown`) with the one that may find out. The last line counts the active
 tasks that are not in the queue. `jig queue next --json` gives the same answer to a program
@@ -298,6 +312,15 @@ a pause asked of it with its age, on the lines under it:
 task booking-message class=T2 status=active queue=2/5 priority=1
   waits for task:booking-form: The message quotes the form's fields
   pause requested 12 min ago: need the laptop
+```
+
+A task started against the queue's advice with `--out-of-order` shows the task it went ahead of on
+its line and the reason under it; the status page marks it "out of order" and its "Needs you" list
+asks you to check the reason:
+
+```text
+task booking-export class=T2 status=active queue=2/3 priority=2 out_of_order=task:booking-form
+  started ahead of task:booking-form: the person asked for it first
 ```
 
 Once the project has a queue, `jig status` also prints the first line `jig queue next` gives, after
@@ -350,8 +373,8 @@ line of its own:
 parked: booking-form (signal), booking-report (review, landing)
 ```
 
-`review` waits for a review of its pull request into the staging branch — `landing` when you land it
-yourself (`agent.git` below `merge`) — and `signal` waits on the staging branch for "prepare for
+`review` waits for a review of its pull request into the staging branch — `landing` when its review is
+approved (or `git.staging_review` is `none`) and you land it yourself (`agent.git` below `merge`) — and `signal` waits on the staging branch for "prepare for
 prod". `jig task list` marks it `parked=signal`. A parked task is not the current task, `jig queue
 next` does not offer it, and another task may start in the checkout it was landed from.
 `jig task resume <id>` takes it back for a fix: it becomes `active` and appears among the tasks
@@ -560,6 +583,14 @@ when you allow `merge`: after an approval, on the forge, or by a direct merge wh
 ([how a task ships](/agent-ships)). It exits 3 when you decide — no approval yet, or a push the
 staging branch refused — and 5 when a conflict waits in its temporary worktree for
 `jig task land <id> --resolved --note-file <file>`; `--abort` gives the landing up.
+
+These commands are the agent's, so they follow `agent.git`. Your own decisions do not:
+`jig task land <id> --by human` lands the pull request whatever `agent.git` says, and so do
+`jig task promote <id> --by human`, `jig task request-review <id> --reviewer <login> --by human`
+and, on the direct flow, `jig task merge-pr <id> --by human`, which merges the task's pull request
+on the forge. They look at CI once instead of waiting, refuse a conflict, and never override the
+forge's branch protection. `jig task pr-status <id> --json` shows why a pull request waits: its
+checks, its review and whether it merges cleanly. Your agent never passes `--by human`.
 
 <Tip>
   `jig help` lists the full command surface. Use [Skills](/skills) for the agent procedures,
