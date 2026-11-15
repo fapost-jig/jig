@@ -14579,9 +14579,8 @@ PROBE
 }
 
 # _tl_execs <jig args> — like _tl_forks, but only the external programs the run
-# started: git above all. For a listing whose subshells grow with the tasks for a
-# reason of another action's (the `land` row of a task with a pull request), and
-# whose git processes must not.
+# started: git above all. For a listing whose git processes must not grow with
+# the tasks, whatever its subshells do.
 _tl_execs() {
   _tl_forks "$@" >/dev/null || return 1
   grep -c '^E ' "$JIG_TEST_TMP.forks" || true
@@ -14668,8 +14667,8 @@ test_task_list_json_on_the_staging_flow_starts_no_process_per_task() {
 # one answer for the whole listing (_task_list_staging_read): four more ready
 # tasks, some whose staging pull request merged and some pushed and not landed,
 # start no more external programs (git) on the staging flow than on the direct
-# one. Subshells are left out: the `land` row of a task with a pull request
-# asks its own questions per task, and is not what this pins.
+# one. Subshells are left out: the next test counts them for the tasks with no
+# pull request, and the `land` row's own test for the tasks with one.
 test_task_list_json_close_on_the_staging_flow_starts_no_process_per_task() {
   fixture_staging_repo
   local i staged_two direct_two staged_six direct_six
@@ -14750,6 +14749,101 @@ test_task_list_json_close_of_pushed_tasks_starts_no_subshell_per_task() {
   _tl_same_cost $((staged_two - direct_two)) $((staged_six - direct_six))
 }
 
+# The `land` row of a task with a pull request into the staging branch is
+# judged per task from what the listing already read: four more such tasks
+# start no more processes, subshells included, on the staging flow than the
+# same tasks start on the direct one (where the row is withheld on the flow
+# alone).
+test_task_list_json_land_row_starts_no_subshell_per_task() {
+  fixture_staging_repo
+  local i staged_two direct_two staged_six direct_six
+  _tl_land_flow() {
+    sed "s|^git.flow:.*|git.flow: $1|" .ai/config.yaml > c.tmp
+    mv c.tmp .ai/config.yaml
+  }
+  _tl_land_task() {
+    git branch "task/l-$1" task/on
+    fixture_task "l-$1" "task/l-$1" ready "class:T2" "knowledge_consolidated:true" "pr_url:https://forge.test/pr/$1"
+    _park_cache "task/l-$1" staging open "https://forge.test/pr/$1"
+  }
+  rm -rf .ai/workspace/tasks/*
+  mkdir -p .ai/runtime
+  : > .ai/runtime/forge-cache
+  for i in 1 2; do
+    _tl_land_task "$i"
+  done
+  _tl_forks task list --all --json >/dev/null || fail "task list --json failed under the probe"
+  staged_two=$(_tl_forks task list --all --json) || fail "task list --json failed under the probe"
+  _tl_land_flow direct
+  direct_two=$(_tl_forks task list --all --json) || fail "task list --json failed under the probe"
+  for i in 3 4 5 6; do
+    _tl_land_task "$i"
+  done
+  direct_six=$(_tl_forks task list --all --json) || fail "task list --json failed under the probe"
+  _tl_land_flow staging
+  staged_six=$(_tl_forks task list --all --json) || fail "task list --json failed under the probe"
+  # Not vacuous: on the staging flow the row ran its gates to the end.
+  _tl_json --all
+  assert_eq 0 "$RC" "$ERR"
+  assert_contains "$OUT" '{"id":"land","command":"jig task land l-6 --by human","offered":true,"reason":null}'
+  _tl_same_cost $((staged_two - direct_two)) $((staged_six - direct_six))
+  [ $((staged_six - staged_two)) -le $((direct_six - direct_two + 1)) ] \
+    || fail "4 more tasks started $((staged_six - staged_two)) more processes on the staging flow, $((direct_six - direct_two)) on direct"
+}
+
+# The pull-request items of `status --json` carry the task's action rows, and
+# what those read of git is one answer for the items (_task_list_staging_read in
+# _status_json): four more such tasks start no more git processes on the staging
+# flow than the same tasks start on the direct one, and the rows start no
+# subshell of their own for it.
+test_status_json_pull_request_items_start_no_git_per_task() {
+  fixture_staging_repo
+  local i staged_two direct_two staged_six direct_six all_two all_six
+  _tl_item_flow() {
+    sed "s|^git.flow:.*|git.flow: $1|" .ai/config.yaml > c.tmp
+    mv c.tmp .ai/config.yaml
+  }
+  # _tl_item_gits <jig args> — how many git processes the run started.
+  _tl_item_gits() {
+    _tl_forks "$@" >/dev/null || return 1
+    grep -c '^E git$' "$JIG_TEST_TMP.forks" || true
+  }
+  _tl_item_task() {
+    git branch "task/i-$1" task/never
+    fixture_task "i-$1" "task/i-$1" ready "class:T2" "knowledge_consolidated:true" "pr_url:https://forge.test/pr/$1"
+    _park_cache "task/i-$1" staging open "https://forge.test/pr/$1" approved
+  }
+  rm -rf .ai/workspace/tasks/*
+  mkdir -p .ai/runtime
+  : > .ai/runtime/forge-cache
+  for i in 1 2; do
+    _tl_item_task "$i"
+  done
+  _tl_forks status --json >/dev/null || fail "status --json failed under the probe"
+  staged_two=$(_tl_item_gits status --json) || fail "status --json failed under the probe"
+  all_two=$(wc -l < "$JIG_TEST_TMP.forks" | tr -d ' ')
+  _tl_item_flow direct
+  direct_two=$(_tl_item_gits status --json) || fail "status --json failed under the probe"
+  for i in 3 4 5 6; do
+    _tl_item_task "$i"
+  done
+  direct_six=$(_tl_item_gits status --json) || fail "status --json failed under the probe"
+  _tl_item_flow staging
+  staged_six=$(_tl_item_gits status --json) || fail "status --json failed under the probe"
+  all_six=$(wc -l < "$JIG_TEST_TMP.forks" | tr -d ' ')
+  # Not vacuous: the items are there, with the land row.
+  run jig status --json
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" '"kind":"pull-request-waiting","subject":{"type":"task","id":"i-6"}'
+  assert_contains "$OUT" '{"id":"land","command":"jig task land i-6 --by human","offered":'
+  _tl_same_cost $((staged_two - direct_two)) $((staged_six - direct_six))
+  # What the status report itself asks per task (its two state reads and the
+  # receipt check) is at most a few subshells a task, not the dozens the
+  # rows once started.
+  [ $((all_six - all_two)) -le 24 ] \
+    || fail "4 more pull request items started $((all_six - all_two)) more processes (2 items: $all_two, 6: $all_six)"
+}
+
 # Parking is read for `ready` tasks only, and once per listing
 # (_task_parked_read, jig_parked_states): for `task list --json`, `task list`
 # and `status`, four more ready tasks — parked or resumed — start no more
@@ -14757,7 +14851,7 @@ test_task_list_json_close_of_pushed_tasks_starts_no_subshell_per_task() {
 # (adr-20261112-a-task-waiting-at-staging-is-parked-and-resuming-it-is-its-status).
 test_parked_tasks_start_no_process_per_ready_task() {
   fixture_staging_repo
-  local i cmd s2 d2 s6 d6 extra
+  local i cmd s2 d2 s6 d6
   _tl_park_flow() {
     sed "s|^git.flow:.*|git.flow: $1|" .ai/config.yaml > c.tmp
     mv c.tmp .ai/config.yaml
@@ -14804,12 +14898,10 @@ test_parked_tasks_start_no_process_per_ready_task() {
     # Four more ready tasks may cost what they cost on the direct flow, and
     # not one process more: `status` lists a parked task on one line, so it
     # may cost less.
-    # The JSON listing's `land` row is a person's and reads no git level, so a
-    # ready task with a pull request now runs the ship gates it asks, two
-    # processes a task (a ship row does the same where the level allows it).
-    extra=0
-    [ "$cmd" != "task list --all --json" ] || extra=8
-    [ $((s6 - s2)) -le $((d6 - d2 + 1 + extra)) ] \
+    # The JSON listing's `land` row reads the ship gates in the listing's own
+    # shell, once per task (_task_ship_refusal_v), so it costs a task nothing
+    # the direct flow's `ship` row does not.
+    [ $((s6 - s2)) -le $((d6 - d2 + 1)) ] \
       || fail "$cmd: 4 more ready tasks started $((s6 - s2)) more processes on the staging flow, $((d6 - d2)) on direct"
   done
   for i in 3 4 5 6; do
