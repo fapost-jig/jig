@@ -191,13 +191,25 @@ JSON
 adapter_claude_session_hook_hint() {
   local project="$1"
   local settings="$project/.claude/settings.json"
-  if [ -f "$settings" ] && grep -q 'jig-session-hook' "$settings"; then
-    return 0
+  local has_start=0 has_end=0
+  if [ -f "$settings" ]; then
+    grep -q 'jig-session-hook' "$settings" && has_start=1
+    grep -q 'jig-session-end-hook' "$settings" && has_end=1
   fi
-  printf 'housekeeping: not triggered automatically. To run it at session start,\n'
-  printf '  add to .claude/settings.json (see .ai/templates/scheduler/README.md):\n'
-  printf '  "hooks": { "SessionStart": [ { "hooks": [\n'
-  printf '    { "type": "command", "command": ".ai/scripts/jig-session-hook" } ] } ] }\n'
+  [ "$has_start" = 1 ] && [ "$has_end" = 1 ] && return 0
+  if [ "$has_start" = 0 ]; then
+    printf 'housekeeping: not triggered automatically. To run it at session start,\n'
+    printf '  add to .claude/settings.json (see .ai/templates/scheduler/README.md):\n'
+    printf '  "hooks": { "SessionStart": [ { "hooks": [\n'
+    printf '    { "type": "command", "command": ".ai/scripts/jig-session-hook" } ] } ] }\n'
+  fi
+  if [ "$has_end" = 0 ]; then
+    printf 'session end: records of a finished session lapse only by checkout.busy_ttl. To mark\n'
+    printf '  them ended when the session ends, add to .claude/settings.json:\n'
+    printf '  "hooks": { "SessionEnd": [ { "hooks": [\n'
+    # shellcheck disable=SC2016 # the snippet is literal text for the person
+    printf '    { "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/.ai/scripts/jig-session-end-hook" } ] } ] }\n'
+  fi
 }
 
 # adapter_claude_notify_hook_hint <project-root>
