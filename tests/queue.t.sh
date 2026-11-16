@@ -1403,7 +1403,7 @@ test_task_abandon_takes_the_task_out_of_the_queue() {
   jig queue depend b --on a --reason "needs a" >/dev/null
   run jig task abandon a
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "task set: task:a left the queue"
+  assert_contains "$OUT" "task abandon: task:a left the queue"
   assert_eq "task:b - 200 -" "$(_q_items)"
   # The wait stays: the work never landed, so it reads broken.
   assert_eq "task:b task:a" "$(_qm_deps)"

@@ -1100,6 +1100,20 @@ test_jig_base_ref_prints_nothing_when_neither_resolves() {
   assert_eq "rc=0" "$OUT"
 }
 
+# The `_v` form answers in the caller's shell, which a listing's row asks of every
+# element without starting a process of its own for the answer.
+test_jig_base_ref_v_sets_the_variable_in_the_callers_shell() {
+  fixture_repo
+  git branch feature
+  git update-ref refs/remotes/origin/feature "$(git rev-parse HEAD)"
+  git branch local-only
+
+  # shellcheck disable=SC2016 # expanded by the inner bash, not here
+  base_run 'jig_require_repo; r=stale; jig_base_ref_v r feature; a=$r; jig_base_ref_v r local-only; b=$r; jig_base_ref_v r nope; c=$r; jig_base_ref_v r; printf "%s|%s|%s|%s" "$a" "$b" "$c" "$r"'
+  assert_eq 0 "$RC"
+  assert_eq "refs/remotes/origin/feature|refs/heads/local-only||" "$OUT"
+}
+
 test_jig_base_ref_empty_name_prints_nothing() {
   fixture_repo
 

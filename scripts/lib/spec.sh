@@ -472,7 +472,7 @@ spec_phase_rows() {
     [ -n "$id" ] || continue
     roadmap="$root/$id/roadmap.md"
     [ -f "$roadmap" ] || continue
-    loc=$(spec_roadmap_ref "$id") || continue
+    loc=$(jig_spec_roadmap_ref "$id") || continue
     if [ -n "$loc" ]; then
       IFS=$'\t' read -r ref source <<EOF
 $loc
@@ -483,32 +483,6 @@ EOF
     fi
     spec_phase_counts "$roadmap" | _spec_phase_prefix "$id" ""
   done < <(spec_ids)
-}
-
-# spec_roadmap_ref <spec-id> — where the current roadmap of a spec is read.
-# Nothing when this checkout's copy is current: no epic, a finished one, or the
-# epic is checked out here. "<ref>\t<source>" when an open epic elsewhere holds
-# it — progress is made there (ADR-0040) — read with no fetch; <source> names
-# the branch and whether the ref is the remote's as of the last fetch. Exit 1
-# when that epic has no ref here at all, 2 when git rejects its name — no
-# fetch can bring that one. The one place both the status page
-# (spec_phase_rows) and `spec plan` decide it, so they cannot disagree.
-spec_roadmap_ref() {
-  local roadmap line branch here ref
-  roadmap="$(spec_dir)/$1/roadmap.md"
-  line=$(jig_spec_epic "$roadmap" 2>/dev/null) || line=""
-  [ -n "$line" ] || return 0
-  [ "${line##* }" != finished ] || return 0
-  branch=${line% *}
-  here=$(git -C "$JIG_PROJECT" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
-  [ "$branch" != "$here" ] || return 0
-  git check-ref-format --branch "$branch" >/dev/null 2>&1 || return 2
-  ref=$(jig_base_ref "$branch")
-  [ -n "$ref" ] || return 1
-  case "$ref" in
-    refs/remotes/*) printf '%s\t%s as of the last fetch\n' "$ref" "$branch" ;;
-    *) printf '%s\t%s\n' "$ref" "$branch" ;;
-  esac
 }
 
 # _spec_phase_prefix <id> <source> — frame spec_phase_counts lines as rows.
@@ -551,7 +525,7 @@ spec_list() {
 # _spec_list_json [--json] — the producer of `jig spec list --json`
 # (schemas/json.md): `{"specs":[...]}`, one object per spec in spec_ids order.
 # Every value is read from what already answers it — spec_title, jig_spec_epic,
-# spec_roadmap_ref (where the current roadmap is, as the status page reads it),
+# jig_spec_roadmap_ref (where the current roadmap is, as the status page reads it),
 # spec_phase_items (the counts of spec_phase_counts with their items) and
 # spec_release_check. Local refs only: no fetch, no forge.
 _spec_list_json() {
@@ -583,7 +557,7 @@ _spec_list_json() {
     if [ -f "$dir/roadmap.md" ]; then
       line=$(jig_spec_epic "$dir/roadmap.md" 2>/dev/null) || line=""
       rc=0
-      loc=$(spec_roadmap_ref "$id") || rc=$?
+      loc=$(jig_spec_roadmap_ref "$id") || rc=$?
       ref="" src="$dir/roadmap.md" content=""
       if [ "$rc" -eq 0 ] && [ -n "$loc" ]; then
         ref=${loc%%$'\t'*}
@@ -788,7 +762,7 @@ spec_epic_status() {
 # of every earlier wave has merged, whichever phase the item belongs to — the
 # waves are one numbered list over the whole roadmap, and `after:` is prose
 # nobody parses. Read-only and offline: the roadmap from where
-# spec_roadmap_ref says it is current, each filed item's task from its
+# jig_spec_roadmap_ref says it is current, each filed item's task from its
 # workspace `state` (spec_task_state), and whether its work merged only from
 # what is already answered — a checked item, a closed task (ADR-0030 closes a
 # task only after its change landed), or `remote=merged` in the newest run of
@@ -857,7 +831,7 @@ spec_plan() {
   rel="$JIG_AI_DIR/specs/$id/roadmap.md"
   [ -f "$roadmap" ] || jig_die "spec plan: no such spec, or it has no roadmap: $rel"
   local lrc=0
-  loc=$(spec_roadmap_ref "$id") || lrc=$?
+  loc=$(jig_spec_roadmap_ref "$id") || lrc=$?
   if [ "$lrc" -ne 0 ]; then
     epic=$(jig_spec_epic "$roadmap" 2>/dev/null) || epic=""
     [ "$lrc" -ne 2 ] || jig_die "spec plan: git rejects the epic branch name ${epic% *} in $rel"
@@ -2480,7 +2454,7 @@ _spec_drop_own_branch_refusal() {
 # jig edits a spec on its own branch, never straight on the default one
 # (adr-20260930-a-spec-lives-on-its-own-branch-from-the-first-minute).
 # Already there: nothing to do. On the default branch: asked first whether
-# there is anything to close at all — exit 3 or 4 of _spec_drop_rewrite,
+# there is anything to close at all — exit 3 or 4 of jig_spec_drop_rewrite,
 # printed, and the branch stays — then a dirty tree is refused by the rule
 # `task start` uses, and the existing branch is switched to (here or on
 # origin) or a new one cut. Anywhere else: exit 3, naming the two checkouts
@@ -2498,7 +2472,7 @@ _spec_drop_to_spec_branch() {
   fi
   tmp="$roadmap.tmp.$$"
   jig_cleanup_add "$tmp"
-  _spec_drop_rewrite "$roadmap" "$tid" "$suffix" "$tmp" >/dev/null || rc=$?
+  jig_spec_drop_rewrite "$roadmap" "$tid" "$suffix" "$tmp" >/dev/null || rc=$?
   rm -f "$tmp"
   case "$rc" in
     0) ;;
@@ -2690,7 +2664,7 @@ spec_drop() {
     if [ -f "$roadmap" ]; then
       tmp="$roadmap.tmp.$$"
       jig_cleanup_add "$tmp"
-      _spec_drop_rewrite "$roadmap" "$tid" "$suffix" "$tmp" >/dev/null || rc=$?
+      jig_spec_drop_rewrite "$roadmap" "$tid" "$suffix" "$tmp" >/dev/null || rc=$?
       rm -f "$tmp"
     else
       rc=3
@@ -2722,7 +2696,7 @@ spec_drop() {
   tmp="$roadmap.tmp.$$"
   jig_cleanup_add "$tmp"
   rc=0
-  out=$(_spec_drop_rewrite "$roadmap" "$tid" "$suffix" "$tmp") || rc=$?
+  out=$(jig_spec_drop_rewrite "$roadmap" "$tid" "$suffix" "$tmp") || rc=$?
   case "$rc" in
     0)
       mv "$tmp" "$roadmap" || jig_die "spec drop: could not write $rel"
@@ -2759,7 +2733,7 @@ spec_drop() {
 # table's `drop-item`): the edit is made in Jig's own tree, on `spec/<sid>`,
 # reaching the base through a pull request, and nobody's checkout moves
 # (adr-20261104-a-write-goes-in-jigs-own-tree). It is the same edit as the text
-# form's, through `_spec_drop_rewrite`, so what closes an item and what the
+# form's, through `jig_spec_drop_rewrite`, so what closes an item and what the
 # commit says do not differ; what it does not have are the refusals the text
 # form makes about a checkout — the task's own branch, a phase run, the base
 # not being checked out — since no checkout is used. A task abandoned by
@@ -2848,7 +2822,7 @@ _spec_drop_in_own_tree() {
     fi
     jig_die "$OT_SD_MSG"
   fi
-  out=$(_spec_drop_rewrite "$norm" "$tid" "$suffix" "$new") || rc=$?
+  out=$(jig_spec_drop_rewrite "$norm" "$tid" "$suffix" "$new") || rc=$?
   [ "$rc" -eq 0 ] || jig_die "spec drop: could not read $rel on $where"
   [ "$first" -ge 0 ] || jig_die "spec drop: could not find the item $tid closed in $rel"
 
@@ -3385,7 +3359,7 @@ _spec_item_base() {
   start=$(jig_base_ref "$default")
   _SPEC_ITEM_BASE=$default
   line=$(jig_git_show_path "$start" "$rel" 2>/dev/null | jig_spec_epic -) || rc=$?
-  [ "$rc" -ne 2 ] || jig_die "spec item: $rel declares more than one epic; keep one Epic: line"
+  [ "$rc" -ne 2 ] || jig_die "$(_ot_msg_epics_many "spec item" "$rel")"
   [ -n "$line" ] || return 0
   [ "${line##* }" = open ] || return 0
   branch=${line% *}
@@ -3393,7 +3367,7 @@ _spec_item_base() {
     || jig_die "spec item: git rejects the epic's name: $branch"
   ot_fetch "$branch"
   [ -n "$(jig_base_ref "$branch")" ] \
-    || jig_fail epic-missing "spec item: $id is built on $branch, which is neither here nor on origin; cut it with \`jig spec epic $id\`, or fetch it"
+    || jig_fail epic-missing "$(_ot_msg_epic_missing "spec item" "$id" "$branch")"
   _SPEC_ITEM_BASE=$branch
 }
 

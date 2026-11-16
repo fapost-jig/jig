@@ -625,6 +625,14 @@ jig_agent_git() {
   _cfg_agent_git_level "$value"
 }
 
+# jig_agent_git_v <var> — the same, into <var> in the caller's shell: a listing that asks
+# it of every row starts no process. Exit 1 when the level is invalid, <var> holding the
+# value read.
+jig_agent_git_v() {
+  cfg_v "$1" agent.git none
+  _cfg_agent_git_level "${!1}"
+}
+
 # jig_autopilot_git — `<level><TAB><key>`: the git level an autopilot run
 # ships at, and the key it came from. `autopilot.git` when this clone sets it,
 # else `agent.git`: nothing has to be filled in, and a clone without the key

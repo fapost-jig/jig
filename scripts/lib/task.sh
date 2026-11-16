@@ -2100,6 +2100,27 @@ _task_not_queued_hint() {
   jig_info "not queued: $1 — jig queue set $1 --priority <0-5>; the scale is in the jig-task skill"
 }
 
+# _task_claim_or_refuse <who> <expected> [<tmp-file>…] — claim the clone revision above
+# <expected> (jig_revision_claim) for a write that built its new state aside, or refuse and
+# take that state away: `stale-revision` when the clone changed since <expected>, a plain
+# failure when the claim cannot be made at all. It runs in the caller's shell, so the
+# refusal ends the command and not a subshell. The one copy of what every state write of
+# this file does between building the file and moving it into place.
+_task_claim_or_refuse() {
+  local who="$1" expected="$2" rc=0
+  shift 2
+  jig_revision_claim "$expected" || rc=$?
+  case "$rc" in
+    0) return 0 ;;
+    1)
+      rm -f "$@"
+      jig_fail stale-revision "$who: the clone changed since revision $expected; read again and retry" ;;
+    *)
+      rm -f "$@"
+      jig_die "$who: cannot claim the clone revision in $(jig_revision_dir)" ;;
+  esac
+}
+
 # _task_close_write <id> <dir> <expected> — the close of a write checked
 # against a revision: the new state built whole (the knowledge decision of a
 # bare triage task with it, as the unchecked close records it), the revision
@@ -2120,12 +2141,7 @@ _task_close_write() {
   fi
   # <claimed> says the caller holds the claim already (`task merge-pr`, which
   # claims before it merges and closes under that one claim).
-  [ -n "$claimed" ] || jig_revision_claim "$expected" || rc=$?
-  case "$rc" in
-    0) ;;
-    1) rm -f "$tmp"; jig_fail stale-revision "task set: the clone changed since revision $expected; read again and retry" ;;
-    *) rm -f "$tmp"; jig_die "task set: cannot claim the clone revision in $(jig_revision_dir)" ;;
-  esac
+  [ -n "$claimed" ] || _task_claim_or_refuse "task set" "$expected" "$tmp" "$tmp2"
   mv "$tmp" "$dir/state"
   jig_task_state_forget
   jig_record_changed
@@ -2530,22 +2546,13 @@ _task_abandon_body() {
     _task_state_without_into "$tmp" "$tmp2" moved_to
   fi
   mv "$tmp2" "$tmp"
-  jig_revision_claim "$expected" || rc=$?
-  case "$rc" in
-    0) ;;
-    1)
-      rm -f "$tmp"
-      jig_fail stale-revision "task abandon: the clone changed since revision $expected; read again and retry" ;;
-    *)
-      rm -f "$tmp"
-      jig_die "task abandon: cannot claim the clone revision in $(jig_revision_dir)" ;;
-  esac
+  _task_claim_or_refuse "task abandon" "$expected" "$tmp"
   mv "$tmp" "$dir/state"
   jig_task_state_forget
   jig_record_changed
   # A task that was live left the queue with its status; a re-abandon has
   # nothing to take out.
-  [ "$was" = abandoned ] || _task_queue_prune "$id" "task set"
+  [ "$was" = abandoned ] || _task_queue_prune "$id" "task abandon"
 
   local note=""
   if [ -n "$moved" ] && ! jig_task_ref_dir; then
@@ -2702,16 +2709,7 @@ _task_archive_move_body() {
   else
     _task_unarchive_build "$id" "$tmp"
   fi
-  jig_revision_claim "$expected" || rc=$?
-  case "$rc" in
-    0) ;;
-    1)
-      rm -f "$tmp"
-      jig_fail stale-revision "task $verb: the clone changed since revision $expected; read again and retry" ;;
-    *)
-      rm -f "$tmp"
-      jig_die "task $verb: cannot claim the clone revision in $(jig_revision_dir)" ;;
-  esac
+  _task_claim_or_refuse "task $verb" "$expected" "$tmp"
   [ "$verb" = archive ] || from=$(task_state_get "$id" archived_from)
   mv "$tmp" "$dir/state"
   jig_task_state_forget
@@ -5585,16 +5583,7 @@ _task_gate_body() {
   _task_state_set_into "$tmp2" "$tmp" gate_design "$design"
   _task_state_set_into "$tmp" "$tmp2" gate_by "$by"
   rm -f "$tmp"
-  jig_revision_claim "$expected" || rc=$?
-  case "$rc" in
-    0) ;;
-    1)
-      rm -f "$tmp2"
-      jig_fail stale-revision "task gate: the clone changed since revision $expected; read again and retry" ;;
-    *)
-      rm -f "$tmp2"
-      jig_die "task gate: cannot claim the clone revision in $(jig_revision_dir)" ;;
-  esac
+  _task_claim_or_refuse "task gate" "$expected" "$tmp2"
   mv "$tmp2" "$dir/state"
   jig_task_state_forget
   jig_record_changed
@@ -5887,16 +5876,7 @@ _task_pause_body() {
   fi
   rm -f "$tmp2"
 
-  jig_revision_claim "$expected" || rc=$?
-  case "$rc" in
-    0) ;;
-    1)
-      rm -f "$tmp"
-      jig_fail stale-revision "task pause: the clone changed since revision $expected; read again and retry" ;;
-    *)
-      rm -f "$tmp"
-      jig_die "task pause: cannot claim the clone revision in $(jig_revision_dir)" ;;
-  esac
+  _task_claim_or_refuse "task pause" "$expected" "$tmp"
 
   # A pause made by hand honours a pending request too: it goes with it,
   # before the pause is set (adr-20261019-a-pause-request-is-honoured-at-the-stage-boundary)
@@ -6091,12 +6071,7 @@ _task_resume_body() {
   days=$(_task_days_since "$(task_state_get "$id" paused_at)")
   _task_state_without "$dir" "$tmp" paused paused_at paused_reason paused_stash_applied
 
-  jig_revision_claim "$expected" || rc=$?
-  case "$rc" in
-    0) ;;
-    1) jig_fail stale-revision "task resume: the clone changed since revision $expected; read again and retry" ;;
-    *) jig_die "task resume: cannot claim the clone revision in $(jig_revision_dir)" ;;
-  esac
+  _task_claim_or_refuse "task resume" "$expected" "$tmp"
 
   local stash_line=""
   if [ -n "$applied" ]; then
@@ -6166,12 +6141,7 @@ _task_resume_from_park() {
   _task_state_set_into "$dir/state" "$tmp" status active
   _task_state_set_into "$tmp" "$tmp2" park_resumed_at "$(_task_autopilot_now)"
   rm -f "$tmp"
-  jig_revision_claim "$expected" || rc=$?
-  case "$rc" in
-    0) ;;
-    1) rm -f "$tmp2"; jig_fail stale-revision "task resume: the clone changed since revision $expected; read again and retry" ;;
-    *) rm -f "$tmp2"; jig_die "task resume: cannot claim the clone revision in $(jig_revision_dir)" ;;
-  esac
+  _task_claim_or_refuse "task resume" "$expected" "$tmp2"
   mv "$tmp2" "$dir/state"
   jig_task_state_forget
   jig_record_changed
