@@ -13,6 +13,7 @@ paths:
   - scripts/lib/common.sh
   - scripts/lib/status.sh
 summary: Why a person's land, promote, request-review and merge-pr (--by human) do not read agent.git yet never bypass the forge's protection, why they answer JSON with codes against a revision, why pr-status reads the forge live, and why shipping is a runtime record with pid liveness.
+reviewed_at: 2026-11-16
 ---
 # A person's action on a task's pull request does not read agent.git, and the forge's protection is never bypassed
 
@@ -102,3 +103,5 @@ meant to limit the person.
   (`checkout.busy_ttl`, 12 h), not by liveness; `shipping` does not use them.
 
 > **Amended 2026-11-14.** The Consequences line "The forge cache carries no review state" no longer holds: housekeeping keeps `<review>` and `<waiting_for>` for open pull requests (adr-20261113-reviewers-are-read-from-the-forge as amended), the pull-request attention items carry `pull_request.review`, and a task parked for review that is not approved yet gets its own item titled by that review. The actions table is fed what it was fed before; the review does not change which rows are offered.
+
+> **Amended 2026-11-16.** The bullet "`shipping` is a runtime record with liveness" now reads: a read reports the record only while `kill -0 <pid>` succeeds **and** before the `deadline` the ship wrote into it (`deadline: <epoch seconds>`, the CI timeout that ship waits with plus 900 s); a record without a numeric `deadline` reads as absent. A ship killed by SIGKILL (or a machine that went down) cannot remove its record, and a recycled pid made it read as alive with no end, refusing the person's `land` and `merge-pr` with `ship-running`. The age limit lives in the read, as the `jig verify` record's ttl does, and nothing new deletes: housekeeping sweeping dead records lost, because judging a record dead and a new ship of the same task replacing it with `mv` race, so the sweep would remove a live record unless it took a claim like the writes lock's, all for a file that already reads as absent; the next ship of the task replaces it anyway. Recording the process's start time lost to ADR-0002 (`ps`), and a heartbeat on each CI poll lost to its cost in the shared wait loop. The ship's temporary file is a dotfile, `.tmp.<id>.<pid>`, per `conventions/shell.md`.

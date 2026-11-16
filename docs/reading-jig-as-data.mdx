@@ -250,7 +250,8 @@ carries it from the staging branch into the base, `{"url", "state", "ci", "merge
 merge or land the pull request itself, and `null` otherwise. It tells "the agent will merge it when
 CI passes" from "the merge is yours" and from "nobody is watching". The ship writes a record under
 `.ai/runtime/shipping/` and removes it when it ends; a read counts it only while that process is
-alive, so a ship that was killed does not stay on the card.
+alive and before the deadline the ship wrote (its CI timeout plus 15 minutes), so a ship that was
+killed does not stay on the card, even when its process number is reused.
 
 ## What a person may do next
 

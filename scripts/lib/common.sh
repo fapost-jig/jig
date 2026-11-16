@@ -3666,6 +3666,24 @@ _jig_ship_last_check() {
   return 1
 }
 
+# jig_ship_timeout_v <var> — the minutes a ship waits for CI into <var>:
+# JIG_SHIP_CI_TIMEOUT when set, else agent.ci_timeout. Returns 1 when
+# agent.ci_timeout is not whole minutes, leaving the raw value in <var> so the
+# caller can name it.
+jig_ship_timeout_v() {
+  local __jst_value
+  if [ -n "$JIG_SHIP_CI_TIMEOUT" ]; then
+    printf -v "$1" '%s' "$JIG_SHIP_CI_TIMEOUT"
+    return 0
+  fi
+  if __jst_value=$(jig_ci_timeout); then
+    printf -v "$1" '%s' "$__jst_value"
+    return 0
+  fi
+  printf -v "$1" '%s' "$__jst_value"
+  return 1
+}
+
 # jig_ship_merge <who> <url> <sha> <any|merge-commit> — merge the pull request
 # at <url>, only as the commit <sha> that was shipped. Prints `merged <url>` or
 # `not merged: <reason>` and returns 0 either way; dies (exit 1) only on an
@@ -3692,11 +3710,7 @@ jig_ship_merge() {
   _jig_ship_outward "$who"
   JIG_SHIP_MERGED=0
   JIG_SHIP_NOT_MERGED_CODE=""
-  if [ -n "$JIG_SHIP_CI_TIMEOUT" ]; then
-    timeout=$JIG_SHIP_CI_TIMEOUT
-  else
-    timeout=$(jig_ci_timeout) || jig_die "$who: invalid agent.ci_timeout: $timeout (expected whole minutes)"
-  fi
+  jig_ship_timeout_v timeout || jig_die "$who: invalid agent.ci_timeout: $timeout (expected whole minutes)"
   kind=$(jig_forge_kind) || exit 1
   if [ "$kind" = none ]; then
     printf "not merged: no forge available; the merge is the human's\n"
@@ -5637,13 +5651,17 @@ jig_record_changed() {
 # --- the shipping record ------------------------------------------------------
 #
 # A `jig task ship` at `merge` waits for CI and then merges. While it does, it
-# keeps `<clone-root>/.ai/runtime/shipping/<id>` (`pid: <n>` and `since: <UTC>`),
-# so a person's merge button, a program reading `jig task list --json` and
-# another ship can tell "the agent is waiting for CI and merges itself" from
-# "the merge is the person's". The clone root, not the checkout the ship runs
-# in, so a ship in a worktree is seen from the main checkout. A record whose
-# process is gone reads as no record; a read never deletes it. Both writes
-# raise the revision (jig_record_changed).
+# keeps `<clone-root>/.ai/runtime/shipping/<id>` (`pid: <n>`, `since: <UTC>` and
+# `deadline: <epoch seconds>`), so a person's merge button, a program reading
+# `jig task list --json` and another ship can tell "the agent is waiting for CI
+# and merges itself" from "the merge is the person's". The clone root, not the
+# checkout the ship runs in, so a ship in a worktree is seen from the main
+# checkout. The ship writes the deadline: the CI timeout it waits with plus a
+# quarter of an hour. A record reads as live only while its process lives and
+# the deadline has not passed, so a SIGKILLed ship whose pid was recycled reads
+# as alive no longer than the deadline. A record whose process is gone, whose
+# deadline passed or that has no (numeric) deadline reads as no record; a read
+# never deletes it. Both writes raise the revision (jig_record_changed).
 
 # jig_shipping_file_v <var> <id> — the record's path into <var>; dies for an
 # id that is not one, before a path is built from it.
@@ -5655,15 +5673,21 @@ jig_shipping_file_v() {
 }
 
 # jig_shipping_begin <id> — write the record for this process, atomically, and
-# remove it when the command ends however it ends.
+# remove it when the command ends however it ends. Its deadline is the CI
+# timeout the ship waits with (jig_ship_timeout_v) plus 15 minutes; when that
+# timeout is invalid the record has no deadline line, reads as absent, and
+# jig_ship_merge dies on it anyway.
 _JIG_SHIPPING_ID=""
 jig_shipping_begin() {
-  local id="$1" file tmp
+  local id="$1" file tmp timeout deadline_line=""
   jig_shipping_file_v file "$id"
   mkdir -p "${file%/*}" 2>/dev/null || return 0
-  tmp="$file.tmp.$$"
+  if jig_ship_timeout_v timeout; then
+    printf -v deadline_line 'deadline: %s\n' "$(( $(date +%s) + 10#$timeout * 60 + 900 ))"
+  fi
+  tmp="${file%/*}/.tmp.$id.$$"
   jig_cleanup_add "$tmp"
-  printf 'pid: %s\nsince: %s\n' "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$tmp" 2>/dev/null || return 0
+  printf 'pid: %s\nsince: %s\n%s' "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$deadline_line" > "$tmp" 2>/dev/null || return 0
   mv "$tmp" "$file" 2>/dev/null || return 0
   jig_record_changed
   _JIG_SHIPPING_ID=$id
@@ -5688,15 +5712,28 @@ jig_shipping_end() {
 }
 
 # jig_shipping_since_v <var> <id> — the record's `since` while its process
-# lives, else empty. Reads only.
+# lives and its `deadline` (all digits, written by the ship) has not passed,
+# else empty: a record without a deadline reads as absent. Reads only.
 jig_shipping_since_v() {
-  local __jss_var="$1" __jss_file __jss_pid __jss_since=""
+  local __jss_var="$1" __jss_file __jss_pid __jss_since="" __jss_deadline
   jig_shipping_file_v __jss_file "$2"
   if [ -f "$__jss_file" ]; then
     __jss_pid=$(_jig_verify_busy_value "$__jss_file" pid || true)
     case "$__jss_pid" in
       '' | *[!0-9]*) ;;
-      *) if kill -0 "$__jss_pid" 2>/dev/null; then __jss_since=$(_jig_verify_busy_value "$__jss_file" since || true); fi ;;
+      *)
+        if kill -0 "$__jss_pid" 2>/dev/null; then
+          __jss_deadline=$(_jig_verify_busy_value "$__jss_file" deadline || true)
+          case "$__jss_deadline" in
+            '' | *[!0-9]*) ;;
+            *)
+              if [ "$(date +%s)" -le "$((10#$__jss_deadline))" ]; then
+                __jss_since=$(_jig_verify_busy_value "$__jss_file" since || true)
+              fi
+              ;;
+          esac
+        fi
+        ;;
     esac
   fi
   printf -v "$__jss_var" '%s' "$__jss_since"
