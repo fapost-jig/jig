@@ -523,8 +523,11 @@ test_doctor_session_hook_claude_not_installed_warns() {
 test_doctor_session_hook_claude_installed_ok() {
   fixture_jig_repo
   mkdir -p .claude
-  printf '{ "hooks": { "SessionStart": [ { "hooks": [ { "type": "command", "command": ".ai/scripts/jig-session-hook" } ] } ] } }\n' \
-    > .claude/settings.json
+  # shellcheck disable=SC2016  # $CLAUDE_PROJECT_DIR is literal settings.json text
+  printf '%s\n' '{ "hooks": {' \
+    '  "SessionStart": [ { "hooks": [ { "type": "command", "command": ".ai/scripts/jig-session-hook" } ] } ],' \
+    '  "SessionEnd": [ { "hooks": [ { "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/.ai/scripts/jig-session-end-hook" } ] } ]' \
+    '} }' > .claude/settings.json
 
   run jig doctor
   assert_eq 0 "$RC"
