@@ -260,7 +260,7 @@ _prdo_git_level() {
   for want in "$@"; do
     [ "$level" != "$want" ] || return 0
   done
-  jig_fail git-level "$who: this needs $key: $1${2:+ or $2} (git level $level ($key)); a person does it with --by human"
+  jig_fail git-level "$who: this needs $key: $1${2:+ or $2} (git level $level ($key)); the person does it, not the agent"
 }
 
 # --- jig task request-review ---------------------------------------------------
@@ -463,7 +463,8 @@ _prdo_merge_pr_body() {
   local staging_now
   if [ "$(cfg git.flow direct)" = staging ] && _task_staging_sound_v staging_now \
     && [ "$_PRDO_BASE" = "$staging_now" ]; then
-    jig_fail wrong-flow "$who: the pull request of $id goes into $staging_now, which is landed, not merged; land it: jig task land $id --by human"
+    _task_landed_not_merged_text_v why "$who" "$id" "$staging_now"
+    jig_fail wrong-flow "$why"
   fi
   local sha=$_PRDO_HEAD
   if [ "$outcome" = merged ]; then
@@ -498,7 +499,7 @@ _prdo_merge_pr_body() {
       case "$close_why" in
         "task set: status consolidated requires knowledge_consolidated true"*)
           blocked='"knowledge-not-recorded"' ;;
-        "task set: $id is on "*" and not in "*" yet: "* | "task set: $id is pushed and not in "*)
+        "task set: $id is on "*" and not in "*" yet: "*)
           blocked='"not-in-base"' ;;
         *) jig_die "$who: merged, but no close_blocked code for this refusal: $close_why" ;;
       esac

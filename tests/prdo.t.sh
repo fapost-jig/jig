@@ -262,6 +262,8 @@ test_prdo_request_review_without_by_human_reads_the_agent_git_level() {
   assert_eq 1 "$RC"
   assert_eq git-level "$(pd_code)"
   assert_no_file gh-edit.argv
+  # The refusal does not hand an agent the person's flag.
+  assert_not_contains "$ERR$OUT" "--by human"
   pd_cfg_local agent.git pr
   pd_split jig task request-review T-1 --reviewer alice
   assert_eq 0 "$RC" "$ERR"
@@ -583,6 +585,48 @@ test_prdo_merge_pr_refuses_a_release_whose_notes_are_behind_the_base() {
   pd_split jig task merge-pr T-1 --by human --json
   pd_refused notes-stale
   assert_contains "$OUT" "raises the version"
+}
+
+# pd_remote_release_head — a release commit (VERSION 1.0.0 -> 2.0.0) that only
+# origin has, on origin's task/T-1; its sha is the pull request's head in
+# gh-view and not an object of this clone.
+pd_remote_release_head() {
+  local sha
+  printf '1.0.0\n' > VERSION
+  git add VERSION
+  git commit -q -m "declare the version"
+  git push -q origin main
+  git clone -q origin.git other
+  git -C other checkout -q -b task/T-1 origin/main
+  printf '2.0.0\n' > other/VERSION
+  git -C other commit -q -am "raise the version"
+  git -C other push -q origin task/T-1
+  sha=$(git -C other rev-parse HEAD)
+  printf '%s\n' other >> .git/info/exclude
+  printf 'OPEN|false|main|%s|MERGEABLE|CLEAN\n' "$sha" > gh-view
+  git cat-file -e "$sha^{commit}" 2>/dev/null && return 1
+  return 0
+}
+
+# A head the clone lacks is fetched from the task's branch on origin, and the
+# check of the notes then runs on it: here the release's notes are missing.
+test_prdo_merge_pr_fetches_a_missing_head_from_the_task_branch_and_checks_it() {
+  pd_setup github
+  pd_remote_release_head || fail "the fixture's head is already in the clone"
+  pd_split jig task merge-pr T-1 --by human --json
+  pd_refused notes-stale
+  assert_contains "$OUT" "raises the version"
+}
+
+# A head origin's task branch does not hold either: whether it raises the
+# version cannot be told, so nothing is merged.
+test_prdo_merge_pr_refuses_when_the_head_is_nowhere_it_can_be_read() {
+  pd_setup github
+  pd_remote_release_head || fail "the fixture's head is already in the clone"
+  git -C origin.git branch -q -D task/T-1
+  pd_split jig task merge-pr T-1 --by human --json
+  pd_refused forge-unavailable
+  assert_contains "$OUT" "nothing was merged"
 }
 
 # --- pr-status ----------------------------------------------------------------

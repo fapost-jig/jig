@@ -133,7 +133,7 @@ be reworded.
 | `wrong-status` | the task's status does not let the command run: archiving a task that is `consolidated`, abandoning one that is `archived` (unarchive it first), or closing a roadmap item for a task that is not `abandoned`. Nothing was written — read again |
 | `already-closed` | `jig spec drop` found every roadmap item that names the task checked already: somebody closed it first. Nothing was written — read again |
 | `ship-running` | a `jig task ship` of the task is waiting for CI and lands or merges the pull request itself (`shipping` in `jig task list --json`). Nothing was written |
-| `git-level` | a command without `--by human` ran at an `agent.git` below what it needs. The action is the person's: run it with `--by human` |
+| `git-level` | a command without `--by human` ran at an `agent.git` below what it needs. The action is the person's, not the agent's |
 | `forge-unavailable` | the command could not ask the forge: none set up for this clone, its CLI missing or not signed in, or the call failed (`jig pr reviewers`, `jig task land --by human`, `jig task promote --json`, `jig task request-review`, `jig task merge-pr`, `jig task pr-status`). `message` holds why |
 | `failed` | anything else: the message says what |
 
@@ -388,6 +388,8 @@ Both carry `"pull_request": {"branch", "base", "state", "fetched_at"}` and `"ver
 while one stands for your machine's version or a newer one `upgrade-available` is not listed: what
 the project needs is the merge and `jig upgrade --land`, not a second upgrade. One for an older
 version, such as a pull request nobody merged or closed, does not hide the newer upgrade.
+
+The `todo` of a `pull-request-waiting` item names the `--by human` command only while its row in `actions` is offered; while the agent is on the task, or the checks of a merge are red or pending, or a merge conflicts, it says why instead. In a `phase-stopped` item the `todo` ends "add --by human for the unattended: <ids>", naming only the runs that were started unattended.
 
 The items about a task's open pull request (`pull-request-waiting`, `pull-request-was-open`) carry
 what the forge cache says and what a person can do, so a card needs no second read:

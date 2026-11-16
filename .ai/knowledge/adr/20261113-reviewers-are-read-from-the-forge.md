@@ -14,7 +14,7 @@ paths:
   - scripts/lib/housekeeping.sh
   - scripts/lib/forgecache.sh
 summary: Why an approval waits for every reviewer the forge records as requested, why jig task ship --reviewer resolves people (never teams) against the forge before the push, and why reviewer candidates are read from the forge's recent reviews, never a setting, by the one --json read that asks the forge.
-reviewed_at: 2026-11-13
+reviewed_at: 2026-11-16
 ---
 # Reviewers are read from the forge, requested by the ship, and an approval waits for each of them
 
@@ -84,4 +84,4 @@ to keep, and who reviews changes from one landing to the next.
 
 > **Amendment (2026-11-14).** Adding reviewers to an open pull request is `jig task request-review <id> --reviewer <login|name>...`, resolved by the same functions as the ship; on GitLab each login is added with `+` (adr-20261114-a-persons-pull-request-action-does-not-read-agent-git).
 
-> **Amended 2026-11-14.** Housekeeping now keeps the review state of every open pull request in the forge cache (columns `<review>` and `<waiting_for>`), for the boards that read `task list --json` and `jig status` and never ask the forge. On GitHub it is the same call that already asks for the checks, widened with `reviewDecision`, `latestReviews` and `reviewRequests`; the decision is made in the shell by `jig_pr_approval_github_v`, the function `jig_pr_approval_v` uses, so a board and `task pr-status` cannot read a review apart. On GitLab, whose list has no approvals, housekeeping calls `jig_pr_approval_v` once for each open merge request into the staging branch, on the staging flow only. A review `unknown` is `-` in the cache and counts as not approved wherever the cache is read.
+> **Amended 2026-11-14.** Housekeeping now keeps the review state of every open pull request in the forge cache (columns `<review>` and `<waiting_for>`), for the boards that read `task list --json` and `jig status` and never ask the forge. On GitHub it is the same call that already asks for the checks, widened with `reviewDecision`, `latestReviews` and `reviewRequests`; the decision is made in the shell by `jig_pr_approval_github_v`, the function `jig_pr_approval_v` uses, so a board and `task pr-status` cannot read a review apart. On GitLab, whose list has no approvals, housekeeping calls `jig_pr_approval_v` for each open merge request into the staging branch, on the staging flow only, except that it reuses the cached review while the merge request's head commit is unchanged and the cache's own optional eleventh column `<reviewed_at>` (when the review was asked, carried forward and not renewed by a run that reuses it) is under 15 minutes old. A review changed without a new commit is therefore seen up to 15 minutes late, a delay accepted so that a run over unchanged merge requests makes no call of its own. A review `unknown` is `-` in the cache and counts as not approved wherever the cache is read.

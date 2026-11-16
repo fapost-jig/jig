@@ -7753,6 +7753,40 @@ test_task_land_by_human_maps_the_commands_own_refusals_to_codes() {
   assert_eq wrong-flow "$(_tr_code)"
 }
 
+# Each refusal of a person's landing is coded by its words
+# (_task_land_refusal_code); a reworded guard fails one of these.
+test_task_land_by_human_codes_a_task_without_a_pull_request() {
+  shuman_setup
+  sed '/^pr_url:/d;/^pr_into:/d' .ai/workspace/tasks/T-1/state > state.tmp
+  mv state.tmp .ai/workspace/tasks/T-1/state
+  shuman_land
+  assert_eq 1 "$RC" "$OUT"
+  assert_eq no-pull-request "$(_tr_code)"
+  assert_no_file gh-merge.argv
+}
+
+test_task_land_by_human_codes_a_task_cut_from_another_branch_as_wrong_flow() {
+  shuman_setup
+  git branch -q epic/x main
+  sed 's|^base_branch:.*|base_branch: epic/x|' .ai/workspace/tasks/T-1/state > state.tmp
+  mv state.tmp .ai/workspace/tasks/T-1/state
+  shuman_land
+  assert_eq 1 "$RC" "$OUT"
+  assert_eq wrong-flow "$(_tr_code)"
+  assert_contains "$OUT" "is cut from epic/x"
+  assert_no_file gh-merge.argv
+}
+
+test_task_land_by_human_codes_an_external_land_as_wrong_flow() {
+  shuman_setup
+  printf 'git.staging_land: external\n' >> .ai/config.yaml
+  shuman_land
+  assert_eq 1 "$RC" "$OUT"
+  assert_eq wrong-flow "$(_tr_code)"
+  assert_contains "$OUT" "git.staging_land is external"
+  assert_no_file gh-merge.argv
+}
+
 test_task_land_by_human_a_merged_pull_request_is_already_landed() {
   shuman_setup
   printf 'MERGED\n' > gh-state
@@ -7910,6 +7944,40 @@ srow_ship() {
 # pull request into main.
 srow_cache() {
   printf 'task/T-1\tmain\t%s\t%s\t2026-11-13T10:00:00Z\t-\t-\t%s\n' "${3:-open}" "$1" "$2" > .ai/runtime/forge-cache
+}
+
+# A pull request an older Jig opened has no pr_into: the table places it by the
+# base column of the forge cache's line for its address, and offers the one row
+# that fits; without a line it offers both, as before, and the command's look at
+# the forge stays the last word.
+test_task_actions_place_an_old_staging_pull_request_by_the_cache_base() {
+  srow_ship 'git.flow: staging
+git.staging_branch: staging'
+  sed '/^pr_into:/d' .ai/workspace/tasks/T-1/state > state.tmp
+  mv state.tmp .ai/workspace/tasks/T-1/state
+  jig task set T-1 knowledge_consolidated true >/dev/null
+  local t url
+  t=$(printf '\t')
+  url=https://github.com/example/example/pull/99
+  mkdir -p .ai/runtime
+
+  # No line: both rows, as before.
+  : > .ai/runtime/forge-cache
+  run jig task list --json
+  assert_contains "$OUT" '{"id":"land","command":"jig task land T-1 --by human","offered":true,"reason":null}'
+  assert_contains "$OUT" '{"id":"merge","command":"jig task merge-pr T-1 --by human","offered":true,"reason":null}'
+
+  # The cache says it goes into staging: land is offered, merge is not.
+  printf '%s\n' "task/T-1${t}staging${t}open${t}green${t}2026-11-13T10:00:00Z${t}-${t}$url${t}mergeable" > .ai/runtime/forge-cache
+  run jig task list --json
+  assert_contains "$OUT" '{"id":"land","command":"jig task land T-1 --by human","offered":true,"reason":null}'
+  assert_contains "$OUT" '"id":"merge","command":"jig task merge-pr T-1 --by human","offered":false,"reason":"task merge-pr: the pull request of T-1 goes into staging, which is landed, not merged'
+
+  # The cache says it goes into main: merge is offered, land is not.
+  printf '%s\n' "task/T-1${t}main${t}open${t}green${t}2026-11-13T10:00:00Z${t}-${t}$url${t}mergeable" > .ai/runtime/forge-cache
+  run jig task list --json
+  assert_contains "$OUT" '{"id":"merge","command":"jig task merge-pr T-1 --by human","offered":true,"reason":null}'
+  assert_contains "$OUT" '"id":"land","command":"jig task land T-1 --by human","offered":false,"reason":"task land: '"$url"' goes into main, not staging; landing is for a pull request into the staging branch; merge it: jig task merge-pr T-1 --by human'
 }
 
 test_task_actions_request_review_and_pr_status_rows_need_a_pull_request() {
@@ -16890,6 +16958,19 @@ test_task_land_of_a_legacy_pull_request_fails_closed_when_the_forge_is_silent() 
   run jig task land T-1
   [ "$RC" -ne 0 ] || fail "must refuse: $OUT"
   assert_contains "$OUT" "could not say which branch"
+  assert_no_file gh-merge.argv
+  assert_not_contains "$(cat .ai/workspace/tasks/T-1/state)" "pr_into:"
+}
+
+# A person's landing of an older pull request the forge cannot place is
+# refused with the forge's code, and nothing is merged.
+test_task_land_by_human_of_a_legacy_pull_request_is_forge_unavailable_when_the_forge_is_silent() {
+  slegacy_setup merge merge
+  printf '1\n' > gh-view.rc
+
+  run jig task land T-1 --by human --json
+  [ "$RC" -ne 0 ] || fail "must refuse: $OUT"
+  assert_contains "$OUT" '"code":"forge-unavailable"'
   assert_no_file gh-merge.argv
   assert_not_contains "$(cat .ai/workspace/tasks/T-1/state)" "pr_into:"
 }

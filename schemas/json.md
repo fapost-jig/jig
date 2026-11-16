@@ -107,7 +107,7 @@ need to tell it apart (`already-filed`, out of `already-exists`); the release no
 | `wrong-status` | the task's status does not let the command run: `jig task archive` of a `consolidated` task (its work is in git and its workspace is purged, not kept), `jig task abandon` of an `archived` one (`jig task unarchive` first), `jig spec drop` of a task that is neither `abandoned` nor archived from `abandoned`. Nothing was written |
 | `already-closed` | `jig spec drop` found every item that names the task checked already: somebody closed it first. Nothing was written |
 | `ship-running` | a `jig task ship` of the task is waiting for CI and lands the pull request itself (`shipping` in `jig task list --json`). Nothing was written |
-| `git-level` | a command without `--by human` at an `agent.git` (`agent.git_staging` for a task whose pull request goes into the staging branch) below what it needs: `jig task promote --json` and `jig task request-review` below `pr`, `jig task merge-pr` below `merge`. The action is the person's |
+| `git-level` | a command without `--by human` at an `agent.git` (`agent.git_staging` for a task whose pull request goes into the staging branch) below what it needs: `jig task promote --json` and `jig task request-review` below `pr`, `jig task merge-pr` below `merge`. The action is the person's, not the agent's |
 | `failed` | any other refusal: one that names no code of its own, a fault of the environment (a checkout that cannot be read, a failed command), or a producer that printed nothing |
 
 A refusal names its code with `jig_fail <code> <message>` (`scripts/lib/common.sh`); `jig_die
@@ -261,13 +261,13 @@ A read never asks the forge, so pull request state comes from `.ai/runtime/forge
 --state open` for the checks, the mergeable word and the review of the open pull requests — two
 calls a run, whatever the number of tasks. GitLab's list carries no approvals: on the staging flow
 housekeeping asks for each open merge request into the staging branch, and for no other, one
-approvals call each. `jig upgrade` that leaves its pull request open adds that one line itself, `open`, with
+approvals call each, unless the line already holds a review for the same head commit whose `<reviewed_at>` is under 15 minutes old. `jig upgrade` that leaves its pull request open adds that one line itself, `open`, with
 `<ci>` and `<mergeable>` `-`, in place of an older line for the same branch and base; the next
 housekeeping run replaces the whole file. One line per pull request, newest
 first as the forge lists them, written atomically, `#` lines are comments:
 
 ```
-<head>	<base>	<state>	<ci>	<fetched_at>	<head_commit>	<url>	<mergeable>	<review>	<waiting_for>
+<head>	<base>	<state>	<ci>	<fetched_at>	<head_commit>	<url>	<mergeable>	<review>	<waiting_for>	<reviewed_at>
 ```
 
 `<ci>` is `-` when it was not asked; `<head_commit>` and `<url>`, the pull request's head and its
@@ -277,7 +277,7 @@ second call; GitLab's `detailed_merge_status`, in its one list), `-` otherwise. 
 `approved`, `changes`, `waiting` or `none` for an open pull request whose review was asked (the
 words of `jig task pr-status`; GitHub's decision and reviews are read once, in the open list's call),
 `-` otherwise and when the forge could not say; `<waiting_for>` is who is still requested as a
-reviewer, logins comma-separated, `-` for nobody or not known. An open pull request the second
+reviewer, logins comma-separated, `-` for nobody or not known; `<reviewed_at>` is optional, written only for a GitLab review, the UTC time the review was asked. An open pull request the second
 call lists but the first (the newest 200) does not gets its own line, after the others. A line written
 before a column existed ends before it and reads as if each missing one were `-`. A task's entry is the first line for its branch and base, the
 join housekeeping's own remote state uses. A run whose forge did not answer, or that has no forge,

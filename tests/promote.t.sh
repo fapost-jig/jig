@@ -951,6 +951,24 @@ test_promote_with_no_forge_needs_a_person() {
   assert_contains "$OUT" "task promote: no forge available; open the pull request from task/T-1 into main by hand"
 }
 
+# No forge is found out before the clone's revision is claimed and before
+# anything is pushed: the refusal of a person's promotion leaves both alone.
+test_promote_by_human_without_a_forge_claims_and_pushes_nothing() {
+  promote_by_human_setup
+  sed 's/^forge:.*/forge: none/' .ai/config.yaml > c.tmp
+  mv c.tmp .ai/config.yaml
+  local rev origin_before
+  rev=$(jig_revision_read)
+  origin_before=$(git ls-remote origin)
+
+  promote_json jig task promote T-1 --by human --json
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" '"code":"forge-unavailable"'
+  assert_contains "$OUT" "Nothing was pushed."
+  assert_eq "$rev" "$(jig_revision_read)" "the refusal claimed the revision"
+  assert_eq "$origin_before" "$(git ls-remote origin)"
+}
+
 test_promote_url_is_refused_by_task_set() {
   promote_setup
 
@@ -1695,6 +1713,20 @@ promote_by_human_setup() {
   mv .ai/config.local.yaml.tmp .ai/config.local.yaml
   sed 's/^status: .*/status: ready/' .ai/workspace/tasks/T-1/state > state.tmp
   mv state.tmp .ai/workspace/tasks/T-1/state
+}
+
+# The refusal of a person's promotion is coded wrong-flow for a task the
+# staging flow does not apply to.
+test_promote_by_human_codes_a_task_of_an_epic_as_wrong_flow() {
+  promote_by_human_setup
+  sed 's/^base_branch:.*/base_branch: epic\/x/' .ai/workspace/tasks/T-1/state > s.tmp
+  mv s.tmp .ai/workspace/tasks/T-1/state
+
+  promote_json jig task promote T-1 --by human --json
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" '"code":"wrong-flow"'
+  assert_contains "$OUT" "is cut from epic/x"
+  assert_no_file gh-create.argv
 }
 
 test_promote_by_human_opens_the_pull_request_at_agent_git_none() {

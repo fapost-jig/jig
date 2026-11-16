@@ -322,15 +322,6 @@ _land_approval_gate() {
 # why, for the pull request comment.
 _LAND_WITHOUT=""
 
-# _land_other_branch_text <who> <id> <pr> <into> <staging> <base-branch> — the
-# refusal for a pull request that goes into <into>, not the staging branch;
-# into the base branch it names its path, `jig task merge-pr`.
-_land_other_branch_text() {
-  local text="$1: $3 goes into $4, not $5; landing is for a pull request into the staging branch"
-  [ "$4" != "$6" ] || text="$text; merge it: jig task merge-pr $2 --by human"
-  printf '%s' "$text"
-}
-
 # land_task <who> <id> <without-review> <resolved> <note-file> — land <id>'s
 # pull request on the staging branch, or say why not. The git level is the
 # caller's to have checked (`merge`). Refuses with jig_die (exit 1) before it
@@ -339,7 +330,7 @@ _land_other_branch_text() {
 # 3 a person decides, 5 a conflict waits in the temporary tree.
 land_task() {
   local who="$1" id="$2" without="$3" resolved="$4" note="$5"
-  local staging flow base base_branch land branch pr state failed sha local_tip ahead
+  local staging flow base base_branch land branch pr state failed sha local_tip ahead why
   _LAND_RC=0
   _LAND_WITHOUT=""
   _LAND_CODE=""
@@ -367,7 +358,7 @@ land_task() {
   local into record_into=""
   into=$(task_state_get "$id" pr_into)
   [ -z "$into" ] || [ "$into" = "$staging" ] \
-    || _land_refuse wrong-flow "$(_land_other_branch_text "$who" "$id" "$pr" "$into" "$staging" "$base_branch")"
+    || { _task_other_branch_text_v why "$who" "$id" "$pr" "$into" "$staging" "$base_branch"; _land_refuse wrong-flow "$why"; }
   if [ "$resolved" = 1 ]; then
     if [ -z "$note" ] || [ ! -s "$note" ] || ! grep -q '[^[:space:]]' "$note"; then
       jig_die "$who: --resolved needs --note-file with how each conflict was resolved; it goes into the merge commit and the pull request"
@@ -422,7 +413,7 @@ land_task() {
       _task_rewrite_state "$(task_dir "$id")" pr_into "$into"
     fi
     [ "$into" = "$staging" ] \
-      || _land_refuse wrong-flow "$(_land_other_branch_text "$who" "$id" "$pr" "$into" "$staging" "$base_branch")"
+      || { _task_other_branch_text_v why "$who" "$id" "$pr" "$into" "$staging" "$base_branch"; _land_refuse wrong-flow "$why"; }
   fi
 
   state=$(jig_pr_state "$pr")

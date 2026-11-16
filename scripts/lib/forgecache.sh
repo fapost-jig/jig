@@ -9,7 +9,7 @@
 #
 #   .ai/runtime/forge-cache, one line per pull request, newest first as the
 #   forge listed them:
-#     <head><TAB><base><TAB><state><TAB><ci><TAB><fetched_at><TAB><head-commit><TAB><url><TAB><mergeable><TAB><review><TAB><waiting_for>
+#     <head><TAB><base><TAB><state><TAB><ci><TAB><fetched_at><TAB><head-commit><TAB><url><TAB><mergeable><TAB><review><TAB><waiting_for><TAB><reviewed_at>
 #   <state> open|merged|closed; <ci> green|red|pending|none, `-` when it was
 #   not asked (a pull request that is not open, a forge that does not list it);
 #   <fetched_at> UTC, when the forge said so; <head-commit> and <url> the pull
@@ -20,7 +20,10 @@
 #   request whose review the forge was asked about (jig_pr_approval_v's words,
 #   adr-20261113-reviewers-are-read-from-the-forge), `-` otherwise and when it
 #   could not say; <waiting_for> who is still requested as a reviewer, logins
-#   comma-separated, `-` when nobody or not known. A line written before a column existed ends before it
+#   comma-separated, `-` when nobody or not known; <reviewed_at> UTC, when the
+#   review was last asked of the forge, written only for a GitLab merge request
+#   (whose review is one call each): housekeeping reuses a review for the same
+#   head commit until that time is old, whatever <fetched_at> says. A line written before a column existed ends before it
 #   and reads as if each missing one were `-`. Lines starting with `#` are
 #   comments.
 #
@@ -62,7 +65,7 @@ forgecache_write() {
   jig_cleanup_add "$tmp"
   mkdir -p "${file%/*}" 2>/dev/null || return 0
   {
-    printf '# jig forge cache: <head> <base> <state> <ci> <fetched_at> <head-commit> <url> <mergeable> <review> <waiting_for>, written by jig housekeeping\n'
+    printf '# jig forge cache: <head> <base> <state> <ci> <fetched_at> <head-commit> <url> <mergeable> <review> <waiting_for> [<reviewed_at>], written by jig housekeeping\n'
     [ -z "$rows" ] || printf '%s\n' "$rows"
   } > "$tmp" 2>/dev/null || return 0
   mv "$tmp" "$file" 2>/dev/null || return 0
@@ -108,8 +111,8 @@ forgecache_read() {
 # _FORGECACHE_WAITING from the first line of <cache> (forgecache_read's output)
 # for a pull request from <head> into <base>: the newest, as the forge lists
 # them and as housekeeping's own remote state takes it. Each is empty when the
-# cache does not say. When a line was found _FORGECACHE_HEAD and _FORGECACHE_BASE
-# are set to its branches (empty otherwise), so a caller can tell a line that
+# cache does not say, _FORGECACHE_COMMIT (the head commit) too. When a line was
+# found _FORGECACHE_HEAD and _FORGECACHE_BASE are set to its branches (empty otherwise), so a caller can tell a line that
 # says nothing from no line. In the caller's shell, without a process per lookup.
 _FORGECACHE_STATE=""
 _FORGECACHE_CI=""
@@ -118,8 +121,10 @@ _FORGECACHE_URL=""
 _FORGECACHE_MERGEABLE=""
 _FORGECACHE_REVIEW=""
 _FORGECACHE_WAITING=""
+_FORGECACHE_REVIEWED_AT=""
 _FORGECACHE_HEAD=""
 _FORGECACHE_BASE=""
+_FORGECACHE_COMMIT=""
 _forgecache_clear() {
   _FORGECACHE_STATE=""
   _FORGECACHE_CI=""
@@ -128,22 +133,26 @@ _forgecache_clear() {
   _FORGECACHE_MERGEABLE=""
   _FORGECACHE_REVIEW=""
   _FORGECACHE_WAITING=""
+  _FORGECACHE_REVIEWED_AT=""
   _FORGECACHE_HEAD=""
   _FORGECACHE_BASE=""
+  _FORGECACHE_COMMIT=""
 }
 
 # _forgecache_parse <line> — the columns of one cache line into the globals
 # above, head and base included; a `-` is read as empty.
 _forgecache_parse() {
   local t=$'\t'
-  IFS="$t" read -r _FORGECACHE_HEAD _FORGECACHE_BASE _FORGECACHE_STATE _FORGECACHE_CI _FORGECACHE_AT _ _FORGECACHE_URL _FORGECACHE_MERGEABLE _FORGECACHE_REVIEW _FORGECACHE_WAITING _ <<EOF
+  IFS="$t" read -r _FORGECACHE_HEAD _FORGECACHE_BASE _FORGECACHE_STATE _FORGECACHE_CI _FORGECACHE_AT _FORGECACHE_COMMIT _FORGECACHE_URL _FORGECACHE_MERGEABLE _FORGECACHE_REVIEW _FORGECACHE_WAITING _FORGECACHE_REVIEWED_AT _ <<EOF
 $1
 EOF
   [ "$_FORGECACHE_CI" != "-" ] || _FORGECACHE_CI=""
+  [ "$_FORGECACHE_COMMIT" != "-" ] || _FORGECACHE_COMMIT=""
   [ "$_FORGECACHE_URL" != "-" ] || _FORGECACHE_URL=""
   [ "$_FORGECACHE_MERGEABLE" != "-" ] || _FORGECACHE_MERGEABLE=""
   [ "$_FORGECACHE_REVIEW" != "-" ] || _FORGECACHE_REVIEW=""
   [ "$_FORGECACHE_WAITING" != "-" ] || _FORGECACHE_WAITING=""
+  [ "$_FORGECACHE_REVIEWED_AT" != "-" ] || _FORGECACHE_REVIEWED_AT=""
   return 0
 }
 
