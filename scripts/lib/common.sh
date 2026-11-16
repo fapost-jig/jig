@@ -4681,25 +4681,37 @@ jig_spec_link_v() {
 # checkout's branch comes as the second argument (empty for a detached head) from a
 # caller that asks for many specs; without it, it is read here.
 jig_spec_roadmap_ref() {
-  local roadmap line branch here ref
-  roadmap="$JIG_PROJECT/$JIG_AI_DIR/specs/$1/roadmap.md"
-  line=$(jig_spec_epic "$roadmap" 2>/dev/null) || line=""
-  [ -n "$line" ] || return 0
-  [ "${line##* }" != finished ] || return 0
-  branch=${line% *}
-  if [ "$#" -ge 2 ]; then
-    here=$2
+  local __jsr_out rc=0
+  jig_spec_roadmap_ref_v __jsr_out "$@" || rc=$?
+  [ -z "$__jsr_out" ] || printf '%s\n' "$__jsr_out"
+  return "$rc"
+}
+
+# jig_spec_roadmap_ref_v <var> <spec-id> [<current-branch>] — jig_spec_roadmap_ref into
+# <var>, in the caller's shell, with its exit status: the one lookup, minus the
+# subshells a `$(...)` per spec of a listing would start. <var> holds "<ref>\t<source>"
+# or nothing.
+jig_spec_roadmap_ref_v() {
+  local __jsr_line __jsr_branch __jsr_here __jsr_ref
+  printf -v "$1" '%s' ""
+  jig_spec_epic_v __jsr_line "$JIG_PROJECT/$JIG_AI_DIR/specs/$2/roadmap.md" 2>/dev/null || __jsr_line=""
+  [ -n "$__jsr_line" ] || return 0
+  [ "${__jsr_line##* }" != finished ] || return 0
+  __jsr_branch=${__jsr_line% *}
+  if [ "$#" -ge 3 ]; then
+    __jsr_here=$3
   else
-    here=$(git -C "$JIG_PROJECT" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+    __jsr_here=$(git -C "$JIG_PROJECT" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
   fi
-  [ "$branch" != "$here" ] || return 0
-  git check-ref-format --branch "$branch" >/dev/null 2>&1 || return 2
-  ref=$(jig_base_ref "$branch")
-  [ -n "$ref" ] || return 1
-  case "$ref" in
-    refs/remotes/*) printf '%s\t%s as of the last fetch\n' "$ref" "$branch" ;;
-    *) printf '%s\t%s\n' "$ref" "$branch" ;;
+  [ "$__jsr_branch" != "$__jsr_here" ] || return 0
+  git check-ref-format --branch "$__jsr_branch" >/dev/null 2>&1 || return 2
+  jig_base_ref_v __jsr_ref "$__jsr_branch"
+  [ -n "$__jsr_ref" ] || return 1
+  case "$__jsr_ref" in
+    refs/remotes/*) printf -v "$1" '%s\t%s as of the last fetch' "$__jsr_ref" "$__jsr_branch" ;;
+    *) printf -v "$1" '%s\t%s' "$__jsr_ref" "$__jsr_branch" ;;
   esac
+  return 0
 }
 
 # jig_spec_drop_rewrite <roadmap> <task-id> <suffix> <tmp> — write <roadmap> to
