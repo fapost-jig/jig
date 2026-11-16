@@ -1082,12 +1082,22 @@ jig_task_state_var() {
 # base can be behind it (a teammate who never fetched the branch) or ahead of
 # it (commits nobody pushed), and a bare name lets git pick the local one.
 jig_base_ref() {
-  local name="${1:-}"
-  [ -n "$name" ] || return 0
-  if git -C "$JIG_PROJECT" rev-parse --verify --quiet "refs/remotes/origin/$name^{commit}" >/dev/null 2>&1; then
-    printf '%s\n' "refs/remotes/origin/$name"
-  elif git -C "$JIG_PROJECT" rev-parse --verify --quiet "refs/heads/$name^{commit}" >/dev/null 2>&1; then
-    printf '%s\n' "refs/heads/$name"
+  local __jbr_out
+  jig_base_ref_v __jbr_out "${1:-}"
+  [ -z "$__jbr_out" ] || printf '%s\n' "$__jbr_out"
+  return 0
+}
+
+# jig_base_ref_v <var> <name> — jig_base_ref into <var>, in the caller's shell: the one
+# lookup, minus the subshell a `$(...)` would start for each call of a listing's row.
+jig_base_ref_v() {
+  local __jbr_name="${2:-}"
+  printf -v "$1" '%s' ""
+  [ -n "$__jbr_name" ] || return 0
+  if git -C "$JIG_PROJECT" rev-parse --verify --quiet "refs/remotes/origin/$__jbr_name^{commit}" >/dev/null 2>&1; then
+    printf -v "$1" '%s' "refs/remotes/origin/$__jbr_name"
+  elif git -C "$JIG_PROJECT" rev-parse --verify --quiet "refs/heads/$__jbr_name^{commit}" >/dev/null 2>&1; then
+    printf -v "$1" '%s' "refs/heads/$__jbr_name"
   fi
   return 0
 }
@@ -4660,15 +4670,49 @@ jig_spec_link_v() {
   printf -v "$1" '%s' "$__jsl_found"
 }
 
-# _spec_drop_rewrite <roadmap> <task-id> <suffix> <tmp> — write <roadmap> to
+# jig_spec_roadmap_ref <spec-id> [<current-branch>] — where the current roadmap of a spec
+# is read. Nothing when this checkout's copy is current: no epic, a finished one, or the
+# epic is checked out here. "<ref>\t<source>" when an open epic elsewhere holds
+# it — progress is made there (ADR-0040) — read with no fetch; <source> names
+# the branch and whether the ref is the remote's as of the last fetch. Exit 1
+# when that epic has no ref here at all, 2 when git rejects its name — no
+# fetch can bring that one. The one place the status page (spec_phase_rows), `spec plan`
+# and housekeeping (_hk_roadmap_open_read) decide it, so they cannot disagree. The
+# checkout's branch comes as the second argument (empty for a detached head) from a
+# caller that asks for many specs; without it, it is read here.
+jig_spec_roadmap_ref() {
+  local roadmap line branch here ref
+  roadmap="$JIG_PROJECT/$JIG_AI_DIR/specs/$1/roadmap.md"
+  line=$(jig_spec_epic "$roadmap" 2>/dev/null) || line=""
+  [ -n "$line" ] || return 0
+  [ "${line##* }" != finished ] || return 0
+  branch=${line% *}
+  if [ "$#" -ge 2 ]; then
+    here=$2
+  else
+    here=$(git -C "$JIG_PROJECT" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+  fi
+  [ "$branch" != "$here" ] || return 0
+  git check-ref-format --branch "$branch" >/dev/null 2>&1 || return 2
+  ref=$(jig_base_ref "$branch")
+  [ -n "$ref" ] || return 1
+  case "$ref" in
+    refs/remotes/*) printf '%s\t%s as of the last fetch\n' "$ref" "$branch" ;;
+    *) printf '%s\t%s\n' "$ref" "$branch" ;;
+  esac
+}
+
+# jig_spec_drop_rewrite <roadmap> <task-id> <suffix> <tmp> — write <roadmap> to
 # <tmp> with every unchecked item that names the task checked and <suffix>
 # after its last line, and print the rewritten lines. Exit 3: no item names
 # the task. Exit 4: every item that does is checked already. The id is
 # compared as a string, not a pattern: `.` is legal in an id. A matched item
 # is held until the line after its last continuation line, so the suffix ends
 # the item rather than its first line. Values reach awk through the
-# environment: a `-v` value has its escapes expanded.
-_spec_drop_rewrite() {
+# environment: a `-v` value has its escapes expanded. Here, not in spec.sh, because the
+# actions table (task.sh) asks it, through ot_spec_drop_refusal, whether an item is
+# there to close: one grammar.
+jig_spec_drop_rewrite() {
   local roadmap="$1" tid="$2" suffix="$3" tmp="$4"
   JIG_SD_ID="$tid" JIG_SD_SUFFIX="$suffix" awk -v tmp="$tmp" '
     function flush() {
@@ -4706,8 +4750,6 @@ _spec_drop_rewrite() {
     }
   ' "$roadmap"
 }
-# Here, not in spec.sh, because the actions table (task.sh) asks it, through
-# ot_spec_drop_refusal, whether an item is there to close: one grammar.
 
 # jig_roadmap_open_ids <roadmap.md|-> — task ids named by the unchecked items
 # of a roadmap (`-` reads it from stdin), one per line, each once. An item is
@@ -6257,6 +6299,105 @@ jig_duration_seconds() {
     m) printf '%d\n' $((10#$n * 60)) ;;
     s) printf '%d\n' $((10#$n)) ;;
   esac
+}
+
+# --- bounded runs of a project's command
+#
+# Rolled by hand like jig_ls_remote_tags: no `timeout` is guaranteed to exist
+# (ADR-0002). Shared by `worktree.setup` and the gate hooks, so that the two
+# cannot drift apart on how a hung command is stopped (for one, the Windows
+# tree).
+
+# _jig_winpid <pid> — the Windows process id behind the MSYS/Cygwin process
+# <pid>, or nothing when there is none to read.
+_jig_winpid() {
+  cat "/proc/$1/winpid" 2>/dev/null || true
+}
+
+# jig_stop_tree <pid> — under Git Bash, end the Windows process tree of <pid>
+# before its group is signalled. MSYS delivers a signal only to its own
+# processes: a native program the command started — `php` under `composer`,
+# `docker` — never hears it and goes on running. `taskkill /T` walks the tree
+# by parent, so it runs first, while <pid> is still there to be its root.
+# Asked of the machine, not its name (ADR-0037): with no taskkill or no
+# winpid to read — macOS, Linux — nothing: the group signal that
+# follows is the whole stop. MSYS rewrites `/T` into a path unless argument
+# conversion is off, as for _jig_junction.
+jig_stop_tree() {
+  local winpid
+  command -v taskkill >/dev/null 2>&1 || return 0
+  winpid=$(_jig_winpid "$1")
+  case "$winpid" in '' | *[!0-9]*) return 0 ;; esac
+  MSYS2_ARG_CONV_EXCL='*' taskkill /T /F /PID "$winpid" >/dev/null 2>&1 || true
+  return 0
+}
+
+# _jig_bounded_stop — the exit action that stops a bounded run still going
+# when Jig itself ends: its whole tree, as the limit does.
+_JIG_BOUNDED_PID=""
+_jig_bounded_stop() {
+  [ -n "$_JIG_BOUNDED_PID" ] || return 0
+  jig_stop_tree "$_JIG_BOUNDED_PID"
+  kill -TERM -- "-$_JIG_BOUNDED_PID" 2>/dev/null || kill -TERM "$_JIG_BOUNDED_PID" 2>/dev/null || true
+  _JIG_BOUNDED_PID=""
+  return 0
+}
+
+# jig_run_bounded <var> <secs> <command> [args...] — run <command> (a function
+# or a program) and leave in <var> its exit code, or the word `timeout` when it
+# was still running after <secs> seconds and was stopped; 0 waits for ever.
+#
+# The command runs in the background in a process group of its own (`set -m`),
+# so that at the limit the whole group — `make`, the `docker exec` under it,
+# the `composer` under that — is sent SIGTERM, and SIGKILL five seconds later;
+# under Git Bash, where native programs hear no signal, its Windows process
+# tree is ended first (jig_stop_tree). A process a container started inside
+# itself may not get the signal; that boundary is the container's.
+#
+# The caller's redirections on this call (`</dev/null >file 2>&1`) are the
+# command's: the background job inherits them. A group of its own does not
+# hear the terminal's Ctrl-C, which reaches only Jig; so whatever ends Jig
+# ends the command with it (jig_on_exit). One run at a time.
+jig_run_bounded() {
+  local __rb_var="$1" __rb_secs="$2" __rb_pid __rb_rc="" __rb_ticks=0 __rb_max __rb_waited __rb_monitor=0
+  shift 2
+  case "$-" in *m*) __rb_monitor=1 ;; esac
+  set -m
+  "$@" &
+  __rb_pid=$!
+  [ "$__rb_monitor" = 1 ] || set +m
+  _JIG_BOUNDED_PID=$__rb_pid
+  jig_on_exit '_jig_bounded_stop'
+
+  if [ "$__rb_secs" -gt 0 ]; then
+    __rb_max=$((__rb_secs * 5))
+    while kill -0 "$__rb_pid" 2>/dev/null; do
+      if [ "$__rb_ticks" -ge "$__rb_max" ]; then
+        jig_stop_tree "$__rb_pid"
+        # The group may be gone already (taskkill ended it, or it exited
+        # since kill -0): a failed signal must not end Jig mid-gate.
+        kill -TERM -- "-$__rb_pid" 2>/dev/null || kill -TERM "$__rb_pid" 2>/dev/null || true
+        __rb_waited=0
+        while kill -0 "$__rb_pid" 2>/dev/null && [ "$__rb_waited" -lt 25 ]; do
+          sleep 0.2
+          __rb_waited=$((__rb_waited + 1))
+        done
+        kill -KILL -- "-$__rb_pid" 2>/dev/null || true
+        wait "$__rb_pid" 2>/dev/null || true
+        __rb_rc=timeout
+        break
+      fi
+      sleep 0.2
+      __rb_ticks=$((__rb_ticks + 1))
+    done
+  fi
+  if [ -z "$__rb_rc" ]; then
+    __rb_rc=0
+    wait "$__rb_pid" 2>/dev/null || __rb_rc=$?
+  fi
+  _JIG_BOUNDED_PID=""
+  printf -v "$__rb_var" '%s' "$__rb_rc"
+  return 0
 }
 
 # Fixed route vocabulary shared by context and knowledge metadata validation.

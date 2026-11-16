@@ -11,8 +11,9 @@ paths:
   - scripts/lib/status.sh
   - scripts/lib/config.sh
   - schemas/config.md
+  - scripts/lib/common.sh
 summary: Why a project's hooks.ready|consolidate|ship scripts run in task set and task ship after Jig's own checks, why the exit code alone decides, how a hook is run and what it is told, why a misconfigured path refuses and jig status names it, and why hooks are a project key only.
-reviewed_at: 2026-11-14
+reviewed_at: 2026-11-16
 ---
 # A project's own script can refuse a completion gate
 
@@ -110,7 +111,37 @@ team rule a clone must not switch off silently.
   branch can change its own hook: what stops that is review of the diff, not a mechanism. A hook
   guards the Jig route, not the repository — CI never runs it, and a contributor who never calls a
   gate never meets it.
-- **A hook with no end holds its gate**, and an autopilot run with it; whether a gate bounds a hook's
-  run time is an open question of the spec (fog).
+- **A hook with no end held its gate**, and an autopilot run with it: amended by the 2026-11-16
+  amendment below, which bounds each hook's run by `hooks.timeout`.
 - **A refusal is set aside for one task by a person**, with a reason, and autopilot treats a hook
   refusal as a stop: amended by adr-20261114-a-person-waives-a-gate-hooks-refusal-for-one-task.
+
+> **Amendment (2026-11-16).** Each hook run is bounded by `hooks.timeout` (default `5m`, `0` for no
+> limit; a project key only, like `hooks.*`, never read from `config.local.yaml`). At the limit the
+> hook's process group gets TERM and, five seconds later, KILL; under Git Bash its Windows process
+> tree is ended first with `taskkill`. The stop is the shared `jig_run_bounded` (common.sh), which
+> `worktree.setup` also uses.
+>
+> - **Expiry refuses the gate** ("hook <path> did not finish in <limit> and was stopped", with what
+>   the hook printed before the stop). It never passes and never only warns: a hung hook would
+>   otherwise be a way past the gate. A waiver sets it aside like any refusal
+>   (adr-20261114-a-person-waives-a-gate-hooks-refusal-for-one-task); the refusal says the limit is
+>   the hook's, not the task's code.
+> - **Per hook, not per gate**, so one slow hook does not spend the next one's time and the refusal
+>   names the one that hung.
+> - **Why `5m` and not `worktree.setup_timeout`'s `10m`:** an agent calls a gate from a tool call
+>   capped at around ten minutes, and Jig's refusal must arrive before the tool cuts the command
+>   off; setup runs once at the start, a gate every time.
+> - **Autopilot:** a stop at the limit is a refusal the task's work cannot satisfy, so a stop, never
+>   a repair or a retry.
+> - **Windows invocation (ADR-0037) is unchanged:** Git Bash mounts with `noacl`, where a file
+>   starting with `#!` tests executable, so a shebang hook runs by path and one without runs through
+>   `bash <path>`. This is reasoning from the MSYS/Cygwin documentation, not a Windows run (the
+>   full Windows suite runs on main only).
+>
+> Alternatives that lost: no limit (a hung hook holds the gate for ever); `timeout`/`gtimeout`
+> (not guaranteed, ADR-0002); expiry as a warning (a way past the gate); one budget per gate (a slow
+> hook spends the next one's time); a key per gate (three keys for no use); a key in
+> `config.local.yaml` (a clone could set `1s` or `0` and change the team's rule); a `10m` default
+> (meets the agent tool's cap); a second timer copy in `task.sh` (two copies drift, `taskkill` for
+> one).

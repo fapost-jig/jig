@@ -74,7 +74,8 @@ entered. End the session there — say the task is paused at their request and h
   says `the route of <id> is missing:` names a stage of the route that left no record — the
   gate, a review receipt, verify's `status ready` — and the command that records it.
   A refusal by the project's `hooks.<gate>` is a gate too: when it names something the task's
-  work left undone, doing it is a repair. Never run `jig task waive`: a waiver is a person's, and
+  work left undone, doing it is a repair. A hook stopped at `hooks.timeout` is a refusal the task's
+  work cannot satisfy: a stop (§3, §5), never a repair or a retry. Never run `jig task waive`: a waiver is a person's, and
   the script refuses it while the run is on.
 
 ## 3. Stop only here

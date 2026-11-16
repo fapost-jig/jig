@@ -51,6 +51,7 @@ forge: auto                           # auto | github | gitlab | none
 # hooks.ready: [.ai/hooks/check.sh]    # the project's scripts at a completion gate; a non-zero exit refuses it
 # hooks.consolidate: []               #   ready: task set status ready; consolidate: task set knowledge_consolidated true
 # hooks.ship: []                      #   ship: task ship. Project-only: never read from config.local.yaml
+# hooks.timeout: 5m                   # each hook is stopped after this and refuses the gate; 0 waits for ever
 
 housekeeping.cadence: 1d              # session hook runs housekeeping if last run is older
 housekeeping.fetch: true              # allow `git fetch` during housekeeping

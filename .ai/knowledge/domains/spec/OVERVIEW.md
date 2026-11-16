@@ -12,7 +12,7 @@ paths:
   - "templates/spec/**"
   - "skills/jig-idea/**"
   - "skills/jig-release/**"
-reviewed_at: 2026-11-10
+reviewed_at: 2026-11-16
 ---
 # Spec
 
@@ -109,9 +109,9 @@ and the plan cannot disagree about a wave. The lifecycle — `roadmap complete`,
 `spec_phase_rows`, which reads the roadmap of a spec with an open epic from the epic's ref when the
 checkout is elsewhere — progress is made there (ADR-0040) — without fetching, and names that branch.
 A command that changes a spec redraws the status page (`jig_status_page_touch`). Both the page and
-`spec plan` find the current roadmap through `spec_roadmap_ref`, so they cannot read different copies.
+`spec plan` — and housekeeping, for the items it keeps a closed task for — find the current roadmap through `jig_spec_roadmap_ref` (common.sh), so they cannot read different copies.
 `spec list --json` (`_spec_list_json`, shape in schemas/json.md) reads the same answers: the roadmap
-from where `spec_roadmap_ref` says it is current, and its items from `spec_phase_items` —
+from where `jig_spec_roadmap_ref` says it is current, and its items from `spec_phase_items` —
 `spec_phase_counts`'s own pass with each counted item printed before its section's line — so an item
 list and the counts beside it cannot disagree. Without its `items` argument the counts are printed
 alone, byte for byte as before.
@@ -154,13 +154,13 @@ spec gone, no non-fog item unchecked (`spec_unchecked_items`) and no task cut fr
 - `scripts/lib/spec.sh` — `cmd_spec`, `spec_new`, `spec_resume`, `_spec_cut_own_branch`,
   `_spec_switch_to_existing_branch`, `_spec_refuse_dirty_tree`, `_spec_require_default_branch`,
   `spec_template`, `spec_list`, `spec_list_rows`,
-  `spec_progress`, `spec_phase_counts`, `spec_merged_task_ids`, `spec_phase_items`, `_spec_list_json`, `spec_phase_rows`, `spec_roadmap_ref`, `spec_plan`, `spec_list_state`, `spec_count`, `spec_done`, `spec_remove`, `spec_epic`,
+  `spec_progress`, `spec_phase_counts`, `spec_merged_task_ids`, `spec_phase_items`, `_spec_list_json`, `spec_phase_rows`, `spec_plan`, `spec_list_state`, `spec_count`, `spec_done`, `spec_remove`, `spec_epic`,
   `spec_epic_status`, `spec_close`, `spec_leftovers`, `spec_ship`, `spec_ship_final_ready`, `spec_release_check`,
   `spec_item` (its line arithmetic reads `spec_phase_items`, the one reader of the grammar, for each
   item's lines and handle).
 - `scripts/lib/owntree.sh` — the steps of a write in Jig's own tree, shared with `knowledge.sh`.
 - `scripts/lib/common.sh` — `jig_trash_dest`, shared with housekeeping; `jig_spec_link`,
-  `jig_spec_epic`, `jig_fresh_base_ref`, `jig_fetch_branches`, shared with `task start`; `jig_ship_*`,
+  `jig_spec_epic`, `jig_spec_roadmap_ref` (shared with housekeeping), `jig_spec_drop_rewrite` (shared with the actions table), `jig_fresh_base_ref`, `jig_fetch_branches`, shared with `task start`; `jig_ship_*`,
   shared with `task ship`; `jig_tracked_changes`, shared with `task start`'s own dirty-tree refusal.
 - `.github/scripts/epic-pr-check.sh` — this repository's CI check of an epic's final pull request.
 - `skills/jig-consolidate/SKILL.md` §5 and `skills/jig-task/SKILL.md` — where a linked task meets

@@ -2100,6 +2100,27 @@ _task_not_queued_hint() {
   jig_info "not queued: $1 — jig queue set $1 --priority <0-5>; the scale is in the jig-task skill"
 }
 
+# _task_claim_or_refuse <who> <expected> [<tmp-file>…] — claim the clone revision above
+# <expected> (jig_revision_claim) for a write that built its new state aside, or refuse and
+# take that state away: `stale-revision` when the clone changed since <expected>, a plain
+# failure when the claim cannot be made at all. It runs in the caller's shell, so the
+# refusal ends the command and not a subshell. The one copy of what every state write of
+# this file does between building the file and moving it into place.
+_task_claim_or_refuse() {
+  local who="$1" expected="$2" rc=0
+  shift 2
+  jig_revision_claim "$expected" || rc=$?
+  case "$rc" in
+    0) return 0 ;;
+    1)
+      rm -f "$@"
+      jig_fail stale-revision "$who: the clone changed since revision $expected; read again and retry" ;;
+    *)
+      rm -f "$@"
+      jig_die "$who: cannot claim the clone revision in $(jig_revision_dir)" ;;
+  esac
+}
+
 # _task_close_write <id> <dir> <expected> — the close of a write checked
 # against a revision: the new state built whole (the knowledge decision of a
 # bare triage task with it, as the unchecked close records it), the revision
@@ -2120,12 +2141,7 @@ _task_close_write() {
   fi
   # <claimed> says the caller holds the claim already (`task merge-pr`, which
   # claims before it merges and closes under that one claim).
-  [ -n "$claimed" ] || jig_revision_claim "$expected" || rc=$?
-  case "$rc" in
-    0) ;;
-    1) rm -f "$tmp"; jig_fail stale-revision "task set: the clone changed since revision $expected; read again and retry" ;;
-    *) rm -f "$tmp"; jig_die "task set: cannot claim the clone revision in $(jig_revision_dir)" ;;
-  esac
+  [ -n "$claimed" ] || _task_claim_or_refuse "task set" "$expected" "$tmp" "$tmp2"
   mv "$tmp" "$dir/state"
   jig_task_state_forget
   jig_record_changed
@@ -2530,22 +2546,13 @@ _task_abandon_body() {
     _task_state_without_into "$tmp" "$tmp2" moved_to
   fi
   mv "$tmp2" "$tmp"
-  jig_revision_claim "$expected" || rc=$?
-  case "$rc" in
-    0) ;;
-    1)
-      rm -f "$tmp"
-      jig_fail stale-revision "task abandon: the clone changed since revision $expected; read again and retry" ;;
-    *)
-      rm -f "$tmp"
-      jig_die "task abandon: cannot claim the clone revision in $(jig_revision_dir)" ;;
-  esac
+  _task_claim_or_refuse "task abandon" "$expected" "$tmp"
   mv "$tmp" "$dir/state"
   jig_task_state_forget
   jig_record_changed
   # A task that was live left the queue with its status; a re-abandon has
   # nothing to take out.
-  [ "$was" = abandoned ] || _task_queue_prune "$id" "task set"
+  [ "$was" = abandoned ] || _task_queue_prune "$id" "task abandon"
 
   local note=""
   if [ -n "$moved" ] && ! jig_task_ref_dir; then
@@ -2702,16 +2709,7 @@ _task_archive_move_body() {
   else
     _task_unarchive_build "$id" "$tmp"
   fi
-  jig_revision_claim "$expected" || rc=$?
-  case "$rc" in
-    0) ;;
-    1)
-      rm -f "$tmp"
-      jig_fail stale-revision "task $verb: the clone changed since revision $expected; read again and retry" ;;
-    *)
-      rm -f "$tmp"
-      jig_die "task $verb: cannot claim the clone revision in $(jig_revision_dir)" ;;
-  esac
+  _task_claim_or_refuse "task $verb" "$expected" "$tmp"
   [ "$verb" = archive ] || from=$(task_state_get "$id" archived_from)
   mv "$tmp" "$dir/state"
   jig_task_state_forget
@@ -5279,10 +5277,17 @@ _task_gate_hook_tree_v() {
 # when neither ref exists). Its stdin is empty and both of its outputs are
 # captured together; what Jig shows goes to stderr, since agents read the
 # stdout of `task set --json` and `task ship`. It runs on this machine, never
-# through `run.exec`, as `worktree.setup` does. No time limit: a hung hook
-# holds the gate (the spec's open question).
+# through `run.exec`, as `worktree.setup` does.
+#
+# Each hook is bounded by `hooks.timeout`, read once per gate: one that is
+# still running at the limit is stopped with its whole process tree
+# (jig_run_bounded) and refuses like a failing exit, so a hook that never ends
+# cannot hold the gate. The limit is per hook, so a slow one does not spend the
+# next one's time and the refusal names the one that hung
+# (adr-20261113-a-project-script-can-refuse-a-completion-gate, amendment).
 _task_gate_hooks() {
   local id="$1" gate="$2" cmd="$3" paths path tree problem out rc dir base ref refused="" nl=$'\n' before after reason
+  local limit secs out_file timed_out=0
   paths=$(_task_gate_hook_paths "$gate")
   [ -n "$paths" ] || return 0
   _task_gate_hook_tree_v tree "$id"
@@ -5291,6 +5296,14 @@ _task_gate_hooks() {
   base=$(jig_task_base "$id")
   ref=$(jig_base_ref "$base")
   [ -z "$ref" ] || base=$ref
+  limit=$(cfg hooks.timeout 5m)
+  if ! secs=$(jig_duration_seconds "$limit" 2>/dev/null); then
+    jig_warn "$cmd: hooks.timeout $limit is not a duration; using 5m"
+    limit=5m
+    secs=300
+  fi
+  out_file=$(mktemp "${TMPDIR:-/tmp}/jig-hook.XXXXXX") || jig_die "$cmd: cannot make a temporary file for a hook's output"
+  jig_cleanup_add "$out_file"
   before=$(_task_gate_hook_tree_print "$tree")
   while IFS= read -r path; do
     [ -n "$path" ] || continue
@@ -5307,19 +5320,20 @@ _task_gate_hooks() {
       fi
       continue
     fi
-    rc=0
-    # The redirections stay inside the substitution: on a bare assignment
-    # bash reports 0 whatever the substitution exited with.
-    out=$(
-      exec </dev/null 2>&1
-      cd "$tree" || exit 1
-      export JIG_TASK_ID="$id" JIG_TASK_DIR="$dir" JIG_GATE="$gate" JIG_BASE="$base"
-      if [ -x "$path" ]; then
-        exec "./$path"
+    jig_run_bounded rc "$secs" _task_gate_hook_run "$tree" "$path" "$id" "$dir" "$gate" "$base" \
+      </dev/null >"$out_file" 2>&1
+    out=$(cat "$out_file")
+    if [ "$rc" = timeout ]; then
+      reason=$(_task_waiver_reason "$id" "$gate" "$path")
+      if [ -n "$reason" ]; then
+        jig_warn "$cmd: hook $path (hooks.$gate) did not finish in $limit and was stopped, waived for $id: $reason${out:+:$nl$out}"
       else
-        exec bash "./$path"
+        timed_out=1
+        refused="$refused$nl- hook $path did not finish in $limit and was stopped"
+        [ -z "$out" ] || refused="$refused:$nl$out"
       fi
-    ) || rc=$?
+      continue
+    fi
     if [ "$rc" -ne 0 ]; then
       # A waived hook has still run, so its output stays in the trace and
       # shows whether it still refuses; only its verdict is set aside.
@@ -5336,6 +5350,10 @@ _task_gate_hooks() {
   done <<EOF
 $paths
 EOF
+  if [ -n "$refused" ] && [ "$timed_out" = 1 ]; then
+    refused="$refused
+a hook that did not finish ran into hooks.timeout ($limit), which is the hook's limit and not the task's code: fix the hook, or raise hooks.timeout in .ai/config.yaml"
+  fi
   [ -z "$refused" ] || jig_die "$cmd: the project's hooks.$gate refused $id:$refused
 a person can waive one for this task, with a reason: jig task waive $id $gate <path> --reason <text>"
   # A hook checks; it never writes. A waiver never covers this check: it
@@ -5345,6 +5363,20 @@ a person can waive one for this task, with a reason: jig task waive $id $gate <p
   after=$(_task_gate_hook_tree_print "$tree")
   [ "$before" = "$after" ] \
     || jig_die "$cmd: the project's hooks.$gate changed files git can see in $tree; a hook only checks: undo its change or keep it as the task's own (and have it reviewed), then retry"
+}
+
+# _task_gate_hook_run <tree> <path> <id> <dir> <gate> <base> — the body of one
+# hook's background job (jig_run_bounded): in the task's tree, told what the
+# hook is told, exec'd so the hook itself leads the process group the limit
+# stops. Runs in its own subshell, so its cd and exports touch nothing of Jig's.
+_task_gate_hook_run() {
+  cd "$1" || exit 1
+  export JIG_TASK_ID="$3" JIG_TASK_DIR="$4" JIG_GATE="$5" JIG_BASE="$6"
+  if [ -x "$2" ]; then
+    exec "./$2"
+  else
+    exec bash "./$2"
+  fi
 }
 
 # _task_gate_hook_tree_print <tree> — one hash of what git sees in <tree>:
@@ -5585,16 +5617,7 @@ _task_gate_body() {
   _task_state_set_into "$tmp2" "$tmp" gate_design "$design"
   _task_state_set_into "$tmp" "$tmp2" gate_by "$by"
   rm -f "$tmp"
-  jig_revision_claim "$expected" || rc=$?
-  case "$rc" in
-    0) ;;
-    1)
-      rm -f "$tmp2"
-      jig_fail stale-revision "task gate: the clone changed since revision $expected; read again and retry" ;;
-    *)
-      rm -f "$tmp2"
-      jig_die "task gate: cannot claim the clone revision in $(jig_revision_dir)" ;;
-  esac
+  _task_claim_or_refuse "task gate" "$expected" "$tmp2"
   mv "$tmp2" "$dir/state"
   jig_task_state_forget
   jig_record_changed
@@ -5887,16 +5910,7 @@ _task_pause_body() {
   fi
   rm -f "$tmp2"
 
-  jig_revision_claim "$expected" || rc=$?
-  case "$rc" in
-    0) ;;
-    1)
-      rm -f "$tmp"
-      jig_fail stale-revision "task pause: the clone changed since revision $expected; read again and retry" ;;
-    *)
-      rm -f "$tmp"
-      jig_die "task pause: cannot claim the clone revision in $(jig_revision_dir)" ;;
-  esac
+  _task_claim_or_refuse "task pause" "$expected" "$tmp"
 
   # A pause made by hand honours a pending request too: it goes with it,
   # before the pause is set (adr-20261019-a-pause-request-is-honoured-at-the-stage-boundary)
@@ -6091,12 +6105,7 @@ _task_resume_body() {
   days=$(_task_days_since "$(task_state_get "$id" paused_at)")
   _task_state_without "$dir" "$tmp" paused paused_at paused_reason paused_stash_applied
 
-  jig_revision_claim "$expected" || rc=$?
-  case "$rc" in
-    0) ;;
-    1) jig_fail stale-revision "task resume: the clone changed since revision $expected; read again and retry" ;;
-    *) jig_die "task resume: cannot claim the clone revision in $(jig_revision_dir)" ;;
-  esac
+  _task_claim_or_refuse "task resume" "$expected" "$tmp"
 
   local stash_line=""
   if [ -n "$applied" ]; then
@@ -6166,12 +6175,7 @@ _task_resume_from_park() {
   _task_state_set_into "$dir/state" "$tmp" status active
   _task_state_set_into "$tmp" "$tmp2" park_resumed_at "$(_task_autopilot_now)"
   rm -f "$tmp"
-  jig_revision_claim "$expected" || rc=$?
-  case "$rc" in
-    0) ;;
-    1) rm -f "$tmp2"; jig_fail stale-revision "task resume: the clone changed since revision $expected; read again and retry" ;;
-    *) rm -f "$tmp2"; jig_die "task resume: cannot claim the clone revision in $(jig_revision_dir)" ;;
-  esac
+  _task_claim_or_refuse "task resume" "$expected" "$tmp2"
   mv "$tmp2" "$dir/state"
   jig_task_state_forget
   jig_record_changed
