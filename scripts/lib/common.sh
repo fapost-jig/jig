@@ -354,6 +354,67 @@ jig_goal_check() {
   JIG_GOAL=$goal
 }
 
+# jig_task_goal_v <var> <task.md> — the goal of a task's brief (task.sh's `_task_goal`: the first
+# paragraph under `## Goal`, `(none)` for none) into <var>, read line by line
+# in the caller's shell: the listing asks it of every task.
+jig_task_goal_v() {
+  local __tg_raw __tg_line __tg_pre __tg_rest __tg_text="" __tg_in=0 __tg_comment=0
+  local __tg_head='^##[[:space:]]+Goal[[:space:]]*$'
+  if [ -f "$2" ]; then
+    while IFS= read -r __tg_raw || [ -n "$__tg_raw" ]; do
+      # The heading starts (or restarts) the goal wherever it is.
+      if [[ $__tg_raw =~ $__tg_head ]]; then
+        __tg_in=1
+        continue
+      fi
+      [ "$__tg_in" -eq 1 ] || continue
+      if [ "$__tg_comment" -eq 0 ]; then
+        case "$__tg_raw" in '#'*) break ;; esac
+      fi
+      __tg_line=$__tg_raw
+      while :; do
+        if [ "$__tg_comment" -eq 1 ]; then
+          case "$__tg_line" in
+            *'-->'*) __tg_line=${__tg_line#*-->}; __tg_comment=0 ;;
+            *) __tg_line=""; break ;;
+          esac
+        fi
+        case "$__tg_line" in
+          *'<!--'*) ;;
+          *) break ;;
+        esac
+        __tg_pre=${__tg_line%%<!--*}
+        __tg_rest=${__tg_line#*<!--}
+        case "$__tg_rest" in
+          *'-->'*) __tg_line=$__tg_pre${__tg_rest#*-->} ;;
+          *) __tg_line=$__tg_pre; __tg_comment=1; break ;;
+        esac
+      done
+      __tg_line=${__tg_line#"${__tg_line%%[![:space:]]*}"}
+      __tg_line=${__tg_line%"${__tg_line##*[![:space:]]}"}
+      if [ -z "$__tg_line" ]; then
+        if [ -n "$__tg_text" ] && [ "$__tg_comment" -eq 0 ]; then
+          case "$__tg_raw" in
+            *'-->'*) ;;
+            *) break ;;
+          esac
+        fi
+        continue
+      fi
+      __tg_text=${__tg_text:+$__tg_text }$__tg_line
+    done < "$2"
+  fi
+  printf -v "$1" '%s' "${__tg_text:-(none)}"
+}
+
+# jig_task_has_goal <task.md> — true when the brief has a goal by jig_task_goal_v's
+# reading: what `task list --goals` shows as `(none)` is what `task start`
+# warns about, or refuses for T3/T4.
+jig_task_has_goal() {
+  local goal
+  jig_task_goal_v goal "$1"
+  [ "$goal" != "(none)" ]
+}
 # Die unless the project has been initialised with jig init.
 # jig_has_line <line> <text> — exit 0 when <line> is a whole line of <text>,
 # compared as a string. A `case`, never `printf | grep -qxF`: bash writes a

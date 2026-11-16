@@ -273,12 +273,14 @@ most urgent first, then the one that stopped first. A stopped run holds no slot;
 `autopilot.parallel` against the runs that are on and not consolidated in the clone. A task that
 depends on one whose run is stopped waits with `its autopilot run is stopped, waiting for an answer or a free slot — jig status`.
 
+A task a watcher could not start now is never advised either, and is named as blocked: one whose autopilot run is stopped for a person or ended not merged (`blocked by a stop of <id>`), one whose `task.md` holds only the stub, with no goal under `## Goal` yet, and a release's notes task (`release-notes-*`), which raises the version and stays yours. A queue held only by such stops answers `blocked`, not `none — the queue holds no task to take`: `next: none — blocked by a stop of <id>` for a stopped or not-merged run, and `next: none — blocked: <id> has no goal in its task.md yet` or `… raises the version, which stays a person's` for a stub or a release.
+
 Only a task that is `active`, not paused and not started yet is advised: what is started is listed on the `in progress:` line, since the advice is what to start. One waits while anything it depends
 on, or the epic it is built on depends on, is not finished. A task is finished when it is closed
 or `jig housekeeping` saw its pull request merged; an epic when its branch has landed. Among the
 tasks that do not wait the lowest priority number goes first, with a task without one last; at the
 same priority the place in the queue decides, a task on an epic taking its epic's place. When no task can be taken it says why:
-every queued task waits for a dependency, is taken by another session, is already in progress, is paused, or there is none. A wait that can never end
+every queued task waits for a dependency, is taken by another session, is already in progress, is held by a stop, is paused, or there is none. A wait that can never end
 (`broken`: the task it waits for was abandoned, archived or is gone) comes with the command that drops it;
 one Jig cannot tell (`unknown`) with the one that may find out. The last line counts the active
 tasks that are not in the queue. `jig queue next --json` gives the same answer to a program

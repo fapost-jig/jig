@@ -455,7 +455,9 @@ level its tasks; a task given a priority takes its place after the last item wit
 more urgent number. A write is checked against the clone revision its caller read and refused
 `stale-revision` when anything was written since
 (adr-20261019-the-queue-is-one-file-written-against-a-revision). `jig queue next` reads it to advise
-the task to start: never one already started (those are listed as in progress) or one that waits for
+the task to start: never one already started (those are listed as in progress), one a watcher could
+not start now (a run stopped for a person or ended not merged, a `task.md` holding only the stub, a
+release's notes task: listed as blocked) or one that waits for
 a dependency whose change has not landed, then the lower priority, then position — across levels by
 the top-level item. `jig task start` refuses a task the advice outranks unless it is given
 `--out-of-order --reason`, which `jig status` shows. Informal synonyms: backlog order, task queue.

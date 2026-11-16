@@ -1357,7 +1357,7 @@ task_start() {
     [ "$out_of_order" = 1 ] \
       || jig_die "task start: first in the queue is $ahead_ref ($ahead_pri); to start $id instead: jig task start $id --out-of-order --reason \"<why>\""
   fi
-  if ! _task_has_goal "$dir/task.md"; then
+  if ! jig_task_has_goal "$dir/task.md"; then
     # shellcheck disable=SC2016 # the backticks quote a command for the reader
     jig_warn "$(printf 'task start: %s has no goal: `## Goal` in task.md is empty; write it with `jig task artifact write %s task --from <file>`' "$id" "$id")"
   fi
@@ -1485,7 +1485,7 @@ _task_request_pause_unstarted_refusal() {
 }
 
 # _task_start_goal_refusal <id> — why `jig task start <id>` refuses a T3/T4
-# task whose task.md has no goal (_task_has_goal), or nothing. Lower classes,
+# task whose task.md has no goal (jig_task_has_goal), or nothing. Lower classes,
 # and a task with no class, are only warned by the command. Asked by the
 # command and by the actions table, after _task_start_refusal.
 _task_start_goal_refusal() {
@@ -1496,7 +1496,7 @@ _task_start_goal_refusal() {
     *) return 0 ;;
   esac
   task_dir_v dir "$id"
-  _task_has_goal "$dir/task.md" && return 0
+  jig_task_has_goal "$dir/task.md" && return 0
   # shellcheck disable=SC2016 # the backticks quote a command for the reader
   printf 'task start: %s is %s and has no goal: `## Goal` in task.md is empty; write it first with `jig task artifact write %s task --from <file>`\n' \
     "$id" "$class" "$id"
@@ -6335,7 +6335,7 @@ _task_list_run() {
     # The goal rides on the line through the sort, after a unit separator,
     # and is put on a line of its own below it once sorted.
     if [ "$goals" -ne 0 ]; then
-      _task_goal_v goal "${dir}task.md"
+      jig_task_goal_v goal "${dir}task.md"
       line="$line"$'\037'"goal: $goal"
     fi
     lines="$lines
@@ -6819,7 +6819,7 @@ _task_list_json_task_v() {
   json_str_or_null "$status"; o="$o,\"status\":$_JSON"
   json_str_or_null "$issue"; o="$o,\"issue\":$_JSON"
   task_dir_v v "$id"
-  _task_goal_v goal "$v/task.md"
+  jig_task_goal_v goal "$v/task.md"
   [ "$goal" != "(none)" ] || goal=""
   json_str_or_null "$goal"; o="$o,\"goal\":$_JSON"
   json_bool "$consolidated"; o="$o,\"knowledge_consolidated\":$_JSON"
@@ -7329,69 +7329,8 @@ _task_actions_ask_v() {
 # is kept, and a line that held only a comment does not end the paragraph.
 _task_goal() {
   local goal
-  _task_goal_v goal "$1"
+  jig_task_goal_v goal "$1"
   printf '%s\n' "$goal"
-}
-
-# _task_goal_v <var> <task.md> — the same goal into <var>, read line by line
-# in the caller's shell: the listing asks it of every task.
-_task_goal_v() {
-  local __tg_raw __tg_line __tg_pre __tg_rest __tg_text="" __tg_in=0 __tg_comment=0
-  local __tg_head='^##[[:space:]]+Goal[[:space:]]*$'
-  if [ -f "$2" ]; then
-    while IFS= read -r __tg_raw || [ -n "$__tg_raw" ]; do
-      # The heading starts (or restarts) the goal wherever it is.
-      if [[ $__tg_raw =~ $__tg_head ]]; then
-        __tg_in=1
-        continue
-      fi
-      [ "$__tg_in" -eq 1 ] || continue
-      if [ "$__tg_comment" -eq 0 ]; then
-        case "$__tg_raw" in '#'*) break ;; esac
-      fi
-      __tg_line=$__tg_raw
-      while :; do
-        if [ "$__tg_comment" -eq 1 ]; then
-          case "$__tg_line" in
-            *'-->'*) __tg_line=${__tg_line#*-->}; __tg_comment=0 ;;
-            *) __tg_line=""; break ;;
-          esac
-        fi
-        case "$__tg_line" in
-          *'<!--'*) ;;
-          *) break ;;
-        esac
-        __tg_pre=${__tg_line%%<!--*}
-        __tg_rest=${__tg_line#*<!--}
-        case "$__tg_rest" in
-          *'-->'*) __tg_line=$__tg_pre${__tg_rest#*-->} ;;
-          *) __tg_line=$__tg_pre; __tg_comment=1; break ;;
-        esac
-      done
-      __tg_line=${__tg_line#"${__tg_line%%[![:space:]]*}"}
-      __tg_line=${__tg_line%"${__tg_line##*[![:space:]]}"}
-      if [ -z "$__tg_line" ]; then
-        if [ -n "$__tg_text" ] && [ "$__tg_comment" -eq 0 ]; then
-          case "$__tg_raw" in
-            *'-->'*) ;;
-            *) break ;;
-          esac
-        fi
-        continue
-      fi
-      __tg_text=${__tg_text:+$__tg_text }$__tg_line
-    done < "$2"
-  fi
-  printf -v "$1" '%s' "${__tg_text:-(none)}"
-}
-
-# _task_has_goal <task.md> — true when the brief has a goal by _task_goal's
-# reading: what `task list --goals` shows as `(none)` is what `task start`
-# warns about, or refuses for T3/T4.
-_task_has_goal() {
-  local goal
-  _task_goal_v goal "$1"
-  [ "$goal" != "(none)" ]
 }
 
 task_show() {
