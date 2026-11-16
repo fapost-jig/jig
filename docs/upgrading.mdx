@@ -478,6 +478,58 @@ Two kinds of project work differently. One that uses a single branch
 installed with `jig init --link` — Jig's own repository — keeps upgrading in place, with no branch
 and no commit.
 
+## From 0.45.0 to 0.46.0
+
+Nothing you must do by hand. One step is worth doing: the new end-of-session hook, below. The upgrade
+brings new scripts (among them `.ai/scripts/jig-session-end-hook`), commented-out `hooks.*` keys in
+the template `.ai/config.yaml` (your own file is not touched), a changed row in the Jig section of
+`AGENTS.md`, and new text for the `jig-autopilot`, `jig-consolidate`, `jig-map`, `jig-release`,
+`jig-setup`, `jig-task` and `jig-verify` skills. The Windows installer changed only in
+`-Uninstall`, which now also removes the record described under "The review skill".
+
+**The end-of-session hook (Claude Code).** Jig can now hear when a session ends, so a task you left
+stops counting as taken at once instead of after `checkout.busy_ttl`. `jig upgrade` never edits your
+`.claude/settings.json`, so until you add the `SessionEnd` entry beside your `SessionStart` one,
+`jig status` and `jig doctor` print a `session end:` hint with the lines to add. They are in
+[When housekeeping runs](/configuration#when-housekeeping-runs).
+
+**The review skill.** You can now turn the personal `jig-pr-review` off by deleting it from
+`~/.claude/skills` or `~/.agents/skills`: Jig keeps a record beside it (`.jig-pr-review.placed`) and
+does not put back a skill you removed ([Install](/install)). The record is written by the first
+`jig self-update` to 0.46.0, so a link you deleted under 0.45.0 comes back once at that update;
+delete it again and it stays away.
+
+**Landing this upgrade.** `jig upgrade --land` now leaves your checkout alone when run from another
+branch, but for this upgrade the project's `.ai/scripts/jig` is still the 0.45.0 copy until the
+merge is in, and behaves the old way: run `jig upgrade --land` from the base branch, or use the
+global `jig` after `jig self-update`.
+
+**What you will notice.**
+
+- `jig task start` follows the queue: when `jig queue next` would name a more urgent task, the start
+  is refused and names it; `--out-of-order --reason "<why>"` goes ahead anyway, and `jig status`
+  shows the reason ([Order the work](/manual-control#order-the-work)). A task that is not in the
+  queue starts as before.
+- A pull request counts as approved only once every reviewer it asks has answered. On the staging
+  flow, a landing that went through on one approval while a second reviewer had not looked now waits
+  for that reviewer.
+- On the staging flow, a task closes only once its work is in the main branch, even when its pull
+  request into staging merged; the staging line about work no task owns counts only your own
+  commits, and `jig staging ack` marks the old ones as known ([Test on staging first](/staging-flow)).
+- A task closed without ever being started — a findings task closed by decision, say — now has its
+  workspace moved to the trash like any closed task, unless its workspace holds a commit message or
+  an open roadmap item names it.
+- An autopilot run that stops to ask you something gives its place to the next task; answer it from
+  any session with `jig task autopilot <id> answer --answer <text>` ([Autopilot](/autopilot)).
+- If your team sets `hooks.ready`, `hooks.consolidate` or `hooks.ship`, your tasks run those scripts
+  at the finish ([Your own checks at the finish](/working-with-tasks#your-own-checks-at-the-finish)).
+  Nothing runs until someone sets them.
+- A program that reads Jig's JSON: in `jig task list --json` on the staging flow, `pull_request` is
+  now the task's pull request into the staging branch, with `base`, `mergeable` and `review`, and a
+  new `promotion` key holds the one into the main branch; in `jig status --json` an item about a
+  pull request carries `pull_request: null` until the forge cache knows it; tasks gain `spec` and `shipping`. The rest
+  is new commands and new refusal codes ([Reading Jig as data](/reading-jig-as-data)).
+
 ## From 0.44.0 to 0.45.0
 
 Nothing to do by hand, unless your project raises its version inside a task or an epic. The

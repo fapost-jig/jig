@@ -8,6 +8,93 @@ Update the tool with `jig self-update`, then run `jig upgrade` in each project a
 ([Install](/install#keep-jig-up-to-date)). Releases are tagged on
 [GitHub](https://github.com/fapost-lab/jig/tags).
 
+## 0.46.0 — 2026-11-16
+
+A project can now hold its tasks to its own rules at the finish: scripts it names run when a task is
+marked ready, consolidated or shipped, and a person can waive one for one task with a reason. A pull
+request counts as approved only once every reviewer it asks has answered, and the ship can ask them.
+You can land, promote and merge a task's pull request yourself, from a terminal or a page, whatever
+your agent may do. Starting a task follows the queue, and a run waiting for your answer frees its
+place for the next task.
+
+- **Your own checks at the finish.** `hooks.ready`, `hooks.consolidate` and `hooks.ship` in
+  `.ai/config.yaml` name your project's scripts; a non-zero exit refuses the task, and a script
+  running past `hooks.timeout` (`5m`) is stopped. `jig task waive <id> <gate> <path> --reason "<why>"`
+  lets one task through, never quietly; autopilot never waives. See
+  [Your own checks at the finish](/working-with-tasks#your-own-checks-at-the-finish).
+- **A rule read only at its stage.** A knowledge document with `load: stage` and
+  `stages: [consolidate]` reaches every task at that stage and no other; `jig knowledge check` warns
+  about a stage no skill reads. See [Concepts](/concepts).
+- **Every reviewer, not one.** A pull request with a second requested reviewer who has not answered
+  no longer reads as approved: the staging landing and `jig task merge-pr` wait and name whom
+  (`waiting for bob`), and changes requested by anyone win. `jig task ship
+  --reviewer <login or name>` requests people on the pull request it opens, and `jig pr reviewers`
+  lists who reviewed recent ones; before an attended ship onto staging that names nobody, under
+  `git.staging_review: ask` or `require`, your agent asks you whom to ask. Proven
+  with stand-ins of GitHub and GitLab ([known issues](/known-issues)). See
+  [Asking for reviewers](/agent-ships#asking-for-reviewers).
+- **Your own pull request actions.** `jig task land`, `jig task promote`, `jig task request-review`
+  and `jig task merge-pr` with `--by human` act on a task's pull request as your decision, whatever
+  `agent.git` says: they look at CI once, refuse a conflict and never override branch protection.
+  `jig task pr-status <id> --json` says why a pull request waits. See
+  [Ship and land](/staging-flow#ship-and-land) and [Finish through the workflow](/manual-control#finish-through-the-workflow).
+- **Let the agent land on staging only.** `agent.git_staging` is a personal level for a task's pull
+  request into the staging branch: `agent.git: pr` with `agent.git_staging: merge` lands on staging
+  and merges nothing into the main branch. `jig-setup` asks it on the staging flow. See
+  [Ship and land](/staging-flow#ship-and-land).
+- **Staging reports only your own stray commits.** The `staging:` line about work no task owns now
+  counts only commits whose author is you, and `jig staging ack` (`--dry-run` to look first) marks
+  them as known in your clone. On the staging flow a task closes only once its work is in the main
+  branch. See [The staging drift report](/manual-control#the-staging-drift-report).
+- **Starting a task follows the queue.** `jig task start` refuses a task the queue's advice
+  outranks and names the one to take; `--out-of-order --reason "<why>"` goes ahead, and `jig status`
+  and the status page show the reason. `jig queue next` advises only tasks not started yet, lists the
+  started ones as `in progress:`, says `not started` for a dependency nobody began, and skips what
+  could not be started now — a run stopped for a person, a `task.md` with no goal, a release's notes —
+  naming the stop that blocks the queue (`next: none — blocked by …`). See [Order the work](/manual-control#order-the-work).
+- **A stopped run frees its place.** An autopilot run waiting for your answer no longer holds one of
+  `autopilot.parallel`'s places: the next task starts. `jig status` lists every waiting question
+  under `waiting for you:`; answer from any session with `jig task autopilot <id> answer --answer
+  <text>`, and the run resumes first on the next free place (`resume first:` in `jig queue next`).
+  See [Several tasks in one run](/autopilot#several-tasks-in-one-run).
+- **A session per task in Claude Code desktop.** Ask for it in words, and a set of autopilot tasks
+  runs each task in a session and worktree of its own, so the sidebar shows which one waits for you.
+  Described in the skill and on the page; not yet proven by a test. See
+  [A session per task](/autopilot#a-session-per-task-in-claude-code-desktop).
+- **A finished session lets its task go.** With Claude Code's `SessionEnd` hook calling
+  `.ai/scripts/jig-session-end-hook`, a task you leave stops reading as taken by your session at
+  once, instead of after `checkout.busy_ttl`. A `.claude/settings.json` that `jig init --session-hook`
+  or the Windows installer creates has it; add it to an existing one by hand — `jig status` shows the
+  lines. See
+  [When housekeeping runs](/configuration#when-housekeeping-runs).
+- **The review skill can be turned off.** Delete `jig-pr-review` from your skills folder and
+  `jig self-update` no longer puts it back. See [Install](/install) and
+  [Upgrading](/upgrading#from-0450-to-0460).
+- **`jig upgrade --land` leaves your checkout alone.** Run from a branch other than the base or the
+  upgrade's, it moves only the base branch (landing this very upgrade, see the upgrade notes). The
+  upgrade's pull request shows in `jig status` at once, on GitLab too. See
+  [An upgrade is a change of its own](/upgrading#an-upgrade-is-a-change-of-its-own).
+- **For programs and Jig UI.** A page can approve a design, abandon, archive and unarchive a task
+  and close an abandoned task's roadmap item, each as JSON with the revision it read;
+  `jig task list --json` gives a staging task's review and `promotion`, the `spec` a task came from
+  and `shipping` while an agent's ship waits for CI (a killed ship stops counting after its deadline);
+  `jig pr reviewers --json` and `jig task pr-status --json` ask the forge when a person is about to
+  act; `jig version --json` says, outside any project, which Jig is installed and the latest release.
+  See [Reading Jig as data](/reading-jig-as-data).
+- **Fixes.** A gate hook that made its own commit no longer gets past the "a hook only checks" guard.
+  A knowledge decision on a document that reached the main branch after the decisions branch was
+  cut no longer refuses with `not-on-branch`: the base is merged into that branch first, and only a
+  conflict in that merge still refuses. On GitLab,
+  a ship that finds its merge request already open prints the merge request's link, not the
+  author's profile. `--reviewer` and `jig pr reviewers` no longer answer "nobody matches" in a
+  repository with a very long list of people. A task closed without ever being started is moved to
+  the trash like any closed task, unless a commit message or an open roadmap item still waits on it.
+- **What was proven where.** Everything above is proven by the test suite against stand-in
+  remotes and a stand-in forge (`gh`, `glab`), which the release's CI runs on Linux, macOS and
+  Windows (Git Bash); none of
+  it has run yet against a live GitHub or GitLab pull request, except that the reviewer fault it fixes
+  was first seen on a real one. A session per task is described in the skill only, with no test.
+
 ## 0.45.0 — 2026-11-13
 
 A team that tests on a staging server can now have each task land on a staging branch, wait there

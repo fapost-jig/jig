@@ -519,6 +519,29 @@ a scheduler of its own. Pick one, or both; running it twice is harmless.
 
 `jig status` reports whether the session hook is installed.
 
+A second Claude Code hook, at the end of a session, is not about housekeeping: it tells Jig a session
+is over. While a session works on a task, the checkout keeps a note of it, so `jig queue next` does
+not offer that task to anyone else; without this hook the note lapses only after
+`checkout.busy_ttl` (12 hours), and a task you left stays taken for that long. With it, the note is
+marked ended the moment the session closes. A `.claude/settings.json` made by `jig init --session-hook` (or the Windows
+installer) has both hooks; in an existing file, add the `SessionEnd` entry beside your `SessionStart` one:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "command": ".ai/scripts/jig-session-hook" } ] }
+    ],
+    "SessionEnd": [
+      { "hooks": [ { "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/.ai/scripts/jig-session-end-hook" } ] }
+    ]
+  }
+}
+```
+
+Until it is there, `jig status` and `jig doctor` print a `session end:` hint with the same lines. A
+session that is killed never reaches the hook; its note still lapses after `checkout.busy_ttl`.
+
 ## Environment variables
 
 Settings live in the files above; this variable is read from the environment.

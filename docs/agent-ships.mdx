@@ -140,7 +140,29 @@ yourself, with `jig task merge-pr <id> --by human` or `jig task land <id> --by h
 button in a dashboard), Jig does not read it: at `none` you can still merge from the card. Branch
 protection holds for you too.
 
-It never uses an administrator's override and never asks the host to "merge when ready" later. When
+<span id="asking-for-reviewers" />
+
+**Asking for reviewers.** `jig task ship <id> --reviewer <login or name>`, repeated for each person,
+requests them on the pull request the ship opens, on either flow:
+
+```bash
+jig task ship booking-form --message-file msg.txt --reviewer alice --reviewer "Sikora"
+```
+
+Each value must name a person the repository may ask: their login, in any case, or a part of a
+login or name that fits exactly one of them; otherwise the ship stops before anything is sent and
+names the matches, or says nobody matches. Teams are refused (one
+member's review would clear the request), and you, the author, are left out. `jig pr reviewers`
+lists who reviewed the recent pull requests into the base, most frequent first — the people worth
+asking. Nothing is requested at `push` or below, on a pull request that was already open, or without
+a forge; the ship says so. When you merge with `jig task merge-pr <id> --by human`, a pull request
+counts as approved only once **every** reviewer it asks has answered: it refuses while changes are
+requested or someone has not answered yet (`is not approved: waiting for bob`). The agent's own merge at
+`merge` does not wait for reviewers on the main branch — only CI and your branch protection hold it —
+so when a review must come first, require one in branch protection or keep `agent.git` at `pr`. On
+the [staging flow](/staging-flow#landing) the landing waits for every reviewer too.
+
+The ship's merge never uses an administrator's override and never asks the host to "merge when ready" later. When
 your repository's branch protection refuses — a required review, for example — the pull request
 stays open and `ship` says why:
 

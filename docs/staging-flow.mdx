@@ -225,7 +225,10 @@ the main branch already; 1 a refusal; 3 that a person is needed.
 
 After the promotion merges into the main branch, the task is finished like any other: housekeeping
 counts it under `needs consolidation`, and your agent closes it. Landing on staging does not close a
-task.
+task: until its work is in the main branch, closing it (`jig task set <id> status consolidated`) is
+refused with `<id> is on staging and not in main yet`, even though its pull request into staging
+merged. Prepare for prod, let the promotion merge, fetch, and close it then
+([Troubleshooting](/troubleshooting)).
 
 ## Prepare for prod from CI
 
