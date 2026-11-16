@@ -2552,6 +2552,16 @@ test_stage_only_load_with_stages_has_no_catalog_warning() {
   assert_not_contains "$OUT" 'neither domains nor paths'
 }
 
+test_stage_no_skill_resolves_warns() {
+  km_setup
+  printf -- '---\nid: feature-so\ntype: feature\nstatus: active\ndomains: []\npaths: []\nload: stage\nstages: [consolidate, plan]\nsummary: S.\n---\n' \
+    > .ai/knowledge/features/so.md
+  run jig knowledge check
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" 'stage plan is resolved by no skill'
+  assert_not_contains "$OUT" 'stage consolidate is resolved by no skill'
+}
+
 # --- knowledge changed (ADR-0022 precedent: the base is stated, never guessed) -
 
 # A committed baseline plus one knowledge document already in history, so a

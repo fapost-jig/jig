@@ -6206,6 +6206,16 @@ jig_valid_stage() {
   esac
 }
 
+# The stages whose skill runs `jig context resolve --stage <stage>`. A document that names
+# only stages outside this list reaches nobody, so `knowledge check` warns. Keep it next to
+# jig_valid_stage: a stage added there is added here once a skill resolves it.
+jig_resolving_stage() {
+  case "$1" in
+    discover | analyze | implement | review | architecture-review | verify | consolidate) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # Literal repository-relative paths for a review inventory (not shell/Git patterns).
 jig_check_review_path() {
   case "$1" in

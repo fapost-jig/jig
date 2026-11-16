@@ -3396,7 +3396,9 @@ km_check_stages() {
   local file="$1" relpath="$2" stage
   while IFS= read -r stage; do
     [ -n "$stage" ] || continue
-    jig_valid_stage "$stage" || km_fail "$relpath" "invalid stage: $stage"
+    jig_valid_stage "$stage" || { km_fail "$relpath" "invalid stage: $stage"; continue; }
+    jig_resolving_stage "$stage" ||
+      km_warn "$relpath" "stage $stage is resolved by no skill: the document is never read at it"
   done < <(fm_list "$file" stages)
 }
 
