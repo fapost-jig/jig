@@ -304,7 +304,8 @@ goal is filed. Any other document before `jig task start`, and the `task` docume
 started, still take it. A note lapses after
 `checkout.busy_ttl` (12 hours unless you set it), or at once when the runtime says the session ended:
 in Claude Code, the `SessionEnd` hook calling `bash "$CLAUDE_PROJECT_DIR"/.ai/scripts/jig-session-end-hook` (a new
-`.claude/settings.json` made by `jig init` has it; add it by hand to an existing one) marks that
+`.claude/settings.json` made by `jig init --session-hook` has it; add it by hand to an existing one, as
+[Configuration](/configuration#when-housekeeping-runs) shows) marks that
 session's notes ended, and the readers skip them. To take over the task of a session that is gone
 without it, just work on it — the newest note holds the task. This needs a runtime that names its sessions
 (Claude Code does); a session without a name leaves no note and treats every note as another's.
@@ -596,6 +597,33 @@ and, on the direct flow, `jig task merge-pr <id> --by human`, which merges the t
 on the forge. They look at CI once instead of waiting, refuse a conflict, and never override the
 forge's branch protection. `jig task pr-status <id> --json` shows why a pull request waits: its
 checks, its review and whether it merges cleanly. Your agent never passes `--by human`.
+
+For example, to ask two more people to look at an open pull request, and then merge it once they
+have:
+
+```bash
+jig pr reviewers                                   # who reviewed recent pull requests into the base
+jig task request-review booking-form --reviewer alice --reviewer "Sikora" --by human
+jig task merge-pr booking-form --by human          # refused while alice or Sikora has not answered
+```
+
+A pull request counts as approved only once every reviewer it asks has answered, and changes
+requested by anyone win over any approval ([Asking for reviewers](/agent-ships#asking-for-reviewers)).
+
+### Your project's checks at the finish
+
+When your project runs its own scripts at the finish of a task (`hooks.ready`, `hooks.consolidate`,
+`hooks.ship` in `.ai/config.yaml`) and one is wrong for a single task, you can let that task through,
+with a reason, and take it back later:
+
+```bash
+jig task waive booking-form ship .ai/hooks/api-docs-check.sh --reason "no public API changed"
+jig task waive booking-form ship .ai/hooks/api-docs-check.sh --withdraw
+```
+
+The hook still runs and its objection is shown as a warning; `jig status` and the pull request name
+the waiver. A waiver is a person's: it is refused while the task's autopilot run is on. See
+[Your own checks at the finish](/working-with-tasks#your-own-checks-at-the-finish).
 
 <Tip>
   `jig help` lists the full command surface. Use [Skills](/skills) for the agent procedures,

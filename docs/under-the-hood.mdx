@@ -134,6 +134,13 @@ project sets it, is run by both after the share and the carry:
   it started, after `worktree.setup_timeout` (10 minutes by default). Never fatal, and nothing it
   leaves is taken back: Jig names what Git can see afterwards and keeps a failure on the task until
   a `jig task bootstrap` succeeds.
+- **Gate hooks**, when your project names them (`hooks.ready`, `hooks.consolidate`, `hooks.ship` in
+  `.ai/config.yaml`, never in your personal file), are run by `jig task set <id> status ready`,
+  `jig task set <id> knowledge_consolidated true` and `jig task ship`: each script in the task's
+  tree, on this machine, with nothing on its input. **That is running your project's code** as
+  well. Each is stopped, with every process it started, after `hooks.timeout` (5 minutes by
+  default). A script that changed anything Git can see, a commit included, refuses the gate; Jig
+  does not undo it ([Your own checks at the finish](/working-with-tasks#your-own-checks-at-the-finish)).
 
 ### Git
 

@@ -99,7 +99,23 @@ The catalog helps the agent discover additional knowledge without reading every 
   it never removes required globals, existing matches, or dependencies to make the context smaller.
   `load: stage` is the author's own choice for one document — a rule that belongs to
   consolidation, say — and changes nothing for any other document. An explicit ID or another
-  document's `requires` still brings it in at any stage.
+  document's `requires` still brings it in at any stage. For example, a rule your agent must read
+  only when it decides what the project should remember:
+
+  ```yaml
+  ---
+  id: rule-docs-site-follows-public-api
+  type: rule
+  status: active
+  load: stage
+  stages: [consolidate]
+  summary: A change to the public API updates the docs site in the same pull request.
+  ---
+  ```
+
+  Only the stages a skill resolves reach anyone: `discover`, `analyze`, `implement`, `review`,
+  `architecture-review`, `verify` and `consolidate`. `jig knowledge check` warns about a document
+  that names `specify`, `alternatives`, `design` or `plan` in `stages`, since it is never read there.
   `--ids` explicitly selects a catalog document when the agent needs its full content.
 
   For example, in Jig's own repository, inspect what an edit to the introduction requires:

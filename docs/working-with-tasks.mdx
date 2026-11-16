@@ -286,7 +286,8 @@ findings, the review, the route — have passed.
   The limit is the hook's, not the task's code: fix the hook or raise `hooks.timeout` in
   `.ai/config.yaml`.
 - **It only checks.** A hook that changes anything Git can see in the task's folder — a formatter
-  rewriting a file, a log left behind — stops the gate, so that nothing reaches a commit unreviewed.
+  rewriting a file, a log left behind, a commit of its own — stops the gate, so that nothing reaches
+  a commit or a pull request unreviewed.
 - **It is run by its path when it is executable**, so its first line chooses the language, and as
   `bash <path>` when it is not — a checkout on Windows can lose the executable bit.
 - **A path that is not there stops the task too**, as does an absolute one or one that leads out of

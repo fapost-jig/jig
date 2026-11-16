@@ -137,11 +137,14 @@ stand-in forge, and rests on assumptions no real project has checked yet: that a
 holding a pull request's head into its base marks the pull request merged (believed true of GitHub,
 not checked on GitLab); that a team's staging branch takes the direct push a conflicting landing
 makes; that a CI runner can run `jig task promote` with `git`, `gh` or `glab` and a forge token; and
-that the forge offers the auto-merge `git.promote_merge: auto` relies on.
+that the forge offers the auto-merge `git.promote_merge: auto` relies on. From 0.46.0 it also rests
+on how GitLab reports a merge request's reviewers and approvals (`reviewers`, `approved_by`,
+`approvals_left`), which Jig reads to decide that every reviewer answered — for a landing on staging
+and, on either flow, for `jig task merge-pr --by human`; only a stand-in has answered so far.
 
 **What it costs.** If one does not hold, a step stops where it would go on: a pull request landed
 by a direct merge stays open and the task stays parked for `review`, a landing push is refused, or a
-CI job cannot promote.
+CI job cannot promote, or a GitLab merge request reads as waiting for a reviewer who approved.
 
 **What to do instead.** Watch the first tasks through the flow: the pull request on the forge after
 a conflicting landing, and the first promotion from your pipeline. Each stop says what to do by hand.

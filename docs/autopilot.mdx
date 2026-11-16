@@ -451,14 +451,36 @@ answered runs under `resume first:`, most urgent first, then the one that stoppe
 task is never pushed out to make room. A task that depends on a waiting one in the queue waits too
 (`its autopilot run is stopped, waiting for an answer or a free slot`).
 
-In Claude Code desktop, when you ask for it, the coordinator of a set may run each task in a session of
-its own, in its own worktree: the sidebar shows which ones wait, and the last message of a stopped
-session is its question. Answer in that session. The session runs the filed Jig task as usual; once
-the task is consolidated the coordinator archives the session if you asked it to. Other runtimes are
-unchanged, and a phase run keeps using subagents.
-
 A [whole phase](#running-a-whole-phase) asks the queue the same way before starting each of its
 tasks.
+
+### A session per task, in Claude Code desktop
+
+By default the agent you talk to runs every task of the set itself, through helpers you do not see,
+and a question from any of them reaches you in that one conversation. In Claude Code desktop you can
+ask for each task to get a session of its own instead, so that every task has its own conversation in
+the sidebar. Say it in words when you hand the set over:
+
+> *"Take booking-form, booking-message and the csv export on autopilot, each in its own session.
+> Archive the sessions once the tasks are closed."*
+
+The agent becomes the set's coordinator. For each task it runs `jig task start <id> --worktree`
+and opens a new session in that worktree, briefed with nothing but the task's name and "run it on
+autopilot"; the session runs the filed Jig task with its route, review and consolidation, exactly as
+if you had started it there. The coordinator keeps asking `jig queue next` before each start and keeps
+to `autopilot.parallel`.
+
+- **Who waits for you** shows in the sidebar: a stopped session's last message is its question.
+  Answer in that session, not in the coordinator's; the coordinator does not answer for it.
+- **The app may refuse** to open a session the agent asks for in a turn you did not start (when CI
+  finished, say). That task's start then stays a card for you to click, and the agent names it when
+  it hands back.
+- **Archiving.** Once a task is consolidated the coordinator archives its session, only when you
+  asked for that; the app asks you to confirm each one. Otherwise, and when the set ends at open pull
+  requests (`agent.git: pr`), it names the sessions when it hands back.
+
+Only Claude Code desktop can open sessions. In other runtimes, and in a
+[whole phase](#running-a-whole-phase), the tasks keep running as helpers of one session.
 
 ## Which tasks of a phase may start
 

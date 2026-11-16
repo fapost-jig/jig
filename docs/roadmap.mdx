@@ -47,6 +47,13 @@ them.
 is not sure of is handed to a fresh agent that has not seen the reasoning behind it, and is kept
 only if that agent confirms it. A wrong finding then costs one check instead of a round of fixes.
 
+**A task merges sooner, and the full check guards the way into the main branch.** A task's pull
+request waits for the whole test matrix today, 15 to 40 minutes for this repository's own. A project
+will be able to collect its tasks on a release branch (a "train") that checks only what changed, and
+run the full matrix once, on the train's way into the main branch, with a task that would raise the
+version above the train's level kept off it. Optional, and off under the staging flow until an
+epic's way through staging is settled.
+
 **A profile changes one check of another in a few lines.** From 0.41.0 a profile can take over a
 check of another by its name (`covers:`), so a Laravel project runs its test suite once. Next, every
 stock profile names its checks, and a profile builds on another and changes only what differs,
@@ -59,8 +66,12 @@ stays silent.
 asked what to take next (0.32.0): a queue holds the priority, order and dependencies of tasks and
 epics, a running task can be asked to pause, and `jig queue next` advises the next task from them.
 From 0.45.0 a task nobody started is paused directly, and your agent offers the task
-`jig queue next` names. What is left: a way for `jig init` to tell an installed Jig UI about a new
-project.
+`jig queue next` names. From 0.46.0 `jig task start` follows the queue too (going ahead of it takes a
+reason, which `jig status` shows), a run stopped for you gives its place to the next task, and
+`jig queue next` advises only what could be started now. Next: one agent that watches the queue and
+takes each task as it appears — filed by you, by a colleague or from a page — runs it to a merge or a
+stop, and shows whether it is alive and why it is idle. Then a way for `jig init` to tell an installed
+Jig UI about a new project.
 
 **Reviewing somebody else's pull request.** Give Jig the address of a colleague's pull or merge
 request on GitHub or GitLab, read the review exactly as it will be posted, say yes, and it lands as
@@ -72,14 +83,15 @@ follow-up and the severity layout on a live merge or pull request.
 **Git flows.** A project picks how its tasks travel: `direct`, straight to the main branch, or
 `staging`, where a task lands on a staging branch through a reviewed pull request, waits there
 parked while QA tests it, and reaches the main branch on "prepare for prod", said by a person or run
-by CI. All of it is in 0.45.0 ([Test on staging first](/staging-flow)). What is left is running
+by CI. All of it is in 0.45.0 ([Test on staging first](/staging-flow)); from 0.46.0 a landing waits
+for every reviewer the pull request asks, the ship requests the reviewers you name, the agent can be
+allowed to land on the staging branch without merging into the main branch (`agent.git_staging`),
+you can land, promote and merge yourself from a page whatever your agent may do, and your old
+commits on the staging branch can be marked as known. What is left is running
 it on a real project, GitLab included (task `staging-flow-field-check`); deciding whether an epic's
 work passes through the staging branch, once a real epic meets one (task `epic-in-staging-flow`); and
 telling a squash merge, into the staging branch or out of it, from work that is not there
 ([Known issues](/known-issues)).
-
-**Project hooks.** A way for a project to bind its own rules and its own checks to stages of the
-route, so that what a project insists on is asked at the stage it belongs to rather than remembered.
 
 **A bug fix starts from the failure.** For a task that fixes a defect, the route asks for the
 failure first — reproduced by a test or a written check — then the fix, then the same check again.
@@ -124,5 +136,11 @@ far a clone is behind origin and `jig refresh` brings it up without moving the c
 nobody started is paused directly, and, on the staging flow,
 each task in `jig task list --json` says whether it is on the staging branch and why it is parked, and
 `jig task promote` is the command a card moved from Staging to Ready can run, with no agent unless
-the main branch conflicts. Its plans
+the main branch conflicts; from 0.46.0 a page can approve a design, abandon, archive and unarchive a
+task, close the roadmap item of an abandoned one, and land, promote, request reviewers for and merge
+a task's pull request as the person's own act, whatever `agent.git` says, with
+`jig task pr-status --json` saying why a pull request waits and `jig pr reviewers --json` whom to ask;
+`jig task list --json` gives each staging task's review, its promotion, the spec it came from and
+whether an agent's ship is about to merge it, and `jig version --json` says, outside any project,
+which Jig is installed and whether a newer one is out. Its plans
 live in its own repository, and its documentation at [jig-ui.fapost.in](https://jig-ui.fapost.in).
