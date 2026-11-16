@@ -175,6 +175,7 @@ domain just as well.
 | `load: stage` with no `stages`, or `stages: []` | fail |
 | invalid `topics` item | fail |
 | invalid `stages` item | fail |
+| `stages` item no skill resolves (`specify`, `alternatives`, `design`, `plan`) | warn |
 | document under `domains/<d>/` that does not declare domain `<d>` | fail |
 | `requires` naming an unknown id | fail |
 | `requires` naming a document that is not active | fail |

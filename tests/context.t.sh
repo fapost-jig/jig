@@ -1889,6 +1889,30 @@ test_sdd_stage_promotes_only_entered_catalog_and_closes_requires() {
   assert_not_contains "$OUT" 'features/staged.md'
 }
 
+test_sdd_requires_closure_brings_a_stage_only_document_at_any_stage() {
+  sdd_stage_setup
+  cat > .ai/knowledge/features/consolidation-only.md <<'DOC'
+---
+id: feature-consolidation-only
+type: feature
+status: active
+domains: []
+paths: []
+load: stage
+stages: [consolidate]
+summary: Consolidation-only guidance.
+---
+Consolidation body.
+DOC
+  # The matched document requires a document that is stage-only at consolidate.
+  sed -i.bak 's/^requires: \[feature-dependency\]/requires: [feature-dependency, feature-consolidation-only]/' .ai/knowledge/features/staged.md
+  rm -f .ai/knowledge/features/staged.md.bak
+  run jig context resolve --task stage-task --stage implement --files - < /dev/null
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" 'features/consolidation-only.md'
+  assert_contains "$OUT" 'requires: feature-staged'
+}
+
 test_sdd_stage_never_hides_path_topic_always_domain_or_explicit_ids() {
   sdd_stage_setup
   cat > .ai/knowledge/features/binding.md <<'DOC'
