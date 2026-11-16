@@ -187,6 +187,14 @@ Telegram message as an autopilot stop. The person connects it in their own setti
 offers the lines (ADR-0024, adr-20261010-a-waiting-session-reaches-telegram). Codex has no
 equivalent.
 
+## Session End Hook
+
+`.ai/scripts/jig-session-end-hook`: the script a Runtime's end-of-session hook (Claude Code's
+`SessionEnd`) calls so that the checkout records the session made (`working here`, taken tasks)
+are marked `ended:` and stop counting at once instead of after `checkout.busy_ttl`
+(adr-20260924-a-checkout-records-what-is-happening-in-it, amendment of 2026-11-16). Codex has no
+equivalent.
+
 ## Gate Hook
 
 A project's own script named in `.ai/config.yaml` under `hooks.ready`, `hooks.consolidate` or

@@ -924,3 +924,125 @@ test_checkout_taken_record_folds_tabs_and_line_breaks_in_the_command() {
   assert_contains "$OUT" '"taken":[{"ref":"task:T-1",'
   assert_contains "$OUT" '"command":"task finding add T-1 --severity P3 --where - --summary one two three"}'
 }
+
+# --- a finished session's records stop counting (jig-session-end-hook) --------
+
+# The hook the runtime calls when a session ends, run the way the runtime runs
+# it: the JSON on stdin, nothing expected on stdout or stderr.
+checkout_end_hook() {
+  local sid="$1"
+  run bash -c "printf '{\"session_id\":\"$sid\",\"cwd\":\"%s\"}' \"\$PWD\" | .ai/scripts/jig-session-end-hook"
+}
+
+test_checkout_session_end_hides_that_sessions_work_records() {
+  fixture_jig_repo
+  CLAUDE_CODE_SESSION_ID=gone-session
+  export CLAUDE_CODE_SESSION_ID
+  jig task new T-2 >/dev/null
+  # One record named by the session, one named by a task it worked on.
+  jig status >/dev/null
+  jig task show T-2 >/dev/null
+  assert_file_contains .ai/runtime/working/T-2 "session: gone-session"
+
+  CLAUDE_CODE_SESSION_ID=live-session
+  run jig status
+  assert_contains "$OUT" "working here: task T-2 (jig task show T-2,"
+  assert_contains "$OUT" "working here: another session ("
+
+  checkout_end_hook gone-session
+  assert_eq 0 "$RC"
+  assert_eq "" "$OUT"
+  assert_file_contains .ai/runtime/working/T-2 "ended: "
+  assert_file_contains .ai/runtime/working/gone-session "ended: "
+
+  run jig status
+  assert_not_contains "$OUT" "working here:"
+}
+
+test_checkout_session_end_leaves_other_sessions_records_live() {
+  fixture_jig_repo
+  CLAUDE_CODE_SESSION_ID=gone-session
+  export CLAUDE_CODE_SESSION_ID
+  jig status >/dev/null
+  printf 'command: verify\nsession: neighbour\n' > .ai/runtime/working/T-9
+  printf 'command: verify\n' > .ai/runtime/working/neighbour
+
+  checkout_end_hook gone-session
+  assert_eq 0 "$RC"
+  assert_not_contains "$(cat .ai/runtime/working/T-9)" "ended:"
+  assert_not_contains "$(cat .ai/runtime/working/neighbour)" "ended:"
+  unset CLAUDE_CODE_SESSION_ID
+  run jig status
+  assert_contains "$OUT" "working here: another session (jig verify,"
+}
+
+test_checkout_resumed_session_is_live_again() {
+  fixture_jig_repo
+  CLAUDE_CODE_SESSION_ID=same-session
+  export CLAUDE_CODE_SESSION_ID
+  jig status >/dev/null
+  checkout_end_hook same-session
+  assert_file_contains .ai/runtime/working/same-session "ended: "
+  # The same id comes back: its next command rewrites the record whole.
+  jig status >/dev/null
+  assert_not_contains "$(cat .ai/runtime/working/same-session)" "ended:"
+  CLAUDE_CODE_SESSION_ID=another
+  run jig status
+  assert_contains "$OUT" "working here: another session ("
+}
+
+test_checkout_session_end_releases_the_task_it_took() {
+  fixture_jig_repo
+  jig task new T-3 >/dev/null
+  jig queue set T-3 --priority 2 >/dev/null
+  CLAUDE_CODE_SESSION_ID=gone-session
+  export CLAUDE_CODE_SESSION_ID
+  jig task start T-3 --worktree >/dev/null 2>&1 || jig task start T-3 >/dev/null
+  assert_file .ai/runtime/taken/T-3/gone-session
+
+  CLAUDE_CODE_SESSION_ID=other-session
+  run jig queue next
+  assert_contains "$OUT" "taken"
+
+  checkout_end_hook gone-session
+  assert_eq 0 "$RC"
+  assert_file_contains .ai/runtime/taken/T-3/gone-session "ended: "
+  run jig queue next
+  assert_not_contains "$OUT" "taken"
+}
+
+test_checkout_session_end_hook_is_silent_without_a_session_or_a_project() {
+  fixture_jig_repo
+  unset CLAUDE_CODE_SESSION_ID
+  run bash -c 'printf "{}" | .ai/scripts/jig-session-end-hook'
+  assert_eq 0 "$RC"
+  assert_eq "" "$OUT"
+  run bash -c 'cd / && printf "{\"session_id\":\"x\",\"cwd\":\"/nonexistent\"}" | '"$PWD"'/.ai/scripts/jig-session-end-hook'
+  assert_eq 0 "$RC"
+  assert_eq "" "$OUT"
+}
+
+test_checkout_session_end_hook_marks_from_the_payloads_checkout_not_its_own_directory() {
+  fixture_jig_repo
+  CLAUDE_CODE_SESSION_ID=gone-session
+  export CLAUDE_CODE_SESSION_ID
+  jig status >/dev/null
+  local root hook
+  root=$PWD
+  hook=$root/.ai/scripts/jig-session-end-hook
+  run bash -c "cd / && printf '{\"session_id\":\"gone-session\",\"cwd\":\"$root\"}' | '$hook'"
+  assert_eq 0 "$RC"
+  assert_file_contains .ai/runtime/working/gone-session "ended: "
+}
+
+test_checkout_resumed_session_takes_its_task_back_on_any_command() {
+  fixture_jig_repo
+  jig task new T-3 >/dev/null
+  CLAUDE_CODE_SESSION_ID=s1
+  export CLAUDE_CODE_SESSION_ID
+  jig task start T-3 >/dev/null
+  checkout_end_hook s1
+  assert_file_contains .ai/runtime/taken/T-3/s1 "ended: "
+  jig status >/dev/null
+  assert_not_contains "$(cat .ai/runtime/taken/T-3/s1)" "ended:"
+}

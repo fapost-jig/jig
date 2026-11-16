@@ -173,7 +173,7 @@ and version.
   question about `AGENTS.md`, and `status` and `doctor` ask it of
   `jig_section_report_state`, not of an adapter.
 - `adapter_<name>_install_session_hook <project-root>` — called only by
-  `init --session-hook`. Creates the runtime's config file with the hook entry **when
+  `init --session-hook`. Creates the runtime's config file with the session-start hook entry and the session-end one (`jig-session-end-hook`) **when
   that file is absent**, printing the created path; exits 2, touching nothing, when a
   file already exists there or the runtime has no hook. It never edits an existing file:
   creating one parses nothing, editing one would need a JSON parser the framework does

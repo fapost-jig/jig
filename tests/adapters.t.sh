@@ -110,6 +110,9 @@ test_adapter_claude_installs_the_hook_when_settings_are_absent() {
   assert_eq ".claude/settings.json" "$OUT"
   assert_file_contains .claude/settings.json "jig-session-hook"
   assert_file_contains .claude/settings.json "SessionStart"
+  assert_file_contains .claude/settings.json "SessionEnd"
+  assert_file_contains .claude/settings.json "CLAUDE_PROJECT_DIR"
+  assert_file_contains .claude/settings.json "jig-session-end-hook"
 }
 
 test_adapter_claude_declines_when_settings_already_exist() {

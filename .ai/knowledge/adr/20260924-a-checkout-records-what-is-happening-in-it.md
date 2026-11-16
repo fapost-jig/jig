@@ -12,8 +12,9 @@ paths:
   - "adapters/**"
   - scripts/lib/config.sh
   - "skills/jig-task/**"
+  - scripts/jig-session-end-hook
 summary: Why every jig run records in the checkout that work is happening there, and why the record holds only what nothing can compute.
-reviewed_at: 2026-10-05
+reviewed_at: 2026-11-16
 ---
 # ADR: A checkout records what is happening in it, so a session is no longer invisible
 
@@ -366,3 +367,44 @@ decision of its own, with its own line in that document.
 > (adr-20261030-a-task-another-session-works-on-is-not-advised). It answers the question this record
 > cannot — which session has taken a task, asked from any worktree — and leaves this one as it is:
 > per checkout, named by the rules above, read by `jig status`, `task start` and `upgrade`.
+
+## Amendment 2026-11-16: a session that ends says so
+
+**Problem.** Records lapse by mtime only, so a session that was over kept `working here:` lines,
+`task start` refusals and `queue next` "taken" answers alive for up to `checkout.busy_ttl`
+(12 h; two records of 10-11 h were seen in a clone). A shorter window would turn a live but quiet
+session (a long test run, a wait for the person) into a false "free", the one error this decision
+leans against.
+
+**Decision.** The runtime's end-of-session hook is the liveness signal, and it needs no process
+inspection (still rejected above). `.ai/scripts/jig-session-end-hook`, connected to Claude Code's
+`SessionEnd` (a `settings.json` created by `jig init` carries it; an existing one is the person's,
+ADR-0024), reads `session_id` and `cwd` from the runtime's JSON and calls `jig_checkout_end`, which
+marks with an `ended:` line every record that session wrote: working records named by the id or
+carrying `session: <id>` (a line every working record now holds when the runtime names its
+session, the one fact about the writer that cannot be computed later), and its
+`taken/<task>/<id>` records. Readers (`jig_checkout_busy`, `jig_checkout_taken`) skip a marked record.
+
+- **Marked, not deleted**, so the invariant on deletion in RULES.md is untouched: a record is
+  still neither a workspace nor a trash entry. The mark is a rewrite by tmp then mv, like every
+  write here.
+- **No false "free" by construction**: only the ended session's own records are marked. A session
+  that goes on after all (the same id resumed) rewrites its record whole on its next command, which
+  carries no mark.
+- **Known residue, accepted**: records several sessions wrote under one task's name are one file
+  holding the last writer's id; if that writer ends while another session works the same task in
+  the same checkout, the other shows as free until its next jig command. The file was always one
+  record for two sessions.
+- **The hook is a script of its own**, silent and exiting 0 like `jig-session-hook` and
+  `jig-notify-hook`, not a `jig` command: the dispatcher would record the end of a session as work.
+- **The window stays the fallback**: a session killed without the hook, an install that did not
+  connect it, and Codex (no such hook, session ids unestablished) lapse after `checkout.busy_ttl`.
+- **A resumed session takes its taken records back.** A working record is rewritten by every
+  command, a taken one only by a command that works its task, so every command of a session now
+  removes the mark from that session's own taken records (`_jig_checkout_revive`).
+- **`/clear` ends a session too**: the runtime fires the end hook and starts a new id in the same
+  checkout, which reads as free until that session's next jig command, as after quitting and
+  restarting.
+- **Left open on purpose (P3)**: a newline in a command argument can forge a line of the working
+  record, and the mark is a read-modify-write that can lose a race with a session sharing the
+  task's record. Both can only make a live session look free until its next command.
