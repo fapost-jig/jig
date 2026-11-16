@@ -3089,6 +3089,22 @@ test_housekeeping_report_groups_tasks_by_outcome() {
   assert_eq "needs you|removed|in progress|kept, cannot tell|abandoned, waiting|" "$order"
 }
 
+# `task new` records neither branch nor base commit: nobody works on it yet.
+test_housekeeping_report_does_not_call_a_filed_task_in_progress() {
+  hk_setup
+  fixture_task filed "" active
+  grep -v '^branch:' .ai/workspace/tasks/filed/state > .ai/workspace/tasks/filed/state.tmp
+  mv .ai/workspace/tasks/filed/state.tmp .ai/workspace/tasks/filed/state
+  fixture_task wip "no-such-branch" active
+
+  run jig housekeeping
+  assert_contains "$OUT" "filed, not started (1):"
+  assert_contains "$OUT" "  filed"
+  assert_contains "$OUT" "in progress (1):"
+  assert_contains "$OUT" "  wip"
+  assert_not_contains "$OUT" "in progress (2):"
+}
+
 test_housekeeping_report_lists_tasks_sharing_a_note_together() {
   hk_setup
   fixture_task a "main" consolidated

@@ -1831,6 +1831,9 @@ _hk_record() {
           *)
             group="progress"
             if [ "$remote" = "open" ]; then note="pull request open"; fi
+            # Filed but never started (no branch, no base commit): nobody is
+            # working on it, so it is not in progress.
+            if [ -z "$branch" ] && [ -z "$base_commit" ] && [ "$st" = active ]; then group="filed"; note=""; fi
             ;;
         esac
         # Where the task's work is on the staging flow says more than "cannot
@@ -2107,18 +2110,19 @@ _hk_print_report() {
       else names[key] = names[key] SUBSEP $2
     }
     END {
-      split("needs removed archived waiting progress unknown expiring shelved skipped", groups, " ")
+      split("needs removed archived waiting progress filed unknown expiring shelved skipped", groups, " ")
       head["needs"] = "needs you (%d):"
       if (dry == 1) head["removed"] = "would remove (%d): would move to .ai/runtime/trash/" day "/"
       else head["removed"] = "removed (%d): moved to .ai/runtime/trash/" day "/, recoverable for " ttl " days"
       head["waiting"] = "waiting for merge (%d): consolidated, pull request still open"
       head["progress"] = "in progress (%d):"
+      head["filed"] = "filed, not started (%d):"
       head["unknown"] = "kept, cannot tell whether it landed (%d):"
       head["archived"] = "archived (%d): workspace kept, nothing was removed"
       head["expiring"] = "abandoned, waiting to go to the archive (%d):"
       head["shelved"] = "already in the archive (%d):"
       head["skipped"] = "skipped (%d): not a valid task id, left alone"
-      for (gi = 1; gi <= 9; gi++) {
+      for (gi = 1; gi <= 10; gi++) {
         g = groups[gi]
         if (!(g in count)) continue
         printf head[g] "\n", count[g]
