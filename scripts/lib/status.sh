@@ -2243,6 +2243,8 @@ _STATUS_PR_DETAIL=""
 _STATUS_PR_EXTRA=""
 _STATUS_PR_MOVE=""
 _STATUS_PR_CMD=""
+_STATUS_PR_CI=""
+_STATUS_PR_MERGEABLE=""
 _status_pr_item_v() {
   local id="$1" fallback="$2" task_url="$3" move="$4" branch base state at url ci mergeable t=$'\t' words flow review waiting
   [ -n "$_STATUS_PR_CACHE_READ" ] || {
@@ -2297,6 +2299,8 @@ _status_pr_item_v() {
     esac
   fi
   _STATUS_PR_DETAIL=$words
+  _STATUS_PR_CI=$ci
+  _STATUS_PR_MERGEABLE=$mergeable
   _STATUS_PR_MOVE=$move
   _STATUS_PR_EXTRA="${branch:--}$t${base:--}$t${state:--}$t${at:--}$t${url:--}$t${ci:--}$t${mergeable:--}$t$move$t${review:--}$t${waiting:--}"
 }
@@ -2313,13 +2317,56 @@ X
   _STATUS_PR_EXTRA="$f1$t$f2$t$f3$t$f4$t$f5$t$f6$t$f7$t$1$t$f9$t$f10"
 }
 
+# _status_pr_offered <id> <move> — exit 0 when the table's row for <move> (`land`
+# or `merge`) is offered to the person on <id>'s pull request, as far as the
+# reader knows it: the agent is not on it (an autopilot run, or a `jig task
+# ship` waiting for CI that merges it itself) and, for a merge, the forge cache
+# does not say the checks are red or pending or that it conflicts. Read after
+# _status_pr_item_v, which leaves the cache's words in _STATUS_PR_CI and
+# _STATUS_PR_MERGEABLE. A row that is not offered is not a command to print: an
+# agent reading `jig status` would be invited to take the person's way.
+_STATUS_PR_WHY=""
+_status_pr_offered() {
+  local busy what=merges
+  _STATUS_PR_WHY=""
+  # A malformed id (out of the housekeeping log) has no task to ask.
+  jig_valid_id "$1" || return 0
+  [ "$2" != land ] || what=lands
+  _task_pr_busy_refusal_v busy "task $2" "$1" "$what"
+  if [ -n "$busy" ]; then
+    _STATUS_PR_WHY="the agent is on it"
+    return 1
+  fi
+  if [ "$2" != land ]; then
+    case "$_STATUS_PR_CI" in
+      red | pending)
+        _STATUS_PR_WHY="its checks are not green"
+        return 1 ;;
+    esac
+    if [ "$_STATUS_PR_MERGEABLE" = conflicting ]; then
+      _STATUS_PR_WHY="it conflicts with its base"
+      return 1
+    fi
+  fi
+  return 0
+}
+
 # _status_pr_todo_v <var> <id> — the words that name the person's move on a waiting
-# pull request, after _status_pr_item_v.
+# pull request, after _status_pr_item_v. The command is printed only when its row
+# is offered (_status_pr_offered); otherwise the words are the person's, without
+# a command the agent could take for its own (the person's form,
+# adr-20261114-a-persons-pull-request-action-does-not-read-agent-git, is the
+# table's row alone).
 _status_pr_todo_v() {
-  local cmd="jig task merge-pr $2 --by human" verb=Merge
-  [ "$_STATUS_PR_MOVE" != land ] || { cmd="jig task land $2 --by human"; verb=Land; }
-  _STATUS_PR_CMD=$cmd
-  printf -v "$1" '%s it: %s; see why it waits: jig task pr-status %s --json' "$verb" "$cmd" "$2"
+  local cmd="jig task merge-pr $2 --by human" verb=Merge word=merges move=merge
+  [ "$_STATUS_PR_MOVE" != land ] || { cmd="jig task land $2 --by human"; verb=Land; word=lands; move=land; }
+  if _status_pr_offered "$2" "$move"; then
+    _STATUS_PR_CMD=$cmd
+    printf -v "$1" '%s it: %s; see why it waits: jig task pr-status %s --json' "$verb" "$cmd" "$2"
+  else
+    _STATUS_PR_CMD="leave it to the person: $_STATUS_PR_WHY"
+    printf -v "$1" 'Not yet: %s. A person %s it once that is settled; see why it waits: jig task pr-status %s --json' "$_STATUS_PR_WHY" "$word" "$2"
+  fi
 }
 
 # _status_attention — what only the reader can do, one record (_status_attn)
@@ -2592,7 +2639,11 @@ OPEN
               _status_pr_move_v resume ;;
             *)
               title="A pull request is waiting for review"
-              todo="Land it once it is approved: jig task land $id --by human; see where the review stands: jig task pr-status $id --json" ;;
+              if _status_pr_offered "$id" land; then
+                todo="Land it once it is approved: jig task land $id --by human; see where the review stands: jig task pr-status $id --json"
+              else
+                todo="Not yet: $_STATUS_PR_WHY. A person lands it once it is approved and that is settled; see where the review stands: jig task pr-status $id --json"
+              fi ;;
           esac
           _status_attn pull-request-waiting task "$id" "$id" \
             "$title" "$_STATUS_PR_DETAIL" "$todo" "$url" "$_STATUS_PR_EXTRA"
@@ -2781,7 +2832,7 @@ IDS
 # says the same thing rather than handing them a card each
 # (adr-20260922-a-phase-run-is-coordinated).
 _status_attention_phase_stops() {
-  local lines="$1" phases="" phase id reason detail n ids todo by
+  local lines="$1" phases="" phase id reason detail n ids todo by mode
   [ -n "$lines" ] || return 0
   phases=$(printf '%s\n' "$lines" | cut -f 1 | grep -v '^$' | sort -u)
   while IFS= read -r phase; do
@@ -2790,11 +2841,15 @@ _status_attention_phase_stops() {
     while IFS="$(printf '\t')" read -r _ id reason; do
       [ -n "$id" ] || continue
       n=$((n + 1))
-      # The answer form follows each run's recorded mode.
-      [ "$(_task_autopilot_mode "$id")" != unattended ] || by=" --by human" 
+      # The answer form follows each run's recorded mode: `--by human` is an
+      # unattended run's alone, and a run with a person at it refuses it, so
+      # the runs that need it are named.
+      _task_autopilot_mode_v mode "$id"
+      [ "$mode" != unattended ] || by="$by${by:+, }$id"
       detail="$detail${detail:+; }$id — $reason"
       ids="$ids${ids:+ }$id"
     done < <(printf '%s\n' "$lines" | awk -F '\t' -v p="$phase" '$1 == p')
+    [ -z "$by" ] || by="; add --by human for the unattended: $by"
     if [ "$n" -gt 1 ]; then
       todo="Answer each from any session: jig task autopilot <id> answer --answer <text>$by; the coordinator resumes them."
     else

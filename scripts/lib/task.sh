@@ -7130,6 +7130,16 @@ _task_actions_v() {
   local __ta_out="" id="$2" pr_state="$3" pr_ci="${4:-}" pr_mergeable="${5:-}" pr_url_state="${6-$3}" base_state="${7-$3}" status action command reason by="" mode spec gate parked ahead
   # The ship gates are asked by two rows of this table; read once (_task_ship_refusal_v).
   _TASK_SHIP_MEMO_ON=1 _TASK_SHIP_MEMO_KEY=""
+  _TASK_PR_INTO_FROM_CACHE=1
+  if [ -z "$_TASK_PR_CACHE_READ" ]; then
+    if ! declare -F forgecache_read >/dev/null; then
+      # shellcheck source=lib/forgecache.sh
+      . "$JIG_LIB/forgecache.sh"
+    fi
+    _TASK_PR_CACHE=${_TASK_LIST_FORGE_CACHE:-}
+    [ -n "$_TASK_PR_CACHE" ] || _TASK_PR_CACHE=$(forgecache_read)
+    _TASK_PR_CACHE_READ=1
+  fi
   task_state_var status "$id" status
   for action in $_TASK_ACTIONS; do
     reason=""
@@ -7253,7 +7263,7 @@ _task_actions_v() {
       __ta_out="$__ta_out$action"$'\t'"true"$'\t'"$command"$'\t'$'\n'
     fi
   done
-  _TASK_SHIP_MEMO_ON="" _TASK_SHIP_MEMO_KEY=""
+  _TASK_SHIP_MEMO_ON="" _TASK_SHIP_MEMO_KEY="" _TASK_PR_INTO_FROM_CACHE=""
   printf -v "$1" '%s' "$__ta_out"
 }
 
@@ -8885,6 +8895,56 @@ _task_promote_refusal() {
   return 0
 }
 
+# Set by _task_actions_v while it asks the guards of the actions table: a
+# pull request an older Jig opened (pr_url, no pr_into) is then placed by the
+# base column of the forge cache's line for its address. The commands do not
+# read the cache: for them the forge is the last word.
+_TASK_PR_INTO_FROM_CACHE=""
+# The forge cache, read once per process by _task_actions_v in its own shell
+# (the guards run in subshells, which would each read it again): a listing's
+# own copy when it has one.
+_TASK_PR_CACHE=""
+_TASK_PR_CACHE_READ=""
+
+# _task_pr_into_v <var> <id> — into <var>: the branch <id>'s pull request goes
+# into, from `pr_into` where a ship recorded it; else, for the table only, from
+# the base column of the cache's line for `pr_url`; else nothing (the cache has
+# no line, or the task has no pull request). Local reads only.
+_task_pr_into_v() {
+  local __tpi_into __tpi_url
+  task_state_var __tpi_into "$2" pr_into
+  if [ -z "$__tpi_into" ] && [ -n "$_TASK_PR_INTO_FROM_CACHE" ]; then
+    task_state_var __tpi_url "$2" pr_url
+    if [ -n "$__tpi_url" ]; then
+      # forgecache.sh is sourced by _task_actions_v, which sets the flag.
+      forgecache_entry_url "$_TASK_PR_CACHE" "$__tpi_url"
+      __tpi_into=$_FORGECACHE_BASE
+    fi
+  fi
+  printf -v "$1" '%s' "$__tpi_into"
+}
+
+# _task_other_branch_text_v <var> <who> <id> <pr> <into> <staging> <base-branch>
+# — into <var>, the refusal for a pull request that goes into <into>, not the
+# staging branch; into the base branch it names its path, `jig task merge-pr`.
+# The one text `task land` says in the actions table and in the command: the
+# failure code is read off these words (_task_land_refusal_code), so a copy that
+# drifts is a refusal with the wrong code. No `$(...)`: a listing asks it per
+# task.
+_task_other_branch_text_v() {
+  local __tob_text="$2: $4 goes into $5, not $6; landing is for a pull request into the staging branch"
+  [ "$5" != "$7" ] || __tob_text="$__tob_text; merge it: jig task merge-pr $3 --by human"
+  printf -v "$1" '%s' "$__tob_text"
+}
+
+# _task_landed_not_merged_text_v <var> <who> <id> <staging> — into <var>, the
+# refusal of `merge-pr` for a pull request into the staging branch, in the table
+# and in the command alike (_task_prdo_refusal_code reads its code off these
+# words).
+_task_landed_not_merged_text_v() {
+  printf -v "$1" '%s: the pull request of %s goes into %s, which is landed, not merged; land it: jig task land %s --by human' "$2" "$3" "$4" "$3"
+}
+
 # _task_land_refusal <id> <pr-state> [human] — why `jig task land <id>` refuses
 # this task by its state, or nothing: the `land` row of the actions table. Local
 # reads only — the flow, the base, the git level, the pull request as the
@@ -8894,7 +8954,7 @@ _task_promote_refusal() {
 # task's autopilot, or a `jig task ship` waiting for CI, refuses: the agent is
 # on it.
 _task_land_refusal() {
-  local id="$1" pr_state="$2" by="${3:-}" flow staging base base_branch line level key rc=0 pr refusal run since land
+  local id="$1" pr_state="$2" by="${3:-}" flow staging base base_branch line level key rc=0 pr refusal land
   # The flow and the level first, read without a process: the table asks this
   # of every task of a listing (task list --json starts none per task).
   cfg_v flow git.flow direct
@@ -8943,11 +9003,10 @@ _task_land_refusal() {
   # The command's own refusal (land_task), asked here too: a pull request a
   # ship opened into another branch is not landed, so the row is not offered.
   local into
-  task_state_var into "$id" pr_into
+  _task_pr_into_v into "$id"
   if [ -n "$into" ] && [ "$into" != "$staging" ]; then
-    printf 'task land: %s goes into %s, not %s; landing is for a pull request into the staging branch' "$pr" "$into" "$staging"
-    [ "$into" != "$base_branch" ] || printf '; merge it: jig task merge-pr %s --by human' "$id"
-    printf '\n'
+    _task_other_branch_text_v refusal "task land" "$id" "$pr" "$into" "$staging" "$base_branch"
+    printf '%s\n' "$refusal"
     return 0
   fi
   case "$pr_state" in
@@ -9050,13 +9109,15 @@ _task_merge_pr_refusal() {
       # A pull request a ship opened into another branch (the base, for a task
       # that changes the flow) is merged, not landed: this guard has nothing
       # to say about it. Nor about one an older Jig opened without recording
-      # where (pr_url, no pr_into): the command asks the forge and refuses one
-      # into the staging branch.
+      # where (pr_url, no pr_into) and the cache does not place: the command
+      # asks the forge and refuses one into the staging branch. The cache's
+      # base column places it for the table (_task_pr_into_v).
       local into opened
-      task_state_var into "$id" pr_into
+      _task_pr_into_v into "$id"
       task_state_var opened "$id" pr_url
       if [ "$into" = "$staging" ] || { [ -z "$into" ] && [ -z "$opened" ]; }; then
-        printf 'task merge-pr: the pull request of %s goes into %s, which is landed, not merged; land it: jig task land %s --by human\n' "$id" "$staging" "$id"
+        _task_landed_not_merged_text_v why "task merge-pr" "$id" "$staging"
+        printf '%s\n' "$why"
         return 0
       fi
     fi

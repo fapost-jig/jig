@@ -493,6 +493,17 @@ EOF
   # 12. Send: the base merges already made on the task branch, then the pull
   # request into the base branch, found by head and base together.
   jig_ship_sends_no_commit "a promotion commits nothing; it pushes only merges of the base already on the branch"
+  # The forge is asked for before the revision is claimed and before anything
+  # is pushed, so `forge-unavailable` never arrives after a push went out.
+  _promote_kind_once
+  if [ "$_PROMOTE_KIND" = none ]; then
+    if [ "$push" = 1 ]; then
+      _promote_needs_person forge-unavailable "$who: no forge available; push $branch first (git push origin $branch), then open the pull request from $branch into $base by hand. Nothing was pushed."
+    else
+      _promote_needs_person forge-unavailable "$who: no forge available; open the pull request from $branch into $base by hand. Nothing was pushed."
+    fi
+    return 3
+  fi
   _promote_claim "$who"
   if [ "$push" = 1 ]; then
     jig_ship_push "$who" "$branch"
@@ -535,6 +546,8 @@ EOF
   jig_ship_pr "$who" "$branch" "$base" "$body" "$title" "$body" "$draft" 1 > "$pr_out"
   cat "$pr_out"
   url=$JIG_SHIP_URL
+  # No forge at all was refused above; this is a forge that answered without
+  # an https address.
   case "$url" in
     https://*) ;;
     *)

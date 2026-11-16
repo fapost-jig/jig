@@ -873,25 +873,53 @@ EOF
   return 0
 }
 
-# _hk_forge_gitlab_reviews — `<head>\t<staging branch>\t<review>\t<waiting_for>` for every open
-# merge request into the staging branch, on a GitLab project on the staging
-# flow; nothing otherwise. GitLab's list carries no approvals, so each is one
-# call of jig_pr_approval_v (approvals and the merge request itself): asked only
-# for the merge requests a promotion waits behind, which are the ones whose
-# review the staging board shows, never for every open one.
+# _hk_forge_gitlab_reviews — `<head>\t<staging branch>\t<review>\t<waiting_for>\t<reviewed_at>`
+# for every open merge request into the staging branch, on a GitLab project on
+# the staging flow; nothing otherwise. GitLab's list carries no approvals, so
+# asking is one call of jig_pr_approval_v (approvals and the merge request
+# itself) per merge request, never for one that is not open into the staging
+# branch. <reviewed_at> is when that call was made. A merge request whose
+# cached row holds a review at the same head commit, asked less than
+# _HK_REVIEW_REUSE_SECS ago by its own <reviewed_at> (not the row's fetched_at,
+# which every run renews), is not asked again: its row and its old stamp are
+# carried forward, so a run over unchanged merge requests makes no call of its
+# own and a reused review is at most that old. Called before the cache is
+# written, so the cache read here is the previous run's.
+_HK_REVIEW_REUSE_SECS=900
 _hk_forge_gitlab_reviews() {
   [ "$_HK_FORGE_KIND" = gitlab ] || return 0
-  local st rows h url rv pend t=$'\t'
+  local st rows h url sha rv pend t=$'\t' cache now now_iso at heard reuse
   st=$(jig_staging_in_use) || return 0
   [ -n "$st" ] || return 0
   rows=$(printf '%s\n' "$_HK_FORGE_PRS" | awk -F '\t' -v st="$st" "$_HK_PR_STATE_AWK"'
-    $1 != "" && $2 == st && prstate($3) == "open" && $5 != "" { print $1 "\t" $5 }')
-  while IFS="$t" read -r h url; do
+    $1 != "" && $2 == st && prstate($3) == "open" && $5 != "" { print $1 "\t" $5 "\t" $4 }')
+  [ -n "$rows" ] || return 0
+  cache=$(forgecache_read)
+  now=$(date -u +%s)
+  now_iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  while IFS="$t" read -r h url sha; do
     [ -n "$h" ] || continue
-    jig_pr_approval_v rv pend "$url"
+    reuse=""
+    at=$now_iso
+    if [ -n "$cache" ] && [ -n "$sha" ] && [ "$sha" != "-" ]; then
+      forgecache_entry "$cache" "$h" "$st"
+      case "$_FORGECACHE_REVIEW" in
+        approved | changes | waiting | none)
+          if [ "$_FORGECACHE_COMMIT" = "$sha" ] && [ "$_FORGECACHE_STATE" = open ] && [ -n "$_FORGECACHE_REVIEWED_AT" ]; then
+            heard=$(jig_utc_epoch "$_FORGECACHE_REVIEWED_AT")
+            if [ -n "$heard" ] && [ $((now - heard)) -ge 0 ] && [ $((now - heard)) -lt "$_HK_REVIEW_REUSE_SECS" ]; then
+              reuse=1
+              rv=$_FORGECACHE_REVIEW
+              pend=$_FORGECACHE_WAITING
+              at=$_FORGECACHE_REVIEWED_AT
+            fi
+          fi ;;
+      esac
+    fi
+    [ -n "$reuse" ] || jig_pr_approval_v rv pend "$url"
     case "$rv" in
-      approved | changes | none) printf '%s\t%s\t%s\t-\n' "$h" "$st" "$rv" ;;
-      waiting) printf '%s\t%s\t%s\t%s\n' "$h" "$st" "$rv" "${pend:--}" ;;
+      approved | changes | none) printf '%s\t%s\t%s\t-\t%s\n' "$h" "$st" "$rv" "$at" ;;
+      waiting) printf '%s\t%s\t%s\t%s\t%s\n' "$h" "$st" "$rv" "${pend:--}" "$at" ;;
     esac
   done <<EOF
 $rows
@@ -913,7 +941,7 @@ _HK_PR_STATE_AWK='
 
 # _hk_forge_cache_write — keep what this run heard from the forge in the forge
 # cache (lib/forgecache.sh) for the reads that never ask it: one line per pull
-# request, `<head>\t<base>\t<state>\t<ci>\t<fetched_at>\t<head-commit>\t<url>\t<mergeable>\t<review>\t<waiting_for>`,
+# request, `<head>\t<base>\t<state>\t<ci>\t<fetched_at>\t<head-commit>\t<url>\t<mergeable>\t<review>\t<waiting_for>[\t<reviewed_at>]`,
 # the state normalised
 # as _hk_forge_state normalises it. An open pull request the open list has and
 # the list of all lacks (older than its newest 200) gets its own row after the
@@ -940,8 +968,9 @@ _hk_forge_cache_write() {
     printf '%s\n' "$reviews" | awk '$0 != "" { print "R\t" $0 }'
     printf '%s\n' "$_HK_FORGE_PRS" | awk '$0 != "" { print "P\t" $0 }'
   } | awk -F '\t' -v at="$at" "$_HK_PR_STATE_AWK"'
+    BEGIN { rat[""] = "" }
     function word(r) { return r == "approved" || r == "changes" || r == "waiting" || r == "none" }
-    function row(h, b, s, c, hc, u, m, key,    r, w) {
+    function row(h, b, s, c, hc, u, m, key,    r, w, x) {
       if (c != "green" && c != "red" && c != "pending" && c != "none") c = "-"
       if (hc !~ /^[0-9a-f]+$/) hc = "-"
       if (u == "" || u ~ /[[:space:]]/ || u == "null") u = "-"
@@ -950,7 +979,9 @@ _hk_forge_cache_write() {
         r = rv[key]
         if (r == "waiting" && wf[key] != "" && wf[key] != "-") w = wf[key]
       }
-      print h "\t" b "\t" s "\t" c "\t" at "\t" hc "\t" u "\t" m "\t" r "\t" w
+      x = ""
+      if (r != "-" && (key in rat) && rat[key] != "") x = "\t" rat[key]
+      print h "\t" b "\t" s "\t" c "\t" at "\t" hc "\t" u "\t" m "\t" r "\t" w x
     }
     function mword(w) {
       w = tolower(w)
@@ -967,7 +998,7 @@ _hk_forge_cache_write() {
       next
     }
     $1 == "R" {
-      if (NF >= 4 && !(($2 FS $3) in rv)) { rv[$2 FS $3] = $4; wf[$2 FS $3] = $5 }
+      if (NF >= 4 && !(($2 FS $3) in rv)) { rv[$2 FS $3] = $4; wf[$2 FS $3] = $5; rat[$2 FS $3] = $6 }
       next
     }
     $1 == "P" && NF >= 4 && $2 != "" && $3 != "" {

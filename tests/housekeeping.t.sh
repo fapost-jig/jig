@@ -3377,7 +3377,7 @@ hk_cache_rows() {
     $5 !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z$/ {
       print "bad fetched_at: " $0; next
     }
-    { $5 = "T"; print }'
+    { $5 = "T"; if (NF >= 11) $11 = "T"; print }'
 }
 
 test_housekeeping_keeps_the_forge_answer_in_the_forge_cache() {
@@ -3533,11 +3533,76 @@ STUB
   export PATH
   
   run jig housekeeping
-  assert_eq "task/a${t}staging${t}open${t}-${t}T${t}aaa${t}$u/1${t}-${t}approved${t}-
+  assert_eq "task/a${t}staging${t}open${t}-${t}T${t}aaa${t}$u/1${t}-${t}approved${t}-${t}T
 task/b${t}main${t}open${t}-${t}T${t}bbb${t}$u/2${t}-${t}-${t}-
 task/c${t}staging${t}merged${t}-${t}T${t}ccc${t}$u/3${t}-${t}-${t}-" "$(hk_cache_rows)"
   # One approvals call, for the one merge request that qualifies.
   assert_eq 1 "$(grep -c '^api ' stub-bin/calls)"
+}
+
+# A merge request whose head commit has not changed and whose review the cache
+# heard a moment ago is not asked about again: housekeeping makes no call of its
+# own for it. A new head commit, or an entry heard long ago, is asked.
+test_housekeeping_forge_cache_reuses_a_gitlab_review_while_the_head_is_unchanged() {
+  local t u calls
+  t=$(printf '\t')
+  u=https://gitlab.com/example/example/-/merge_requests
+  hk_staging_setup
+  hk_cfg forge gitlab
+  mkdir -p stub-bin
+  printf 'aaa\n' > stub-bin/sha
+  printf '{"approved_by":[],"approvals_left":1}\n' > stub-bin/approvals
+  cat > stub-bin/glab <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$PWD/stub-bin/calls"
+case "\$1" in
+  auth) exit 0 ;;
+  mr)
+    if [ "\$2" = list ]; then
+      printf '[{"iid":1,"source_branch":"task/a","target_branch":"staging","state":"opened","sha":"%s","web_url":"$u/1"}]\n' "\$(cat "$PWD/stub-bin/sha")"
+    else
+      printf '{"iid":1,"reviewers":[]}\n'
+    fi ;;
+  api) cat "$PWD/stub-bin/approvals" ;;
+esac
+STUB
+  chmod +x stub-bin/glab
+  printf 'stub-bin/\n' >> .git/info/exclude
+  PATH="$PWD/stub-bin:$PATH"
+  export PATH
+
+  run jig housekeeping
+  assert_eq none "$(hk_cache_rows | cut -f 9)"
+  assert_eq 1 "$(grep -c '^api ' stub-bin/calls)"
+  calls=$(grep -c '^mr view' stub-bin/calls || true)
+
+  # Unchanged and fresh: the review is kept, nothing is asked, and the stamp of
+  # the ask is carried, not renewed.
+  local stamp
+  stamp=$(sed '/^#/d' .ai/runtime/forge-cache | cut -f 11)
+  assert_eq 1 "$(printf '%s\n' "$stamp" | grep -c '^20')"
+  printf '{"approved_by":[{"user":{"username":"ann"}}],"approvals_left":0}\n' > stub-bin/approvals
+  run jig housekeeping
+  assert_eq none "$(hk_cache_rows | cut -f 9)" "the review was asked again inside the window"
+  assert_eq 1 "$(grep -c '^api ' stub-bin/calls)"
+  assert_eq "$calls" "$(grep -c '^mr view' stub-bin/calls || true)"
+  assert_eq "$stamp" "$(sed '/^#/d' .ai/runtime/forge-cache | cut -f 11)" "the reused review's stamp slid"
+
+  # A new head commit: asked again, and the new answer is read.
+  printf 'bbb\n' > stub-bin/sha
+  run jig housekeeping
+  assert_eq approved "$(hk_cache_rows | cut -f 9)"
+  assert_eq 2 "$(grep -c '^api ' stub-bin/calls)"
+
+  # Asked long ago by its own stamp (the row's fetched_at is fresh): asked
+  # again, and a changed review is read.
+  printf '{"approved_by":[],"approvals_left":1}\n' > stub-bin/approvals
+  awk -F '\t' -v OFS='\t' '/^#/ { print; next } { $11 = "2020-01-01T00:00:00Z"; print }' .ai/runtime/forge-cache > fc.tmp
+  mv fc.tmp .ai/runtime/forge-cache
+  run jig housekeeping
+  assert_eq 3 "$(grep -c '^api ' stub-bin/calls)"
+  assert_eq none "$(hk_cache_rows | cut -f 9)"
+
 }
 
 # Off the staging flow GitLab is asked for no approval at all.

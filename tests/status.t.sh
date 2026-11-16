@@ -4631,8 +4631,9 @@ test_status_json_pull_request_items_carry_the_cache_and_the_actions() {
   assert_contains "$OUT" '"title":"A pull request is waiting for review and for you to land it","detail":"CI is green and it merges cleanly, as of 2026-11-14T09:00:00Z","todo":"Land it: jig task land never --by human; see why it waits: jig task pr-status never --json","url":"https://forge.test/pr/5","pull_request":{"branch":"task/never","base":"staging","state":"open","fetched_at":"2026-11-14T09:00:00Z","url":"https://forge.test/pr/5","ci":"green","mergeable":"mergeable","review":{"state":"approved","waiting_for":[]}},"actions":[{"id":"land","command":"jig task land never --by human","offered":'
   assert_contains "$OUT" '{"id":"pr-status","command":"jig task pr-status never --json","offered":true,"reason":null}]'
   assert_not_contains "$OUT" '"id":"merge","command":"jig task merge-pr never'
-  # The plain one: the direct flow's merge.
-  assert_contains "$OUT" '"detail":"CI is red, as of 2026-11-14T09:05:00Z","todo":"Merge it: jig task merge-pr behind --by human; see why it waits: jig task pr-status behind --json"'
+  # The plain one: the direct flow's merge. Its row is withheld on red checks,
+  # so the words are the person's, with no command for an agent to take.
+  assert_contains "$OUT" '"detail":"CI is red, as of 2026-11-14T09:05:00Z","todo":"Not yet: its checks are not green. A person merges it once that is settled; see why it waits: jig task pr-status behind --json"'
   assert_contains "$OUT" '"mergeable":null,"review":null},"actions":[{"id":"merge","command":"jig task merge-pr behind --by human","offered":'
   assert_not_contains "$OUT" "jig merges one itself"
   assert_not_contains "$OUT" "jig lands it itself"
@@ -4957,6 +4958,82 @@ test_status_waiting_block_says_run_for_one_and_leaves_out_an_answered_run() {
   assert_contains "$OUT" "  run-1: first question"
   assert_not_contains "$OUT" "run-2: second question"
   assert_contains "$OUT" "task run-2 class=T2 status=active autopilot=answered"
+}
+
+# The todo names `--by human` only when its row is offered: an agent reading
+# `jig status` is not invited to take the person's way while its own run is on
+# the pull request, or the checks are red.
+test_status_todo_names_no_by_human_command_for_a_hidden_row() {
+  local t
+  t=$(printf '\t')
+  fixture_jig_repo
+  jig task new shipped --class T1 >/dev/null
+  printf 'pr_url: https://forge.test/pr/7\n' >> .ai/workspace/tasks/shipped/state
+  mkdir -p .ai/runtime
+  printf '%s\n' "task/shipped${t}main${t}open${t}green${t}2026-11-14T09:00:00Z${t}-${t}https://forge.test/pr/7${t}mergeable${t}-${t}-" > .ai/runtime/forge-cache
+  run jig status --json
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" '"todo":"Merge it: jig task merge-pr shipped --by human; see why it waits'
+  # A run of autopilot is on it: the row is hidden, and so is the command.
+  printf 'autopilot: on\n' >> .ai/workspace/tasks/shipped/state
+  run jig status --json
+  assert_eq 0 "$RC" "$OUT"
+  assert_not_contains "$OUT" '"todo":"Merge it: jig task merge-pr shipped --by human'
+  assert_contains "$OUT" '"todo":"Not yet: the agent is on it. A person merges it once that is settled'
+  run env JIG_TERMINAL=0 "$JIG_BIN" status
+  assert_not_contains "$OUT" "merge-pr shipped --by human"
+}
+
+# The land todo of a parked task, in both forms (approved, and "once it is
+# approved"), prints no `--by human` command while the agent is on the task:
+# its autopilot run is on, or a `jig task ship` waits for CI.
+test_status_land_todo_names_no_by_human_command_while_the_agent_is_on_it() {
+  local t
+  t=$(printf '\t')
+  _st_park never
+  printf 'pr_url: https://forge.test/pr/5\n' >> .ai/workspace/tasks/never/state
+  mkdir -p .ai/runtime
+  printf '%s\n' "task/never${t}staging${t}open${t}green${t}2026-11-14T09:00:00Z${t}-${t}https://forge.test/pr/5${t}mergeable${t}approved${t}-" > .ai/runtime/forge-cache
+  run jig status --json
+  assert_contains "$OUT" '"todo":"Land it: jig task land never --by human'
+  printf 'autopilot: on\n' >> .ai/workspace/tasks/never/state
+  run jig status --json
+  assert_eq 0 "$RC" "$OUT"
+  assert_not_contains "$OUT" 'jig task land never --by human","url"'
+  assert_contains "$OUT" '"todo":"Not yet: the agent is on it. A person lands it once that is settled'
+  # A ship waiting for CI, on a pull request not yet approved.
+  sed '/^autopilot:/d' .ai/workspace/tasks/never/state > s.tmp
+  mv s.tmp .ai/workspace/tasks/never/state
+  printf '%s\n' "task/never${t}staging${t}open${t}green${t}2026-11-14T09:00:00Z${t}-${t}https://forge.test/pr/5${t}mergeable${t}waiting${t}bob" > .ai/runtime/forge-cache
+  run jig status --json
+  assert_contains "$OUT" '"todo":"Land it once it is approved: jig task land never --by human'
+  mkdir -p .ai/runtime/shipping
+  printf 'pid: %s\nsince: %s\n' "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .ai/runtime/shipping/never
+  run jig status --json
+  assert_eq 0 "$RC" "$OUT"
+  assert_not_contains "$OUT" '"todo":"Land it once it is approved: jig task land never --by human'
+  assert_contains "$OUT" '"todo":"Not yet: the agent is on it. A person lands it once it is approved and that is settled'
+  run env JIG_TERMINAL=0 "$JIG_BIN" status
+  assert_not_contains "$OUT" "land never --by human"
+}
+
+# A phase's answer form names `--by human` for the unattended runs only: a run
+# with a person at it refuses the flag.
+test_status_phase_stop_names_the_unattended_runs_for_by_human() {
+  fixture_jig_repo
+  local t
+  for t in run-1 run-2; do
+    jig task new "$t" --class T2 >/dev/null
+    jig task start "$t" >/dev/null
+    [ "$t" != run-2 ] || printf 'autopilot.unattended: true\n' >> .ai/config.local.yaml
+    jig task autopilot "$t" start --phase alpha/1 >/dev/null
+    jig task autopilot "$t" stop --reason "question from $t" >/dev/null
+  done
+  run jig status --json
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" 'answer --answer <text>; add --by human for the unattended: run-2; the coordinator resumes them.'
+  assert_not_contains "$OUT" '<text> --by human'
+  assert_not_contains "$OUT" '--by human for the unattended: run-1'
 }
 
 test_status_has_no_waiting_block_when_no_run_waits() {
