@@ -498,7 +498,7 @@ EOF
   _promote_kind_once
   if [ "$_PROMOTE_KIND" = none ]; then
     if [ "$push" = 1 ]; then
-      _promote_needs_person forge-unavailable "$who: no forge available; push $branch first (git push origin $branch), then open the pull request from $branch into $base by hand. Nothing was pushed."
+      _promote_needs_person forge-unavailable "$who: no forge available; push $branch to the remote first, then open the pull request from $branch into $base by hand. Nothing was pushed."
     else
       _promote_needs_person forge-unavailable "$who: no forge available; open the pull request from $branch into $base by hand. Nothing was pushed."
     fi
