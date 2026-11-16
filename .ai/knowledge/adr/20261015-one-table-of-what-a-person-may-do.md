@@ -57,6 +57,10 @@ merged, and a `--json` read never touches the network (adr-20261015-a-read-is-on
   never contradicted by the forge; a cache behind the forge can only withhold a close the command
   would allow, until the next housekeeping. A test runs the command against a stubbed forge to prove
   the two agree.
+- **A pull request without a recorded `pr_into` is placed by the cache.** The table never asks the forge:
+  for a pull request an older Jig opened it takes the branch it goes into from the base column of the
+  forge cache's line for the task's `pr_url` (adr-20261114-landing-on-staging-has-its-own-git-level);
+  the commands themselves ask the forge.
 - **`jig task list --json` reports every row for every task** as `actions`, the last field of a task:
   `{"id", "command", "offered", "reason"}`, `reason` `null` when offered. `command` names the task
   and writes what a person supplies as `<text>`, `<Tn>` or `<file>`. Text output is unchanged.
