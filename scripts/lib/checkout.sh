@@ -410,7 +410,7 @@ jig_checkout_record() {
 }
 
 _jig_checkout_record_inner() {
-  local runtime head name told body session
+  local runtime head name told body session cmd
   _jig_checkout_ready || return 0
   runtime=$(_jig_checkout_runtime)
   [ -d "$runtime" ] || mkdir -p "$runtime" 2>/dev/null || return 0
@@ -445,7 +445,12 @@ _jig_checkout_record_inner() {
   [ -d "$runtime/working" ] || mkdir -p "$runtime/working" 2>/dev/null || return 0
   # `session:` is what lets the session's end find the records it made under a
   # task's name (jig_checkout_end); a record named by the session id needs none.
-  body="command: $*
+  # One line per key, as the taken record does: an argument holding a line
+  # break must not start a key (`ended:`, `session:`) of its own.
+  cmd=$*
+  cmd=${cmd//$'\n'/ }
+  cmd=${cmd//$'\r'/ }
+  body="command: $cmd
 "
   session=$(jig_checkout_session)
   if [ -n "$session" ] && [ "$session" != "$name" ]; then
@@ -686,15 +691,23 @@ jig_checkout_taken() {
 
 # _jig_checkout_mark_ended <file> — rewrite a record with `ended:` added, in
 # place and atomically. Nothing when it is marked already or cannot be read.
+#
+# <expect> is the session id being ended; when the record's `session:` no
+# longer names it (another session rewrote the file in between), it is left
+# alone. A record named by the id itself carries no `session:` and passes.
 _jig_checkout_mark_ended() {
-  local file="$1" line body=""
+  local file="$1" expect="${2:-}" line body="" sess=""
   [ -f "$file" ] || return 0
   _jig_checkout_read "$file" ended && return 0
   while IFS= read -r line || [ -n "$line" ]; do
     line=${line%$'\r'}
+    case "$line" in 'session: '*) sess=${line#session: } ;; esac
     body="$body$line
 "
   done < "$file"
+  if [ -n "$expect" ] && [ -n "$sess" ] && [ "$sess" != "$expect" ]; then
+    return 0
+  fi
   _jig_checkout_write "$file" "${body}ended: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 " || true
   return 0
@@ -712,9 +725,9 @@ jig_checkout_end() {
     name=${f##*/}
     jig_valid_id "$name" || continue
     if [ "$name" = "$session" ]; then
-      _jig_checkout_mark_ended "$f"
+      _jig_checkout_mark_ended "$f" "$session"
     elif _jig_checkout_read "$f" session && [ "$_JIG_CHECKOUT_READ" = "$session" ]; then
-      _jig_checkout_mark_ended "$f"
+      _jig_checkout_mark_ended "$f" "$session"
     fi
   done
   root=$(jig_config_clone_root 2>/dev/null) || root=""

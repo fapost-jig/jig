@@ -976,6 +976,29 @@ test_checkout_session_end_leaves_other_sessions_records_live() {
   assert_contains "$OUT" "working here: another session (jig verify,"
 }
 
+test_checkout_session_end_skips_a_record_another_session_took_over() {
+  # The window between jig_checkout_end's `session:` check and the rewrite: the
+  # record now names a live neighbour, so the ended session's mark must not land.
+  fixture_jig_repo
+  mkdir -p .ai/runtime/working
+  printf 'command: verify\nsession: neighbour\n' > .ai/runtime/working/T-9
+  run bash -c "set -eu; . \"$JIG_HOME/scripts/lib/common.sh\"; . \"$JIG_HOME/scripts/lib/checkout.sh\"; _jig_checkout_mark_ended .ai/runtime/working/T-9 gone-session"
+  assert_eq 0 "$RC"
+  assert_not_contains "$(cat .ai/runtime/working/T-9)" "ended:"
+  # The same call for the id the record does name marks it.
+  run bash -c "set -eu; . \"$JIG_HOME/scripts/lib/common.sh\"; . \"$JIG_HOME/scripts/lib/checkout.sh\"; _jig_checkout_mark_ended .ai/runtime/working/T-9 neighbour"
+  assert_file_contains .ai/runtime/working/T-9 "ended: "
+}
+
+test_checkout_working_record_folds_a_newline_in_the_command() {
+  checkout_setup
+  jig task new T-1 >/dev/null
+  run jig task show T-1 $'--x\nended: forged'
+  assert_file .ai/runtime/working/T-1
+  assert_eq 1 "$(grep -c '^command: ' .ai/runtime/working/T-1)"
+  assert_eq 0 "$(grep -c '^ended:' .ai/runtime/working/T-1 || true)"
+}
+
 test_checkout_resumed_session_is_live_again() {
   fixture_jig_repo
   CLAUDE_CODE_SESSION_ID=same-session
