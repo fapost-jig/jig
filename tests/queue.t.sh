@@ -825,7 +825,7 @@ test_queue_next_on_an_empty_queue_says_none() {
     'slots: 2 of 2 free (0 building)')" "$NEXT"
   _q_json next
   assert_eq 0 "$RC" "$ERR"
-  assert_contains "$OUT" '"data":{"next":null,"reason":"empty","waiting":[],"taken":[],"in_progress":[],"not_queued":1,"resume":[],"slots":{"limit":2,"building":0,"free":2}}}'
+  assert_contains "$OUT" '"data":{"next":null,"reason":"empty","waiting":[],"taken":[],"in_progress":[],"blocked":[],"not_queued":1,"resume":[],"slots":{"limit":2,"building":0,"free":2}}}'
   assert_no_file .ai/runtime/queue
   _qn_task a new closed
   jig queue set a --priority 1 >/dev/null
@@ -884,7 +884,7 @@ test_queue_next_never_advises_a_started_task() {
     'in progress: task:d (P1), task:b (P2)' \
     'slots: 2 of 2 free (0 building)')" "$NEXT"
   _q_json next
-  assert_contains "$OUT" '"data":{"next":null,"reason":"in_progress","waiting":[],"taken":[],"in_progress":[{"ref":"task:d","id":"d","priority":1},{"ref":"task:b","id":"b","priority":2}],"not_queued":0,"resume":[],"slots":{"limit":2,"building":0,"free":2}}}'
+  assert_contains "$OUT" '"data":{"next":null,"reason":"in_progress","waiting":[],"taken":[],"in_progress":[{"ref":"task:d","id":"d","priority":1},{"ref":"task:b","id":"b","priority":2}],"blocked":[],"not_queued":0,"resume":[],"slots":{"limit":2,"building":0,"free":2}}}'
   # A task with no priority reads as such, and a new one is advised again.
   _qn_task e started
   jig queue set e --priority none >/dev/null
@@ -1184,13 +1184,13 @@ test_queue_next_json_shape_is_pinned() {
   assert_eq 0 "$RC" "$ERR"
   local pos
   pos=$(awk -F '\t' '$1 == "item" && $2 == "task:a" { print $4 }' .ai/runtime/queue)
-  assert_eq "{\"schema\":1,\"revision\":$REV,\"generated_at\":\"T\",\"data\":{\"next\":{\"ref\":\"task:a\",\"kind\":\"task\",\"id\":\"a\",\"level\":null,\"position\":$pos,\"priority\":2,\"started\":false},\"reason\":null,\"waiting\":[{\"ref\":\"task:b\",\"on\":\"task:c\",\"state\":\"unknown\",\"reason\":\"needs c\"}],\"taken\":[],\"in_progress\":[{\"ref\":\"task:t1\",\"id\":\"t1\",\"priority\":null}],\"not_queued\":1,\"resume\":[],\"slots\":{\"limit\":2,\"building\":0,\"free\":2}}}" \
+  assert_eq "{\"schema\":1,\"revision\":$REV,\"generated_at\":\"T\",\"data\":{\"next\":{\"ref\":\"task:a\",\"kind\":\"task\",\"id\":\"a\",\"level\":null,\"position\":$pos,\"priority\":2,\"started\":false},\"reason\":null,\"waiting\":[{\"ref\":\"task:b\",\"on\":\"task:c\",\"state\":\"unknown\",\"reason\":\"needs c\"}],\"taken\":[],\"in_progress\":[{\"ref\":\"task:t1\",\"id\":\"t1\",\"priority\":null}],\"blocked\":[],\"not_queued\":1,\"resume\":[],\"slots\":{\"limit\":2,\"building\":0,\"free\":2}}}" \
     "$(printf '%s\n' "$OUT" | sed 's/"generated_at":"[^"]*"/"generated_at":"T"/')"
   # A task on an epic's level, with no priority.
   jig queue remove a >/dev/null
   jig queue remove b >/dev/null
   _q_json next
-  assert_contains "$OUT" '"next":null,"reason":"in_progress","waiting":[],"taken":[],"in_progress":[{"ref":"task:t1","id":"t1","priority":null}],"not_queued":3,"resume":[],"slots":{"limit":2,"building":0,"free":2}}}'
+  assert_contains "$OUT" '"next":null,"reason":"in_progress","waiting":[],"taken":[],"in_progress":[{"ref":"task:t1","id":"t1","priority":null}],"blocked":[],"not_queued":3,"resume":[],"slots":{"limit":2,"building":0,"free":2}}}'
 }
 
 test_queue_next_refuses_an_extra_argument_and_a_foreign_format() {
@@ -1676,7 +1676,7 @@ test_queue_next_json_taken_item_shape_is_pinned() {
   assert_eq 0 "$RC" "$ERR"
   local data
   data=$(printf '%s\n' "$OUT" | sed 's/"idle_seconds":[0-9]*/"idle_seconds":N/g')
-  assert_contains "$data" '"next":null,"reason":"taken","waiting":[],"taken":[{"ref":"task:a","checkout":"/x/shop","since":"2026-10-30T15:09:12Z","idle_seconds":N,"command":"task set a class T1"},{"ref":"task:b","checkout":null,"since":null,"idle_seconds":N,"command":null}],"in_progress":[],"not_queued":0,"resume":[],"slots":{"limit":2,"building":0,"free":2}}}'
+  assert_contains "$data" '"next":null,"reason":"taken","waiting":[],"taken":[{"ref":"task:a","checkout":"/x/shop","since":"2026-10-30T15:09:12Z","idle_seconds":N,"command":"task set a class T1"},{"ref":"task:b","checkout":null,"since":null,"idle_seconds":N,"command":null}],"in_progress":[],"blocked":[],"not_queued":0,"resume":[],"slots":{"limit":2,"building":0,"free":2}}}'
   _qn_next
   assert_contains "$NEXT" "  task:b is taken by another session, last active "
 }
@@ -1767,7 +1767,8 @@ test_queue_next_a_stopped_run_nobody_answered_is_not_to_resume() {
   jig queue set a --priority 1 >/dev/null
   _qn_next
   assert_not_contains "$NEXT" "resume first"
-  assert_contains "$NEXT" "in progress: task:a (P1)"
+  assert_not_contains "$NEXT" "in progress"
+  assert_contains "$NEXT" "next: none — blocked by a stop of a"
 }
 
 test_queue_next_skips_an_answered_run_another_session_holds() {
@@ -1850,8 +1851,9 @@ test_queue_next_a_task_depending_on_a_stopped_run_waits_for_a_person() {
   jig queue depend w --on task:s --reason "after s" >/dev/null
   _qn_next
   assert_eq "$(printf '%s\n' \
-    'next: none — every queued task waits for a dependency' \
+    'next: none — blocked by a stop of s' \
     '  task:w waits for task:s: its autopilot run is stopped, waiting for an answer or a free slot — jig status' \
+    '  task:s is stopped: its autopilot run waits for a person — jig status' \
     'not queued: 1 task — jig queue set <id> --priority <p>' \
     'slots: 2 of 2 free (0 building)')" "$NEXT"
   _q_json next
@@ -1883,4 +1885,252 @@ test_queue_next_an_answered_run_does_not_change_what_task_start_refuses() {
   assert_eq 1 "$RC"
   assert_contains "$OUT" 'first in the queue is task:x (P1)'
   assert_not_contains "$OUT" 'task:r'
+}
+
+# --- what cannot be taken now (adr-20261022 amendment of 2026-11-16) ------------------
+
+# _qb_brief <id> <stub|goal|none> — task.md as `jig task new` writes it with no goal
+# (the heading and the template's comment), with one, or with no `## Goal` heading.
+_qb_brief() {
+  case "$2" in
+    stub) printf '# %s\n\n## Goal\n\n<!-- One paragraph: what must be true when this task is done. -->\n\n## Scope\n' "$1" > ".ai/workspace/tasks/$1/task.md" ;;
+    goal) printf '# %s\n\n## Goal\n\nDo the thing.\n\n## Scope\n' "$1" > ".ai/workspace/tasks/$1/task.md" ;;
+    *) printf '# %s\n\nNotes without a goal heading.\n' "$1" > ".ai/workspace/tasks/$1/task.md" ;;
+  esac
+}
+
+test_queue_next_a_queue_held_only_by_a_stopped_run_is_blocked_not_empty() {
+  fixture_jig_repo
+  _qn_task a started active autopilot:stopped
+  jig queue set a --priority 1 >/dev/null
+  _qn_next
+  assert_eq "$(printf '%s\n' \
+    'next: none — blocked by a stop of a' \
+    '  task:a is stopped: its autopilot run waits for a person — jig status' \
+    'slots: 2 of 2 free (0 building)')" "$NEXT"
+  _q_json next
+  assert_eq 0 "$RC" "$ERR"
+  assert_contains "$OUT" '"next":null,"reason":"blocked","waiting":[],"taken":[],"in_progress":[],"blocked":[{"ref":"task:a","id":"a","kind":"stopped"}],"not_queued":0,'
+}
+
+test_queue_next_a_stopped_run_at_ready_is_a_stop_too() {
+  fixture_jig_repo
+  _qn_task a started ready autopilot:stopped
+  jig queue set a --priority 1 >/dev/null
+  _qn_next
+  assert_contains "$NEXT" "next: none — blocked by a stop of a"
+}
+
+test_queue_next_names_the_task_behind_a_stop_and_lists_the_stop() {
+  fixture_jig_repo
+  _qn_task a started active autopilot:stopped
+  _qn_task b new
+  jig queue set a --priority 1 >/dev/null
+  jig queue set b --priority 2 >/dev/null
+  _qn_next
+  assert_contains "$NEXT" "next: task:b"
+  assert_contains "$NEXT" "  task:a is stopped: its autopilot run waits for a person"
+  _q_json next
+  assert_contains "$OUT" '"next":{"ref":"task:b"'
+  assert_contains "$OUT" '"blocked":[{"ref":"task:a","id":"a","kind":"stopped"}]'
+}
+
+test_queue_next_an_answered_stop_is_to_resume_not_blocked() {
+  fixture_jig_repo
+  _qr_run a 1 2026-11-14T09:00:00Z
+  _qn_next
+  assert_contains "$NEXT" "resume first: task:a"
+  assert_not_contains "$NEXT" "blocked"
+  _q_json next
+  assert_contains "$OUT" '"blocked":[]'
+}
+
+test_queue_next_skips_a_task_whose_task_md_holds_only_the_stub() {
+  fixture_jig_repo
+  _qn_task a new
+  _qn_task b new
+  _qb_brief a stub
+  _qb_brief b goal
+  jig queue set a --priority 1 >/dev/null
+  jig queue set b --priority 2 >/dev/null
+  _qn_next
+  assert_contains "$NEXT" "next: task:b"
+  assert_contains "$NEXT" "  task:a has no goal yet: task.md holds only the stub — jig task artifact write a task --from <file>"
+  _qb_brief b stub
+  _qn_next
+  assert_contains "$NEXT" "next: none — blocked: a has no goal in its task.md yet"
+  _q_json next
+  assert_contains "$OUT" '"reason":"blocked"'
+  assert_contains "$OUT" '"blocked":[{"ref":"task:a","id":"a","kind":"stub"},{"ref":"task:b","id":"b","kind":"stub"}]'
+  _qb_brief a goal
+  _qn_next
+  assert_contains "$NEXT" "next: task:a"
+}
+
+test_queue_next_a_brief_without_the_goal_heading_is_not_a_stub() {
+  fixture_jig_repo
+  _qn_task a new
+  _qb_brief a none
+  jig queue set a --priority 1 >/dev/null
+  _qn_next
+  assert_contains "$NEXT" "next: task:a"
+}
+
+test_queue_next_a_started_task_with_a_stub_is_in_progress_not_blocked() {
+  fixture_jig_repo
+  _qn_task a started
+  _qb_brief a stub
+  jig queue set a --priority 1 >/dev/null
+  _qn_next
+  assert_contains "$NEXT" "next: none — every queued task left is in progress"
+  assert_not_contains "$NEXT" "no goal yet"
+}
+
+test_queue_next_leaves_a_release_notes_task_to_the_person() {
+  fixture_jig_repo
+  _qn_task release-notes-2026-11-16 new
+  _qn_task b new
+  jig queue set release-notes-2026-11-16 --priority 0 >/dev/null
+  jig queue set b --priority 3 >/dev/null
+  _qn_next
+  assert_contains "$NEXT" "next: task:b"
+  assert_contains "$NEXT" "  task:release-notes-2026-11-16 raises the version: a release stays a person's — start it by hand"
+  _qn_task b new closed
+  jig queue remove b >/dev/null 2>&1 || true
+  _qn_next
+  assert_contains "$NEXT" "next: none — blocked: release-notes-2026-11-16 raises the version, which stays a person's"
+  _q_json next
+  assert_contains "$OUT" '"blocked":[{"ref":"task:release-notes-2026-11-16","id":"release-notes-2026-11-16","kind":"version"}]'
+}
+
+test_queue_next_a_task_with_recorded_release_notes_is_a_release() {
+  fixture_jig_repo
+  _qn_task r new active notes_through:abc123
+  jig queue set r --priority 0 >/dev/null
+  _qn_next
+  assert_contains "$NEXT" "next: none — blocked: r raises the version"
+}
+
+test_queue_next_a_run_that_ended_not_merged_is_a_stop() {
+  fixture_jig_repo
+  _qn_task a started ready autopilot:done knowledge_consolidated:true
+  printf '2026-11-16T10:00:00Z\tstart\tunattended\n2026-11-16T11:00:00Z\tend\tnot merged: CI red\n' > .ai/workspace/tasks/a/autopilot
+  jig queue set a --priority 1 >/dev/null
+  _qn_next
+  assert_contains "$NEXT" "next: none — blocked by a stop of a"
+  assert_contains "$NEXT" "  task:a ended not merged: its change waits for a person — jig status"
+  _q_json next
+  assert_contains "$OUT" '"blocked":[{"ref":"task:a","id":"a","kind":"not_merged"}]'
+  # Housekeeping saw it merged since: not a stop.
+  _qn_hk a merged
+  _qn_next
+  assert_not_contains "$NEXT" "blocked"
+}
+
+test_queue_next_a_run_that_ended_with_a_pull_request_is_not_a_stop() {
+  fixture_jig_repo
+  _qn_task a started ready autopilot:done knowledge_consolidated:true
+  printf '2026-11-16T10:00:00Z\tstart\tunattended\n2026-11-16T11:00:00Z\tend\tpushed for review\n' > .ai/workspace/tasks/a/autopilot
+  jig queue set a --priority 1 >/dev/null
+  _qn_next
+  assert_contains "$NEXT" "next: none — the queue holds no task to take"
+  assert_not_contains "$NEXT" "blocked"
+}
+
+test_queue_next_a_stopped_run_answered_at_ready_is_not_a_stop_for_a_dependent() {
+  fixture_jig_repo
+  _qn_task s started ready autopilot:stopped autopilot_answered:2026-11-16T09:00:00Z
+  _qn_task w new
+  jig queue set w --priority 1 >/dev/null
+  jig queue depend w --on task:s --reason "after s" >/dev/null
+  _qn_next
+  assert_contains "$NEXT" "next: none — every queued task waits for a dependency"
+  assert_not_contains "$NEXT" "blocked"
+}
+
+test_queue_next_work_in_progress_comes_before_a_stop_in_the_verdict() {
+  fixture_jig_repo
+  _qn_task a started active autopilot:stopped
+  _qn_task b started
+  jig queue set a --priority 1 >/dev/null
+  jig queue set b --priority 2 >/dev/null
+  _qn_next
+  assert_contains "$NEXT" "next: none — every queued task left is in progress"
+  assert_contains "$NEXT" "in progress: task:b (P2)"
+  assert_contains "$NEXT" "  task:a is stopped"
+}
+
+test_queue_next_a_stop_comes_before_a_pause_in_the_verdict() {
+  fixture_jig_repo
+  _qn_task a started active autopilot:stopped
+  _qn_task b new active paused:true
+  jig queue set a --priority 1 >/dev/null
+  jig queue set b --priority 2 >/dev/null
+  _qn_next
+  assert_contains "$NEXT" "next: none — blocked by a stop of a"
+}
+
+test_queue_next_a_dependent_held_only_by_a_stop_is_blocked() {
+  fixture_jig_repo
+  _qn_task s started active autopilot:stopped
+  _qn_task w new
+  jig queue set s --priority 1 >/dev/null
+  jig queue set w --priority 2 >/dev/null
+  jig queue depend w --on task:s --reason "after s" >/dev/null
+  _qn_next
+  assert_contains "$NEXT" "next: none — blocked by a stop of s"
+}
+
+test_queue_next_a_dependent_that_also_waits_for_something_else_is_waiting() {
+  fixture_jig_repo
+  _qn_task s started active autopilot:stopped
+  _qn_task v new
+  _qn_task o started
+  jig queue set s --priority 1 >/dev/null
+  jig queue set v --priority 2 >/dev/null
+  jig queue set o --priority 3 >/dev/null
+  jig queue depend v --on task:s --reason "after s" >/dev/null
+  jig queue depend v --on task:o --reason "after o" >/dev/null
+  _qn_next
+  # o is not finished and not stopped: a wait that resolves itself.
+  assert_contains "$NEXT" "next: none — every queued task waits for a dependency"
+}
+
+test_task_start_is_not_refused_for_a_task_that_cannot_be_taken_first() {
+  fixture_jig_repo
+  _qn_task x new
+  _qn_task y new
+  _qb_brief x stub
+  _qb_brief y goal
+  jig queue set x --priority 1 >/dev/null
+  jig queue set y --priority 2 >/dev/null
+  run jig task start y
+  assert_not_contains "$OUT" 'first in the queue is task:x'
+}
+
+test_queue_next_a_dependent_of_a_stub_is_blocked_by_it() {
+  fixture_jig_repo
+  _qn_task a new
+  _qn_task b new
+  _qb_brief a stub
+  jig queue set a --priority 1 >/dev/null
+  jig queue set b --priority 2 >/dev/null
+  jig queue depend b --on task:a --reason "after a" >/dev/null
+  _qn_next
+  assert_contains "$NEXT" "next: none — blocked: a has no goal in its task.md yet"
+  _q_json next
+  assert_contains "$OUT" '"reason":"blocked"'
+}
+
+test_queue_next_a_stop_answered_while_another_session_holds_it_is_no_stop() {
+  fixture_jig_repo
+  _qn_task c started active autopilot:stopped autopilot_answered:2026-11-16T09:00:00Z
+  _qn_task d new
+  jig queue set d --priority 1 >/dev/null
+  jig queue depend d --on task:c --reason "after c" >/dev/null
+  _qt_take c other-session
+  CLAUDE_CODE_SESSION_ID=this-session
+  export CLAUDE_CODE_SESSION_ID
+  _qn_next
+  assert_not_contains "$NEXT" "blocked"
 }

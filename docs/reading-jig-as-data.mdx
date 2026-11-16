@@ -484,17 +484,17 @@ reads the queue, the tasks' state and the last `jig housekeeping` run, never the
 changes nothing:
 
 ```json
-{"schema":1,"revision":1794604700,"generated_at":"2026-11-13T21:17:53Z","data":{"next":{"ref":"task:booking-form","kind":"task","id":"booking-form","level":null,"position":100,"priority":1,"started":false},"reason":null,"waiting":[{"ref":"task:booking-message","on":"task:booking-form","state":"unknown","reason":"The message quotes the form"}],"taken":[],"in_progress":[{"ref":"task:booking-export","id":"booking-export","priority":2}],"not_queued":1,"resume":[],"slots":{"limit":2,"building":1,"free":1}}}
+{"schema":1,"revision":1794604700,"generated_at":"2026-11-13T21:17:53Z","data":{"next":{"ref":"task:booking-form","kind":"task","id":"booking-form","level":null,"position":100,"priority":1,"started":false},"reason":null,"waiting":[{"ref":"task:booking-message","on":"task:booking-form","state":"unknown","reason":"The message quotes the form"}],"taken":[],"in_progress":[{"ref":"task:booking-export","id":"booking-export","priority":2}],"blocked":[],"not_queued":1,"resume":[],"slots":{"limit":2,"building":1,"free":1}}}
 ```
 
-`next` is the task to take, or `null` with a `reason` (`waiting`, `taken`, `in_progress`, `paused` or `empty`)
+`next` is the task to take, or `null` with a `reason` (`waiting`, `taken`, `in_progress`, `blocked`, `paused` or `empty`)
 when there is none. `taken` lists each candidate another session is working on, with the
 `checkout` it works in, `since` when, `idle_seconds` since it was last active and the `command`, the
 words of the Jig command it last ran; such a task is never advised. Each of `checkout`, `since` and
 `command` is `null` when the note of that session does not hold it. `waiting` lists each dependency
 that holds a candidate back, in `state` `open`, `broken`
 (it never ends; drop it with `jig queue undepend`) or `unknown`. `in_progress` lists the queued tasks already started, which are never advised (`next.started` is
-always `false`). `not_queued` counts the active tasks outside the queue. `resume` lists the answered autopilot runs
+always `false`). `blocked` lists the tasks a watcher could not start now, each with its `kind`: a run stopped for a person (`stopped`) or ended not merged (`not_merged`), a task whose `task.md` holds only the stub (`stub`) or a release's notes task (`version`); none of them is advised, and a queue held only by such stops answers `blocked`, not `empty`. `not_queued` counts the active tasks outside the queue. `resume` lists the answered autopilot runs
 to resume before anything new (`ref`, `id`, `priority`, `stopped_at`, `answered_at`), which are not in
 `in_progress`; `slots` is `{"limit", "building", "free"}`; a dependency on a task whose run is stopped
 reads `state` `waiting`. The fields are in [the schema](https://github.com/fapost-lab/jig/blob/main/schemas/json.md).

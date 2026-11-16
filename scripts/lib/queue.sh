@@ -996,7 +996,7 @@ _queue_next_gather() {
         queued="$queued$f2$nl"
         case "$f2" in
           task:*)
-            facts="$facts$(_queue_next_task_fact "${f2#task:}")"$'\n'
+            facts="$facts$(_queue_next_task_fact "${f2#task:}" "$merged")"$'\n'
             tk=$(jig_checkout_taken "${f2#task:}")
             [ -z "$tk" ] || facts="${facts}tk"$'\t'"$f2"$'\t'"$tk"$'\n'
             ;;
@@ -1028,8 +1028,14 @@ EOF
     # run a person answered waits for one (queued or not).
     if jig_autopilot_building "$id"; then building=$((building + 1)); fi
     jig_task_state_var st "$id" status
-    [ "$st" = active ] || continue
+    # A stopped run a person answered is no stop a dependent waits on for ever,
+    # whatever its status or whoever holds it (`an`).
     jig_task_state_var ans "$id" autopilot_answered
+    if [ -n "$ans" ] && { [ "$st" = ready ] || [ "$st" = active ]; }; then
+      jig_task_state_var stopped "$id" autopilot
+      [ "$stopped" != stopped ] || _QN_TABLE="$_QN_TABLE${nl}an"$'\t'"task:$id"
+    fi
+    [ "$st" = active ] || continue
     if [ -n "$ans" ]; then
       jig_task_state_var stopped "$id" autopilot
       if [ "$stopped" = stopped ] && [ -z "$(jig_checkout_taken "$id")" ]; then
@@ -1080,11 +1086,12 @@ jig_queue_ahead_v() {
   printf -v "$1" '%s' "$__qa_rest"
 }
 
-# _queue_next_task_fact <id> — the `tf` line for a queued task: ref, status
+# _queue_next_task_fact <id> [<merged ids>] — the `tf` line for a queued task: ref, status
 # (`gone` without a state file), paused, started (a branch and a base commit
-# both recorded) and whether a pause request waits in the queue.
+# both recorded), whether a pause request waits in the queue, and the hold
+# (_queue_next_hold).
 _queue_next_task_fact() {
-  local id="$1" st="gone" paused=false started=0 req=0 v
+  local id="$1" merged="${2-}" st="gone" paused=false started=0 req=0 v hold="-"
   if jig_valid_id "$id" && [ -f "$JIG_PROJECT/$JIG_AI_DIR/workspace/tasks/$id/state" ]; then
     jig_task_state_var st "$id" status
     [ -n "$st" ] || st=unknown
@@ -1096,8 +1103,75 @@ _queue_next_task_fact() {
       [ -z "$v" ] || started=1
     fi
     if jig_pause_request "$id"; then req=1; fi
+    _queue_next_hold_v hold "$id" "$st" "$started" "$merged"
   fi
-  printf 'tf\t%s\t%s\t%s\t%s\t%s' "task:$id" "$st" "$paused" "$started" "$req"
+  printf 'tf\t%s\t%s\t%s\t%s\t%s\t%s' "task:$id" "$st" "$paused" "$started" "$req" "$hold"
+}
+
+# _queue_next_hold_v <var> <id> <status> <started> [<merged ids>] — why a watcher could not
+# start or go on with task <id> now, into <var>, or `-` for nothing
+# (adr-20261022-the-next-task-is-advised-from-the-queue, amendment of 2026-11-16):
+#   stopped  its autopilot run is stopped for a person who has not answered (an
+#            answered run is in `resume`); a draft of the repair limit is one;
+#   stub     not started, and task.md holds the template's `## Goal` heading with
+#            no goal under it (jig_task_has_goal): filed, not yet briefed;
+#   version  not started, and it is a release's notes task, which raises the
+#            version and stays a person's: the id `release-notes-*` that
+#            jig-release files, or a recorded `notes_through`.
+#   not_merged  its run ended (`autopilot: done`) with an `end` line that starts
+#            `not merged` and housekeeping has not seen the change merged since.
+# A brief with no `## Goal` heading at all is not a stub: it
+# is one written without the template, and `task start` only warns of it.
+_queue_next_hold_v() {
+  local __nh_var="$1" __nh_id="$2" __nh_st="$3" __nh_started="$4" __nh_merged="${5-}" __nh_v __nh_at __nh_ev __nh_tx __nh_ended __nh_hold="-" __nh_md __nh_line __nh_has=0
+  local __nh_head='^##[[:space:]]+Goal[[:space:]]*$'
+  case "$__nh_st" in
+    active | ready)
+      jig_task_state_var __nh_v "$__nh_id" autopilot
+      if [ "$__nh_v" = stopped ]; then
+        jig_task_state_var __nh_v "$__nh_id" autopilot_answered
+        [ -n "$__nh_v" ] || __nh_hold=stopped
+      fi ;;
+  esac
+  # A run that ended with its change not merged: the text `jig-autopilot` §4
+  # has `end --reason` start with. A later `start` or `resume` is a new run.
+  if [ "$__nh_hold" = "-" ]; then
+    case "$__nh_st" in
+      active | ready)
+        jig_task_state_var __nh_v "$__nh_id" autopilot
+        if [ "$__nh_v" = "done" ] && [ -f "$JIG_PROJECT/$JIG_AI_DIR/workspace/tasks/$__nh_id/autopilot" ]; then
+          case "$__nh_merged" in *" $__nh_id "*) ;; *)
+            __nh_ended=""
+            while IFS=$'\t' read -r __nh_at __nh_ev __nh_tx || [ -n "$__nh_ev" ]; do
+              case "$__nh_ev" in
+                start | resume) __nh_ended="" ;;
+                end) __nh_ended=$__nh_tx ;;
+              esac
+            done < "$JIG_PROJECT/$JIG_AI_DIR/workspace/tasks/$__nh_id/autopilot"
+            case "$__nh_ended" in "not merged"*) __nh_hold=not_merged ;; esac ;;
+          esac
+        fi ;;
+    esac
+  fi
+  if [ "$__nh_hold" = "-" ] && [ "$__nh_st" = active ] && [ "$__nh_started" = 0 ]; then
+    case "$__nh_id" in
+      release-notes-*) __nh_hold=version ;;
+      *)
+        jig_task_state_var __nh_v "$__nh_id" notes_through
+        if [ -n "$__nh_v" ]; then
+          __nh_hold=version
+        else
+          __nh_md="$JIG_PROJECT/$JIG_AI_DIR/workspace/tasks/$__nh_id/task.md"
+          if [ -f "$__nh_md" ]; then
+            while IFS= read -r __nh_line || [ -n "$__nh_line" ]; do
+              if [[ $__nh_line =~ $__nh_head ]]; then __nh_has=1; break; fi
+            done < "$__nh_md"
+            if [ "$__nh_has" = 1 ] && ! jig_task_has_goal "$__nh_md"; then __nh_hold=stub; fi
+          fi
+        fi ;;
+    esac
+  fi
+  printf -v "$__nh_var" '%s' "$__nh_hold"
 }
 
 # _queue_next_dep_state <on-ref> <merged ids> <open ids> — what a dependency's
@@ -1162,8 +1236,9 @@ _queue_next_dep_state() {
 
 # _queue_next_decide — the advice, from the table on stdin. Prints:
 #   next <ref> <level> <position> <priority> <started> <rank> <count>   (none when nothing; started is always 0)
-#   reason <waiting|taken|in_progress|paused|empty>                     (only without next)
+#   reason <waiting|taken|in_progress|blocked|paused|empty>             (only without next)
 #   wait <holder> <on> <state> <reason>                                  (each unfinished dependency holding a candidate)
+#   blocked <ref> <stopped|not_merged|stub|version>                                 (each task a watcher could not take, once)
 #   taken <ref> <checkout> <since> <idle seconds> <command>              (each candidate another session holds)
 #   progress <ref> <priority>                                            (each started task, in queue order)
 #   resume <ref> <priority> <stopped at> <answered at>                   (each answered stopped run: priority, earlier stop, ref)
@@ -1176,8 +1251,12 @@ _queue_next_dep_state() {
 # another session holds (a `tk` line) is named instead of advised, and a task
 # already started is named as in progress and never advised: the advice is
 # what to start, and a started task is one the person or an agent already has.
-# It waits while any dependency of its own or of the epic it is built on is not
-# finished. Among the rest the lowest priority number goes first (`-` last),
+# One a watcher could not start or go on with now is named as blocked, never
+# advised and never in progress: its run is stopped for a person or ended not
+# merged, its task.md holds only the template's stub, or it is a release's notes task
+# (_queue_next_hold_v). So is the stopped run a candidate waits for, when that is
+# all it waits for. It waits while any dependency of its own or of the epic it is
+# built on is not finished. Among the rest the lowest priority number goes first (`-` last),
 # then the position of the item on the top level (a task's epic's, an epic that
 # is not queued after every queued one), then its own position, then its ref.
 _queue_next_decide() {
@@ -1197,11 +1276,21 @@ _queue_next_decide() {
       if (pos[a] != pos[b]) return pos[a] < pos[b]
       return ref[a] < ref[b]
     }
-    # note(j): record the unfinished dependencies of item j.
+    # addblock(r, kind): a task a watcher could not take now, once.
+    function addblock(r, kind) {
+      if (r in bseen) return
+      bseen[r] = 1
+      bl[++nb] = "blocked\t" r "\t" kind
+    }
+    # note(j): record the unfinished dependencies of item j; one in a stopped
+    # run nobody answered, or a stub or a release that never starts by itself, is a stop; any other is something that will
+    # resolve itself (an answered run resumes on a free slot).
     function note(j,   k, key) {
       for (k = 1; k <= nd[j]; k++) {
         if (dst[don[j, k]] == "finished") continue
         unfinished = 1
+        if ((dst[don[j, k]] == "waiting" && !(don[j, k] in ansd)) || hd[don[j, k]] == "stub" || hd[don[j, k]] == "version") stopdep[++nsd] = don[j, k]
+        else other = 1
         key = ref[j] SUBSEP don[j, k]
         if (key in wseen) continue
         wseen[key] = 1
@@ -1210,9 +1299,10 @@ _queue_next_decide() {
     }
     $1 == "item" { n++; ref[n] = $2; lvl[n] = $3; pos[n] = $4 + 0; pri[n] = $5; idx[$2] = n; nd[n] = 0 }
     $1 == "dep" { k = ++nd[n]; don[n, k] = $2; drea[n, k] = $3 }
-    $1 == "tf" { st[$2] = $3; pz[$2] = $4; sd[$2] = $5; rq[$2] = $6 }
+    $1 == "tf" { st[$2] = $3; pz[$2] = $4; sd[$2] = $5; rq[$2] = $6; hd[$2] = $7 }
     $1 == "ds" { dst[$2] = $3 }
     $1 == "tk" { tk[$2] = substr($0, length($1) + length($2) + 3) }
+    $1 == "an" { ansd[$2] = 1 }
     $1 == "rs" { ansd[$2] = 1; nr++; rr[nr] = $2; rst[nr] = $3; ran[nr] = $4 }
     $1 == "sl" { limit = $2 + 0; building = $3 + 0 }
     # rbetter(a, b): answered run a resumes before b — priority (`-` and an
@@ -1236,16 +1326,24 @@ _queue_next_decide() {
       ahead = ENVIRON["Q_AHEAD"] != ""
       for (i = 1; i <= n; i++) {
         r = ref[i]
-        if (r !~ /^task:/ || st[r] != "active") continue
+        if (r !~ /^task:/) continue
+        # A run stopped for a person is a stop in whatever status it stopped.
+        if (st[r] == "ready" && (hd[r] == "stopped" || hd[r] == "not_merged")) { addblock(r, hd[r]); continue }
+        if (st[r] != "active") continue
         if (pz[r] == "true" || rq[r] == 1) { paused++; continue }
         if (r in tk) { taken++; tl[++nt] = "taken\t" r "\t" tk[r]; continue }
         # An answered stopped run waits for a free slot: it is in `resume`, not in progress.
         if (sd[r] == 1 && (r in ansd)) continue
+        # What a watcher could not start or go on with: stopped, a stub, a release.
+        if (hd[r] != "" && hd[r] != "-") { addblock(r, hd[r]); continue }
         if (sd[r] == 1) { inprog++; pl[++np] = "progress\t" r "\t" pri[i]; continue }
-        unfinished = 0
+        unfinished = 0; other = 0; nsd = 0
         note(i)
         if (lvl[i] != "-" && (lvl[i] in idx)) note(idx[lvl[i]])
-        if (unfinished) { waiting++; continue }
+        if (unfinished && other) { waiting++; continue }
+        # Everything it waits for is a stopped run: held by a stop, which is
+        # not a wait that resolves itself.
+        if (unfinished) { for (k = 1; k <= nsd; k++) addblock(stopdep[k], (hd[stopdep[k]] == "stub" || hd[stopdep[k]] == "version") ? hd[stopdep[k]] : "stopped"); continue }
         if (!best || better(i, best)) best = i
       }
       if (ahead) {
@@ -1260,9 +1358,11 @@ _queue_next_decide() {
       } else if (waiting) print "reason\twaiting"
       else if (taken) print "reason\ttaken"
       else if (inprog) print "reason\tin_progress"
+      else if (nb) print "reason\tblocked"
       else if (paused) print "reason\tpaused"
       else print "reason\tempty"
       for (i = 1; i <= nw; i++) print wl[i]
+      for (i = 1; i <= nb; i++) print bl[i]
       for (i = 1; i <= nt; i++) print tl[i]
       for (i = 1; i <= np; i++) print pl[i]
       # Answered runs, best first: a selection pass over a handful of rows.
@@ -1283,7 +1383,7 @@ _queue_next_decide() {
 # _queue_next_json <result> <not queued> — the producer's data for `jig queue
 # next --json` (schemas/json.md, "jig queue next --json").
 _queue_next_json() {
-  local kind f2 f3 f4 f5 f6 f7 f8 next=null reason=null waiting="" taken="" progress="" resume="" slots='{"limit":1,"building":0,"free":1}'
+  local kind f2 f3 f4 f5 f6 f7 f8 next=null reason=null waiting="" taken="" progress="" blocked="" resume="" slots='{"limit":1,"building":0,"free":1}'
   while IFS=$'\t' read -r kind f2 f3 f4 f5 f6 f7 f8; do
     case "$kind" in
       next)
@@ -1304,6 +1404,11 @@ _queue_next_json() {
         if [ "$f4" = not_started ]; then json_quote unknown; else json_quote "$f4"; fi
         waiting="$waiting,\"state\":$_JSON"
         json_quote "$f5"; waiting="$waiting,\"reason\":$_JSON}" ;;
+      blocked)
+        blocked="$blocked${blocked:+,}"
+        json_quote "$f2"; blocked="$blocked{\"ref\":$_JSON"
+        json_quote "${f2#task:}"; blocked="$blocked,\"id\":$_JSON"
+        json_quote "$f3"; blocked="$blocked,\"kind\":$_JSON}" ;;
       taken)
         # `-` stands for a key the record does not hold (jig_checkout_taken).
         taken="$taken${taken:+,}"
@@ -1329,7 +1434,7 @@ _queue_next_json() {
   done <<EOF
 $1
 EOF
-  printf '{"next":%s,"reason":%s,"waiting":[%s],"taken":[%s],"in_progress":[%s],"not_queued":%s,"resume":[%s],"slots":%s}\n' "$next" "$reason" "$waiting" "$taken" "$progress" "$2" "$resume" "$slots"
+  printf '{"next":%s,"reason":%s,"waiting":[%s],"taken":[%s],"in_progress":[%s],"blocked":[%s],"not_queued":%s,"resume":[%s],"slots":%s}\n' "$next" "$reason" "$waiting" "$taken" "$progress" "$blocked" "$2" "$resume" "$slots"
 }
 
 # _queue_taken_words <checkout> <since> <idle seconds> — who holds a task and
@@ -1353,7 +1458,27 @@ _queue_taken_words() {
 # dependency is only the way things are while something is advised, so it is
 # printed when nothing is; a `broken` or `unknown` one is a thing to fix.
 _queue_next_text() {
-  local kind f2 f3 f4 f5 f6 f7 f8 advised="" progress="" pword resume="" ago slots=""
+  local kind f2 f3 f4 f5 f6 f7 f8 advised="" progress="" pword resume="" ago slots="" blocked_why="" stop_of="" other_of=""
+  # The verdict names the first stop; a queue held by a stub or a release only
+  # names that one instead (the blocked lines say why, one each).
+  while IFS=$'\t' read -r kind f2 f3; do
+    [ "$kind" = blocked ] || continue
+    if [ "$f3" = stopped ] || [ "$f3" = not_merged ]; then
+      [ -n "$stop_of" ] || stop_of=${f2#task:}
+    else
+      [ -n "$other_of" ] || other_of="${f2#task:}:$f3"
+    fi
+  done <<EOF
+$1
+EOF
+  if [ -n "$stop_of" ]; then
+    blocked_why="blocked by a stop of $stop_of"
+  elif [ -n "$other_of" ]; then
+    case "${other_of#*:}" in
+      stub) blocked_why="blocked: ${other_of%%:*} has no goal in its task.md yet" ;;
+      *) blocked_why="blocked: ${other_of%%:*} raises the version, which stays a person's" ;;
+    esac
+  fi
   while IFS=$'\t' read -r kind f2 f3 f4 f5 f6 f7 f8; do
     case "$kind" in
       next)
@@ -1366,6 +1491,7 @@ _queue_next_text() {
         case "$f2" in
           waiting) printf 'next: none — every queued task waits for a dependency\n' ;;
           taken) printf 'next: none — every queued task left is taken by another session\n' ;;
+          blocked) printf 'next: none — %s\n' "$blocked_why" ;;
           in_progress) printf 'next: none — every queued task left is in progress\n' ;;
           paused) printf 'next: none — every queued task is paused\n' ;;
           *) printf 'next: none — the queue holds no task to take\n' ;;
@@ -1381,6 +1507,13 @@ _queue_next_text() {
               *) printf '  %s waits for %s: unknown\n' "$f2" "$f3" ;;
             esac ;;
           *) [ -n "$advised" ] || printf '  %s waits for %s: %s\n' "$f2" "$f3" "$f4" ;;
+        esac ;;
+      blocked)
+        case "$f3" in
+          stopped) printf '  %s is stopped: its autopilot run waits for a person — jig status\n' "$f2" ;;
+          not_merged) printf '  %s ended not merged: its change waits for a person — jig status\n' "$f2" ;;
+          stub) printf '  %s has no goal yet: task.md holds only the stub — jig task artifact write %s task --from <file>\n' "$f2" "${f2#task:}" ;;
+          *) printf '  %s raises the version: a release stays a person'"'"'s — start it by hand\n' "$f2" ;;
         esac ;;
       taken) printf '  %s is %s\n' "$f2" "$(_queue_taken_words "$f3" "$f4" "$f5")" ;;
       progress)

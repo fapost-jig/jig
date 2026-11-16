@@ -117,3 +117,21 @@ another can be started first. The next-task-advice spec settled the rules with t
 > against the runs `on` and not consolidated in the clone). A dependency on a task whose run is stopped
 > reads `waiting`. `next`, `reason` and the order `task start` reads are unchanged
 > (adr-20261114-a-waiting-run-holds-no-slot).
+
+> **Amendment (2026-11-16).** `jig queue next` also leaves out what a watcher could not start or go on
+> with now, in the same one awk (`_queue_next_decide`), and names it as `blocked` instead of
+> `in_progress` or advising it (queue-watch spec, Phase 1). A task is held for one of four kinds:
+> `not_merged` (at `active` or `ready`: its run ended, `autopilot: done`, with an `end` journal line that starts `not merged` — the
+> text `jig-autopilot` §4 gives `end --reason` — and housekeeping has not seen the change merged; a later `start`
+> or `resume` clears it; a run at level `pr` that ends with an open pull request is not one), `stopped` (its autopilot run is `stopped` and nobody answered it, at `active` or `ready`; a draft of
+> the repair limit is one, an answered run stays in `resume`), `stub` (not started, and `task.md` holds the
+> template's `## Goal` heading with no goal under it — `jig_task_has_goal`; a brief with no such heading is
+> written without the template and is not a stub) and `version` (not started, a release's notes task: the
+> id `release-notes-*` that `jig-release` files, or a recorded `notes_through`; it raises the version,
+> which stays a person's). A stopped run that a candidate waits for, when that is all it waits for, is
+> listed too. `reason` gains `blocked`, read after `in_progress` and before `paused`, so a queue held only
+> by such stops no longer answers `in_progress`, `waiting` or `empty`; the text says `blocked by a stop of
+> <id>` (for a stub or a release: `blocked: <id> has no goal …` or `… raises the version …`), and `--json` lists `blocked` (`{ref, id, kind}`). The hold is read from state, the run's journal and `task.md` alone: no version diff
+> exists for a task that has no branch, so the id is the signal, and `task start` follows the advice, so a
+> task behind a held one is no longer refused for it. A stopped run was in `in_progress` before: Jig UI
+> reads the new field.

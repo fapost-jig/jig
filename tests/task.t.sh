@@ -371,6 +371,8 @@ test_task_goal_leaves_html_comments_out() {
   local got f="$JIG_TEST_TMP.goal.md"
   got=$(
     # shellcheck source=/dev/null
+    . "$JIG_HOME/scripts/lib/common.sh"
+    # shellcheck source=/dev/null
     . "$JIG_HOME/scripts/lib/task.sh"
     printf '# x\n\n## Goal\n\n<!-- One paragraph:\n## not a heading -->\nKeep <!-- why -->the\nreturn URL.\n\nLater.\n' > "$f"
     _task_goal "$f"
@@ -3296,8 +3298,9 @@ test_task_start_on_a_paused_task_says_how_to_resume() {
 
 # _ooo_queue — two filed tasks, T-1 at P2 and T-2 at P4 (so T-1 is first).
 _ooo_queue() {
-  jig task new T-1 >/dev/null
-  jig task new T-2 >/dev/null
+  # A goal each: a task whose task.md holds only the stub is never advised.
+  jig task new T-1 --goal "first" >/dev/null
+  jig task new T-2 --goal "second" >/dev/null
   jig queue set T-2 --priority 4 >/dev/null
   jig queue set T-1 --priority 2 >/dev/null
 }
@@ -3317,8 +3320,8 @@ test_task_start_refuses_a_task_another_one_outranks() {
 
 test_task_start_names_a_first_task_with_no_priority() {
   task_setup_clean
-  jig task new T-1 >/dev/null
-  jig task new T-2 >/dev/null
+  jig task new T-1 --goal "first" >/dev/null
+  jig task new T-2 --goal "second" >/dev/null
   jig queue set T-1 --priority none >/dev/null
   jig queue set T-2 --priority none >/dev/null
   run_split jig task start T-2
