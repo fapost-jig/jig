@@ -160,6 +160,19 @@ test_adapter_claude_installed_hook_silences_the_hint() {
   assert_eq "" "$OUT"
 }
 
+test_adapter_claude_hint_names_the_session_end_hook_an_older_install_lacks() {
+  # A settings.json written before the SessionEnd hook existed names only the
+  # start hook: the hint must still say what is missing.
+  fixture_repo
+  mkdir -p .claude
+  printf '{ "hooks": { "SessionStart": [ { "hooks": [ { "type": "command", "command": ".ai/scripts/jig-session-hook" } ] } ] } }\n' > .claude/settings.json
+  adapters_source claude
+  run adapter_claude_session_hook_hint "$PWD"
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "jig-session-end-hook"
+  assert_not_contains "$OUT" "run it at session start"
+}
+
 test_adapter_claude_declines_for_a_dangling_symlink() {
   # `-e` is false for a dangling symlink and `>` writes straight through it,
   # so this path once reported success while the bytes landed outside the
