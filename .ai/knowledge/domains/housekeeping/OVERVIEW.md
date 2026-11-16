@@ -13,7 +13,7 @@ paths:
   - "templates/scheduler/**"
   - scripts/lib/hklog.sh
   - scripts/lib/forgecache.sh
-reviewed_at: 2026-11-14
+reviewed_at: 2026-11-16
 ---
 # Housekeeping
 

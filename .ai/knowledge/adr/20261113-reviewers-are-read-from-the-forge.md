@@ -14,7 +14,7 @@ paths:
   - scripts/lib/housekeeping.sh
   - scripts/lib/forgecache.sh
 summary: Why an approval waits for every reviewer the forge records as requested, why jig task ship --reviewer resolves people (never teams) against the forge before the push, and why reviewer candidates are read from the forge's recent reviews, never a setting, by the one --json read that asks the forge.
-reviewed_at: 2026-11-13
+reviewed_at: 2026-11-16
 ---
 # Reviewers are read from the forge, requested by the ship, and an approval waits for each of them
 
