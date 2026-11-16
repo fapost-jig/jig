@@ -5380,9 +5380,11 @@ _task_gate_hook_run() {
 }
 
 # _task_gate_hook_tree_print <tree> — one hash of what git sees in <tree>:
-# the status lines (untracked files included) and the diff against HEAD.
+# HEAD itself, the status lines (untracked files included) and the diff against
+# HEAD. HEAD is in the hash because a hook that commits what it changed leaves
+# a clean tree and an empty diff, yet `task ship` would push its unreviewed commit.
 _task_gate_hook_tree_print() {
-  { git -C "$1" status --porcelain 2>/dev/null; git -C "$1" diff HEAD --binary 2>/dev/null; } \
+  { git -C "$1" rev-parse HEAD 2>/dev/null; git -C "$1" status --porcelain 2>/dev/null; git -C "$1" diff HEAD --binary 2>/dev/null; } \
     | git hash-object --stdin
 }
 
@@ -5392,8 +5394,10 @@ _task_gate_hook_tree_print() {
 # `<gate><TAB><path><TAB><date><TAB><reason>`. A waiver sets aside one hook's
 # refusal at one gate for this task, and nothing else: not the same hook at
 # another gate, not another hook of the gate, not the check that a hook wrote
-# no file. Written only by `jig task waive`; read by _task_gate_hooks and by
-# the status page through the two readers below, never by a copy of the format.
+# no file. Written only by `jig task waive`. The file's text is read through the
+# two readers below, but the four TSV columns are split by each consumer itself:
+# _task_gate_hooks (through _task_waiver_reason), _status_report (status.sh),
+# _task_list_json_task_v and task_ship. A change of the format touches all of them.
 
 # _task_waivers <id> — the waivers file's lines as they are, nothing when the
 # task has none.
