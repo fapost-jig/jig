@@ -1974,7 +1974,7 @@ _hk_roadmap_open_read() {
 $(jig_roadmap_open_ids "$f")
 EOF
     rc=0
-    loc=$(jig_spec_roadmap_ref "$spec" "$here") || rc=$?
+    jig_spec_roadmap_ref_v loc "$spec" "$here" || rc=$?
     if [ "$rc" -ne 0 ]; then
       _HK_ROADMAP_UNSEEN="$_HK_ROADMAP_UNSEEN$spec "
       continue

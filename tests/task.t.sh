@@ -17866,6 +17866,82 @@ test_task_drop_item_does_not_withhold_a_write_that_landed_in_its_base() {
   assert_eq '{"id":"drop-item","command":"jig spec drop T-1 --json","offered":true,"reason":null}' "$(_tw_drop_item)"
 }
 
+# The row reads the tip as ot_judge does: origin's, when origin/spec/alpha is ahead of the
+# local branch. The local tip is in main; the one origin has, a commit further, is not, so
+# the write still waits and the row says so.
+# shellcheck disable=SC2016 # the roadmap's backticks are literal
+test_task_drop_item_reads_the_origin_tip_when_it_is_ahead_of_the_local_one() {
+  _tw_dropable "$(printf '## Phase 1\n\n- [ ] `T-1` — the thing')"
+  jig spec item add alpha --phase 1 --text "another" --json >/dev/null 2>&1 \
+    || fail "spec item add failed"
+  printf 'Epic: epic/alpha\n\n## Phase 1\n\n%s\n' '- [ ] `T-1` — the thing' > .ai/specs/alpha/roadmap.md
+  git commit -q -am "an epic"
+  git branch epic/alpha
+  git merge -q -s ours spec/alpha -m "merged the write"
+  assert_eq '{"id":"drop-item","command":"jig spec drop T-1 --json","offered":true,"reason":null}' "$(_tw_drop_item)"
+  local tree ahead
+  tree=$(git rev-parse 'spec/alpha^{tree}')
+  ahead=$(git commit-tree "$tree" -p spec/alpha -m "one commit further")
+  git update-ref refs/remotes/origin/spec/alpha "$ahead"
+  assert_contains "$(_tw_drop_item)" '"offered":false,"reason":"spec drop: spec/alpha still waits to go into'
+}
+
+# _tw_write_for_old_epic — spec alpha's roadmap declared epic/old open when `spec item add`
+# wrote spec/alpha (the record's base is epic/old); main now declares epic/alpha instead,
+# so the write waits for another base than the one this edit goes into. The row says so
+# until the write lands where one of its clauses sees it: each test below lands it in
+# exactly one place.
+# shellcheck disable=SC2016 # the roadmap's backticks are literal
+_tw_write_for_old_epic() {
+  _tw_dropable "$(printf 'Epic: epic/old\n\n## Phase 1\n\n- [ ] `T-1` — the thing')"
+  git branch epic/old
+  jig spec item add alpha --phase 1 --text "another" --json >/dev/null 2>&1 \
+    || fail "spec item add failed"
+  printf 'Epic: epic/alpha\n\n## Phase 1\n\n%s\n' '- [ ] `T-1` — the thing' > .ai/specs/alpha/roadmap.md
+  git commit -q -am "another epic"
+  git branch epic/alpha
+  assert_contains "$(_tw_drop_item)" '"offered":false,"reason":"spec drop: spec/alpha still waits to go into epic/old, and this edit goes into epic/alpha'
+}
+
+# _tw_land_by_squash <branch> — the write's roadmap as one commit of <branch>, which is how
+# a squash merge leaves it: the tip is no ancestor, the paths it touched read the same.
+_tw_land_by_squash() {
+  git switch -q "$1"
+  git checkout -q spec/alpha -- .ai/specs/alpha/roadmap.md
+  git commit -q -m "squashed the write"
+  git switch -q main
+}
+
+_tw_dropped_offered() {
+  assert_eq '{"id":"drop-item","command":"jig spec drop T-1 --json","offered":true,"reason":null}' "$(_tw_drop_item)"
+}
+
+test_task_drop_item_sees_a_write_landed_in_the_default_branch_that_is_not_the_record_base() {
+  _tw_write_for_old_epic
+  git merge -q -s ours spec/alpha -m "merged the write"
+  _tw_dropped_offered
+}
+
+test_task_drop_item_sees_a_write_landed_in_the_record_base() {
+  _tw_write_for_old_epic
+  git switch -q epic/old
+  git merge -q -s ours spec/alpha -m "merged the write"
+  git switch -q main
+  _tw_dropped_offered
+}
+
+test_task_drop_item_sees_a_write_squashed_into_the_base_this_edit_goes_into() {
+  _tw_write_for_old_epic
+  _tw_land_by_squash epic/alpha
+  _tw_dropped_offered
+}
+
+test_task_drop_item_sees_a_write_squashed_into_the_record_base() {
+  _tw_write_for_old_epic
+  _tw_land_by_squash epic/old
+  _tw_dropped_offered
+}
+
 # An open epic is where the write goes: its copy of the roadmap is the one asked.
 # shellcheck disable=SC2016 # the roadmap's backticks are literal
 test_task_drop_item_reads_the_epic_a_roadmap_declares_open() {

@@ -2128,7 +2128,7 @@ _task_claim_or_refuse() {
 # claim, as `task resume` lands its own. A claim that does not stand writes
 # nothing and refuses with `stale-revision`.
 _task_close_write() {
-  local id="$1" dir="$2" expected="$3" claimed="${4:-}" rc=0 tmp tmp2
+  local id="$1" dir="$2" expected="$3" claimed="${4:-}" tmp tmp2
   tmp="$dir/state.tmp.$$"
   tmp2="$dir/state.tmp2.$$"
   _task_guard_dir "$dir"
@@ -2684,7 +2684,7 @@ _task_archive_move_body() {
   case "$1" in
     -*) jig_fail usage "$(_task_usage "$verb")" ;;
   esac
-  local id="$1" rev="" rev_given=0 expected dir tmp rc=0 from=""
+  local id="$1" rev="" rev_given=0 expected dir tmp from=""
   shift
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -5610,7 +5610,7 @@ _task_gate_body() {
   design=$(_task_receipt_design_hash "$id")
 
   # The new state, whole, before the claim: a refused claim leaves nothing.
-  local tmp="$dir/state.tmp.$$" tmp2="$dir/state.tmp2.$$" rc=0
+  local tmp="$dir/state.tmp.$$" tmp2="$dir/state.tmp2.$$"
   jig_cleanup_add "$tmp"
   jig_cleanup_add "$tmp2"
   _task_state_set_into "$dir/state" "$tmp2" gate approved
@@ -5899,7 +5899,7 @@ _task_pause_body() {
   fi
 
   # The new state, whole, before the claim: a refused claim leaves nothing.
-  local tmp="$dir/state.tmp.$$" tmp2="$dir/state.tmp2.$$" rc=0
+  local tmp="$dir/state.tmp.$$" tmp2="$dir/state.tmp2.$$"
   jig_cleanup_add "$tmp"
   jig_cleanup_add "$tmp2"
   _task_state_set_into "$dir/state" "$tmp2" paused true
@@ -6100,7 +6100,7 @@ _task_resume_body() {
     fi
   fi
 
-  local days tmp="$dir/state.tmp.$$" rc=0
+  local days tmp="$dir/state.tmp.$$"
   jig_cleanup_add "$tmp"
   days=$(_task_days_since "$(task_state_get "$id" paused_at)")
   _task_state_without "$dir" "$tmp" paused paused_at paused_reason paused_stash_applied
@@ -6169,7 +6169,7 @@ _task_resume_body() {
 # <expected-revision>. The record holds until the fix ships into the staging
 # branch (`task ship` drops it); the reason it waited was never written.
 _task_resume_from_park() {
-  local as_json="$1" id="$2" dir="$3" expected="$4" parked="$5" tmp tmp2 rc=0 reason
+  local as_json="$1" id="$2" dir="$3" expected="$4" parked="$5" tmp tmp2 reason
   tmp="$dir/state.tmp.$$"
   tmp2="$dir/state.tmp2.$$"
   _task_state_set_into "$dir/state" "$tmp" status active
