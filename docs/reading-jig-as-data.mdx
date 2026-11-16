@@ -389,7 +389,7 @@ while one stands for your machine's version or a newer one `upgrade-available` i
 the project needs is the merge and `jig upgrade --land`, not a second upgrade. One for an older
 version, such as a pull request nobody merged or closed, does not hide the newer upgrade.
 
-The `todo` of a `pull-request-waiting` item names the `--by human` command only while its row in `actions` is offered; while the agent is on the task, or the checks of a merge are red or pending, or a merge conflicts, it says why instead. In a `phase-stopped` item the `todo` ends "add --by human for the unattended: <ids>", naming only the runs that were started unattended.
+The `todo` of a `pull-request-waiting` item names the `--by human` command unless the agent is on the task (an autopilot run, or a `jig task ship` waiting for CI) or, for a merge, its checks are red or pending or it conflicts with its base; then it says why instead. The `todo` of `pull-request-was-open` follows the same rule after "if it is still open". A land under `git.staging_land: external` or a ship gate still names its command: the todo does not look at those. In a `phase-stopped` item the `todo` adds the clause "add --by human for the unattended: <ids>", naming only the runs that were started unattended, before its closing sentence.
 
 The items about a task's open pull request (`pull-request-waiting`, `pull-request-was-open`) carry
 what the forge cache says and what a person can do, so a card needs no second read:

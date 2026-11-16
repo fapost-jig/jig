@@ -2351,21 +2351,29 @@ _status_pr_offered() {
   return 0
 }
 
-# _status_pr_todo_v <var> <id> — the words that name the person's move on a waiting
-# pull request, after _status_pr_item_v. The command is printed only when its row
-# is offered (_status_pr_offered); otherwise the words are the person's, without
+# _status_pr_todo_v <var> <id> [approved] — the words that name the person's move on a
+# waiting pull request, after _status_pr_item_v. The command is printed only when its
+# row is offered (_status_pr_offered); otherwise the words are the person's, without
 # a command the agent could take for its own (the person's form,
 # adr-20261114-a-persons-pull-request-action-does-not-read-agent-git, is the
-# table's row alone).
+# table's row alone). `approved` is the lead-in of a land that waits for a review:
+# "Land it once it is approved". _STATUS_PR_CMD is left holding the command, or
+# empty when the row is hidden (then _STATUS_PR_WHY says why).
 _status_pr_todo_v() {
   local cmd="jig task merge-pr $2 --by human" verb=Merge word=merges move=merge
+  local lead="" settled="that is settled" seen="why it waits"
   [ "$_STATUS_PR_MOVE" != land ] || { cmd="jig task land $2 --by human"; verb=Land; word=lands; move=land; }
+  if [ "${3:-}" = approved ]; then
+    lead=" once it is approved"
+    settled="it is approved and that is settled"
+    seen="where the review stands"
+  fi
   if _status_pr_offered "$2" "$move"; then
     _STATUS_PR_CMD=$cmd
-    printf -v "$1" '%s it: %s; see why it waits: jig task pr-status %s --json' "$verb" "$cmd" "$2"
+    printf -v "$1" '%s it%s: %s; see %s: jig task pr-status %s --json' "$verb" "$lead" "$cmd" "$seen" "$2"
   else
-    _STATUS_PR_CMD="leave it to the person: $_STATUS_PR_WHY"
-    printf -v "$1" 'Not yet: %s. A person %s it once that is settled; see why it waits: jig task pr-status %s --json' "$_STATUS_PR_WHY" "$word" "$2"
+    _STATUS_PR_CMD=""
+    printf -v "$1" 'Not yet: %s. A person %s it once %s; see %s: jig task pr-status %s --json' "$_STATUS_PR_WHY" "$word" "$settled" "$seen" "$2"
   fi
 }
 
@@ -2384,7 +2392,7 @@ _status_attention() {
   local stopped="" gates="" git_steps="" rec id stop_reason stop_at ago level queue url live hk_note pr_ids="" parked
   [ -n "$_STATUS_PARKED_READY" ] || _status_parked_read
   local nc wrong kept closed open open_closed settled phase phase_stops="" todo
-  local rvl rv rw rwl title t=$'\t' verbatim by
+  local rvl rv rw rwl still title t=$'\t' verbatim by
   hk_note=""
   [ -z "$_STATUS_HK_AT" ] || hk_note="housekeeping at $_STATUS_HK_WHEN"
   level=$(jig_agent_git 2>/dev/null) || level=none
@@ -2639,11 +2647,7 @@ OPEN
               _status_pr_move_v resume ;;
             *)
               title="A pull request is waiting for review"
-              if _status_pr_offered "$id" land; then
-                todo="Land it once it is approved: jig task land $id --by human; see where the review stands: jig task pr-status $id --json"
-              else
-                todo="Not yet: $_STATUS_PR_WHY. A person lands it once it is approved and that is settled; see where the review stands: jig task pr-status $id --json"
-              fi ;;
+              _status_pr_todo_v todo "$id" approved ;;
           esac
           _status_attn pull-request-waiting task "$id" "$id" \
             "$title" "$_STATUS_PR_DETAIL" "$todo" "$url" "$_STATUS_PR_EXTRA"
@@ -2679,9 +2683,14 @@ OPEN
       # on, so it must not tell them to merge what may already be merged.
       _status_pr_item_v "$id" "open as of $hk_note" "$url" merge
       _status_pr_todo_v todo "$id"
+      if [ -n "$_STATUS_PR_CMD" ]; then
+        still=$_STATUS_PR_CMD
+      else
+        still="not yet: $_STATUS_PR_WHY; a person takes it once that is settled"
+      fi
       _status_attn pull-request-was-open task "$id" "$id" \
         "A pull request was open at the last housekeeping run" "$_STATUS_PR_DETAIL" \
-        "It may have been merged since: jig last asked the forge then. Run jig housekeeping to refresh, or see it now: jig task pr-status $id --json; then, if it is still open: $_STATUS_PR_CMD" "$url" "$_STATUS_PR_EXTRA"
+        "It may have been merged since: jig last asked the forge then. Run jig housekeeping to refresh, or see it now: jig task pr-status $id --json; then, if it is still open: $still" "$url" "$_STATUS_PR_EXTRA"
     else
       _status_pr_item_v "$id" "opened by jig task ship" "$url" merge
       _status_pr_todo_v todo "$id"

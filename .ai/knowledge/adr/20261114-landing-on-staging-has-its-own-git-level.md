@@ -93,6 +93,8 @@ key where they read the level of staging work. `jig-setup` asks about it only on
   the answer in `pr_into`, refuses (`wrong-flow`) a base that is not the staging branch, and
   refuses when the forge cannot say. `jig task merge-pr` takes a staging-flow task whose
   pull request went into the base, and refuses one the forge says goes into the staging branch.
+  The actions table cannot ask the forge on a read, so for such a task it places the pull request by
+  the base column of the forge cache's line for its `pr_url`; the commands never read the cache.
 - Before a task's first ship, the actions table may offer `ship` for a task that changes the flow
   at `agent.git: none` with `agent.git_staging` at `commit` or above, and the command then exits 3:
   whether a task changes the flow is the command's to find out, like the other flow refusals.

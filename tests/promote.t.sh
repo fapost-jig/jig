@@ -951,6 +951,32 @@ test_promote_with_no_forge_needs_a_person() {
   assert_contains "$OUT" "task promote: no forge available; open the pull request from task/T-1 into main by hand"
 }
 
+# A branch origin lacks or is behind is pushed by the promotion; with no forge
+# the refusal tells the person to push it first, and nothing was pushed.
+test_promote_with_no_forge_and_an_unpushed_branch_says_push_first() {
+  promote_setup
+  sed 's/^forge:.*/forge: none/' .ai/config.yaml > c.tmp
+  mv c.tmp .ai/config.yaml
+  # A commit of T-1 that reached staging but not origin's task/T-1: the local
+  # branch is ahead of origin's, so the promotion would have to push it.
+  printf 'later\n' > later.txt
+  git add later.txt
+  git commit -q -m "Later work of T-1"
+  git checkout -q staging
+  git merge -q --no-ff -m "Land T-1 again on staging" task/T-1
+  git push -q origin staging
+  git checkout -q task/T-1
+  local origin_before
+  origin_before=$(git ls-remote origin)
+
+  promote_json jig task promote T-1 --json
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" '"code":"forge-unavailable"'
+  assert_contains "$OUT" "push task/T-1 to the remote first"
+  assert_contains "$OUT" "Nothing was pushed."
+  assert_eq "$origin_before" "$(git ls-remote origin)"
+}
+
 # No forge is found out before the clone's revision is claimed and before
 # anything is pushed: the refusal of a person's promotion leaves both alone.
 test_promote_by_human_without_a_forge_claims_and_pushes_nothing() {

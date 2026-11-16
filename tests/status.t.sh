@@ -4990,6 +4990,24 @@ test_status_todo_names_no_by_human_command_for_a_hidden_row() {
   assert_not_contains "$OUT" "merge-pr shipped --by human"
 }
 
+# The was-open todo splices the move in its own words when the row is hidden:
+# "if it is still open: not yet, ...", not the command and not a fragment.
+test_status_was_open_todo_names_no_by_human_command_while_the_agent_is_on_it() {
+  fixture_jig_repo
+  jig task new reopened --class T1 >/dev/null
+  printf 'pr_url: https://forge.test/pr/8\nautopilot: on\n' >> .ai/workspace/tasks/reopened/state
+  mkdir -p .ai/runtime
+  {
+    printf -- '--- run %s forge=github\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    printf '2026-11-10T19:53:53Z task=reopened status=ready remote=open via=forge action=preserve\n'
+  } > .ai/runtime/housekeeping.log
+  run jig status --json
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" 'then, if it is still open: not yet: the agent is on it; a person takes it once that is settled'
+  assert_not_contains "$OUT" 'still open: jig task merge-pr'
+  assert_not_contains "$OUT" 'leave it to the person'
+}
+
 # The land todo of a parked task, in both forms (approved, and "once it is
 # approved"), prints no `--by human` command while the agent is on the task:
 # its autopilot run is on, or a `jig task ship` waits for CI.
@@ -5014,7 +5032,7 @@ test_status_land_todo_names_no_by_human_command_while_the_agent_is_on_it() {
   run jig status --json
   assert_contains "$OUT" '"todo":"Land it once it is approved: jig task land never --by human'
   mkdir -p .ai/runtime/shipping
-  printf 'pid: %s\nsince: %s\n' "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .ai/runtime/shipping/never
+  printf 'pid: %s\nsince: %s\ndeadline: %s\n' "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(( $(date +%s) + 3600 ))" > .ai/runtime/shipping/never
   run jig status --json
   assert_eq 0 "$RC" "$OUT"
   assert_not_contains "$OUT" '"todo":"Land it once it is approved: jig task land never --by human'
