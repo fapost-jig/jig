@@ -2813,6 +2813,17 @@ _status_attention_phase_stops() {
 # counted again when they exist — and writes nothing: no page, no counts. Run in
 # a task worktree it reads the main checkout, as the page does (_status_json).
 
+# _status_is_pr_item <kind> — whether an attention item of <kind> is a task's
+# open pull request, the item whose action rows ask git about the task's
+# staging state. _status_json's pre-pass reads it before the main loop, whose
+# case names the same kinds.
+_status_is_pr_item() {
+  case "$1" in
+    pull-request-waiting | pull-request-was-open) return 0 ;;
+  esac
+  return 1
+}
+
 # _status_json [--json] — the producer json_run runs for `jig status --json`.
 _status_json() {
   local arg attn rec kind stype sid tasks title detail todo url extra objs="" o t tl hk stale root vers
@@ -2860,11 +2871,9 @@ _status_json() {
     IFS="$_STATUS_US" read -r kind stype sid tasks title detail todo url extra <<REC
 $rec
 REC
-    case "$kind" in
-      pull-request-waiting | pull-request-was-open)
-        ! jig_valid_id "$sid" || pr_sids="$pr_sids$sid
-" ;;
-    esac
+    _status_is_pr_item "$kind" || continue
+    ! jig_valid_id "$sid" || pr_sids="$pr_sids$sid
+"
   done <<ATTN
 $attn
 ATTN
@@ -2923,6 +2932,7 @@ X
         ;;
       # A task's open pull request: the forge cache's data and the task's own
       # action rows, the objects `jig task list --json` prints (schemas/json.md).
+      # The kinds are _status_is_pr_item's: keep the two lists the same.
       pull-request-waiting | pull-request-was-open)
         IFS="$xt" read -r xb xbase xst xat xurl xci xmg xmove xrv xwf <<X
 $extra

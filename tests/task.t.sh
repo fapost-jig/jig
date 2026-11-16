@@ -14686,16 +14686,18 @@ test_task_list_json_names_the_spec_without_a_process_per_task() {
   _tl_same_cost "$linked" "$plain"
 }
 
+# _tl_set_flow <flow> — rewrite git.flow in the fixture's .ai/config.yaml.
+_tl_set_flow() {
+  sed "s|^git.flow:.*|git.flow: $1|" .ai/config.yaml > c.tmp
+  mv c.tmp .ai/config.yaml
+}
+
 # A task's staging state is one answer for the whole listing
 # (jig_staging_states): what the staging flow adds to the listing does not grow
 # with the started tasks it is asked about.
 test_task_list_json_on_the_staging_flow_starts_no_process_per_task() {
   fixture_staging_repo
   local i staged_two direct_two staged_six direct_six
-  _tl_staging_flow() {
-    sed "s|^git.flow:.*|git.flow: $1|" .ai/config.yaml > c.tmp
-    mv c.tmp .ai/config.yaml
-  }
   rm -rf .ai/workspace/tasks/*
   for i in 1 2; do
     git branch "task/s-$i" task/on
@@ -14703,14 +14705,14 @@ test_task_list_json_on_the_staging_flow_starts_no_process_per_task() {
   done
   _tl_forks task list --all --json >/dev/null || fail "task list --json failed under the probe"
   staged_two=$(_tl_forks task list --all --json) || fail "task list --json failed under the probe"
-  _tl_staging_flow direct
+  _tl_set_flow direct
   direct_two=$(_tl_forks task list --all --json) || fail "task list --json failed under the probe"
   for i in 3 4 5 6; do
     git branch "task/s-$i" task/behind
     fixture_task "s-$i" "task/s-$i" active "class:T2"
   done
   direct_six=$(_tl_forks task list --all --json) || fail "task list --json failed under the probe"
-  _tl_staging_flow staging
+  _tl_set_flow staging
   staged_six=$(_tl_forks task list --all --json) || fail "task list --json failed under the probe"
   run_split jig task list --json
   assert_contains "$OUT" '"id":"s-6"'
@@ -14727,10 +14729,6 @@ test_task_list_json_on_the_staging_flow_starts_no_process_per_task() {
 test_task_list_json_close_on_the_staging_flow_starts_no_process_per_task() {
   fixture_staging_repo
   local i staged_two direct_two staged_six direct_six
-  _tl_close_flow() {
-    sed "s|^git.flow:.*|git.flow: $1|" .ai/config.yaml > c.tmp
-    mv c.tmp .ai/config.yaml
-  }
   # _tl_close_task <n>: odd n has a staging pull request that merged and a
   # branch the staging branch lacks; even n is pushed with no pull request.
   _tl_close_task() {
@@ -14751,13 +14749,13 @@ test_task_list_json_close_on_the_staging_flow_starts_no_process_per_task() {
   done
   _tl_execs task list --all --json >/dev/null || fail "task list --json failed under the probe"
   staged_two=$(_tl_execs task list --all --json) || fail "task list --json failed under the probe"
-  _tl_close_flow direct
+  _tl_set_flow direct
   direct_two=$(_tl_execs task list --all --json) || fail "task list --json failed under the probe"
   for i in 3 4 5 6 7 8; do
     _tl_close_task "$i"
   done
   direct_six=$(_tl_execs task list --all --json) || fail "task list --json failed under the probe"
-  _tl_close_flow staging
+  _tl_set_flow staging
   staged_six=$(_tl_execs task list --all --json) || fail "task list --json failed under the probe"
   # Not vacuous: on the staging flow the table withholds both kinds of close.
   _tl_json --all
@@ -14773,10 +14771,6 @@ test_task_list_json_close_on_the_staging_flow_starts_no_process_per_task() {
 test_task_list_json_close_of_pushed_tasks_starts_no_subshell_per_task() {
   fixture_staging_repo
   local i staged_two direct_two staged_six direct_six
-  _tl_push_flow() {
-    sed "s|^git.flow:.*|git.flow: $1|" .ai/config.yaml > c.tmp
-    mv c.tmp .ai/config.yaml
-  }
   _tl_push_task() {
     git branch "task/p-$1" task/never
     git push -q origin "task/p-$1"
@@ -14790,13 +14784,13 @@ test_task_list_json_close_of_pushed_tasks_starts_no_subshell_per_task() {
   done
   _tl_forks task list --all --json >/dev/null || fail "task list --json failed under the probe"
   staged_two=$(_tl_forks task list --all --json) || fail "task list --json failed under the probe"
-  _tl_push_flow direct
+  _tl_set_flow direct
   direct_two=$(_tl_forks task list --all --json) || fail "task list --json failed under the probe"
   for i in 3 4 5 6; do
     _tl_push_task "$i"
   done
   direct_six=$(_tl_forks task list --all --json) || fail "task list --json failed under the probe"
-  _tl_push_flow staging
+  _tl_set_flow staging
   staged_six=$(_tl_forks task list --all --json) || fail "task list --json failed under the probe"
   _tl_json --all
   assert_eq 0 "$RC" "$ERR"
@@ -14812,10 +14806,6 @@ test_task_list_json_close_of_pushed_tasks_starts_no_subshell_per_task() {
 test_task_list_json_land_row_starts_no_subshell_per_task() {
   fixture_staging_repo
   local i staged_two direct_two staged_six direct_six
-  _tl_land_flow() {
-    sed "s|^git.flow:.*|git.flow: $1|" .ai/config.yaml > c.tmp
-    mv c.tmp .ai/config.yaml
-  }
   _tl_land_task() {
     git branch "task/l-$1" task/on
     fixture_task "l-$1" "task/l-$1" ready "class:T2" "knowledge_consolidated:true" "pr_url:https://forge.test/pr/$1"
@@ -14829,13 +14819,13 @@ test_task_list_json_land_row_starts_no_subshell_per_task() {
   done
   _tl_forks task list --all --json >/dev/null || fail "task list --json failed under the probe"
   staged_two=$(_tl_forks task list --all --json) || fail "task list --json failed under the probe"
-  _tl_land_flow direct
+  _tl_set_flow direct
   direct_two=$(_tl_forks task list --all --json) || fail "task list --json failed under the probe"
   for i in 3 4 5 6; do
     _tl_land_task "$i"
   done
   direct_six=$(_tl_forks task list --all --json) || fail "task list --json failed under the probe"
-  _tl_land_flow staging
+  _tl_set_flow staging
   staged_six=$(_tl_forks task list --all --json) || fail "task list --json failed under the probe"
   # Not vacuous: on the staging flow the row ran its gates to the end.
   _tl_json --all
@@ -14846,6 +14836,29 @@ test_task_list_json_land_row_starts_no_subshell_per_task() {
     || fail "4 more tasks started $((staged_six - staged_two)) more processes on the staging flow, $((direct_six - direct_two)) on direct"
 }
 
+# The `land` row replays the answer of the ship gates (_task_ship_refusal_v) in
+# its own words, and withholds itself when they refuse: a blocking finding on a
+# task with a pull request into the staging branch, and a gate that cannot be
+# asked at all, each reach the listing as the reason of the `land` row.
+test_task_list_json_land_row_carries_the_ship_gates_refusal() {
+  fixture_staging_repo
+  _tl_set_flow staging
+  rm -rf .ai/workspace/tasks/*
+  mkdir -p .ai/runtime
+  : > .ai/runtime/forge-cache
+  git branch task/g-1 task/on
+  fixture_task g-1 task/g-1 ready "class:T2" "knowledge_consolidated:true" "pr_url:https://forge.test/pr/1"
+  _park_cache task/g-1 staging open "https://forge.test/pr/1"
+  jig task finding add g-1 --severity P1 --where - --summary "open after consolidation" >/dev/null
+  _tl_json --all
+  assert_eq 0 "$RC" "$ERR"
+  assert_contains "$OUT" '"id":"land","command":"jig task land g-1 --by human","offered":false,"reason":"task land: '
+  assert_contains "$OUT" "1 blocking finding (F1 P1 open -)"
+  run jig task land g-1 --by human
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "1 blocking finding (F1 P1 open -)"
+}
+
 # The pull-request items of `status --json` carry the task's action rows, and
 # what those read of git is one answer for the items (_task_list_staging_read in
 # _status_json): four more such tasks start no more git processes on the staging
@@ -14854,10 +14867,6 @@ test_task_list_json_land_row_starts_no_subshell_per_task() {
 test_status_json_pull_request_items_start_no_git_per_task() {
   fixture_staging_repo
   local i staged_two direct_two staged_six direct_six all_two all_six
-  _tl_item_flow() {
-    sed "s|^git.flow:.*|git.flow: $1|" .ai/config.yaml > c.tmp
-    mv c.tmp .ai/config.yaml
-  }
   # _tl_item_gits <jig args> — how many git processes the run started.
   _tl_item_gits() {
     _tl_forks "$@" >/dev/null || return 1
@@ -14877,13 +14886,13 @@ test_status_json_pull_request_items_start_no_git_per_task() {
   _tl_forks status --json >/dev/null || fail "status --json failed under the probe"
   staged_two=$(_tl_item_gits status --json) || fail "status --json failed under the probe"
   all_two=$(wc -l < "$JIG_TEST_TMP.forks" | tr -d ' ')
-  _tl_item_flow direct
+  _tl_set_flow direct
   direct_two=$(_tl_item_gits status --json) || fail "status --json failed under the probe"
   for i in 3 4 5 6; do
     _tl_item_task "$i"
   done
   direct_six=$(_tl_item_gits status --json) || fail "status --json failed under the probe"
-  _tl_item_flow staging
+  _tl_set_flow staging
   staged_six=$(_tl_item_gits status --json) || fail "status --json failed under the probe"
   all_six=$(wc -l < "$JIG_TEST_TMP.forks" | tr -d ' ')
   # Not vacuous: the items are there, with the land row.
@@ -14907,10 +14916,6 @@ test_status_json_pull_request_items_start_no_git_per_task() {
 test_parked_tasks_start_no_process_per_ready_task() {
   fixture_staging_repo
   local i cmd s2 d2 s6 d6
-  _tl_park_flow() {
-    sed "s|^git.flow:.*|git.flow: $1|" .ai/config.yaml > c.tmp
-    mv c.tmp .ai/config.yaml
-  }
   rm -rf .ai/workspace/tasks/*
   mkdir -p .ai/runtime
   # r-3 to r-6 come later; their pull requests are approved, so the parked ones
@@ -14926,7 +14931,7 @@ test_parked_tasks_start_no_process_per_ready_task() {
     fixture_task "r-$i" "task/r-$i" ready "class:T2" "pr_url:https://forge.test/pr/$i"
   done
   for cmd in "task list --all --json" "task list" "status"; do
-    _tl_park_flow staging
+    _tl_set_flow staging
     # shellcheck disable=SC2086 # the command's words
     _tl_forks $cmd >/dev/null || fail "$cmd failed under the probe"
   done
@@ -14934,10 +14939,10 @@ test_parked_tasks_start_no_process_per_ready_task() {
     git branch "task/r-$i" task/behind
   done
   for cmd in "task list --all --json" "task list" "status"; do
-    _tl_park_flow staging
+    _tl_set_flow staging
     # shellcheck disable=SC2086
     s2=$(_tl_forks $cmd) || fail "$cmd failed under the probe"
-    _tl_park_flow direct
+    _tl_set_flow direct
     # shellcheck disable=SC2086
     d2=$(_tl_forks $cmd) || fail "$cmd failed under the probe"
     for i in 3 4 5 6; do
@@ -14946,7 +14951,7 @@ test_parked_tasks_start_no_process_per_ready_task() {
     fixture_task r-7 task/on ready "class:T2" "park_resumed_at:2026-11-12T10:00:00Z"
     # shellcheck disable=SC2086
     d6=$(_tl_forks $cmd) || fail "$cmd failed under the probe"
-    _tl_park_flow staging
+    _tl_set_flow staging
     # shellcheck disable=SC2086
     s6=$(_tl_forks $cmd) || fail "$cmd failed under the probe"
     rm -rf .ai/workspace/tasks/r-3 .ai/workspace/tasks/r-4 .ai/workspace/tasks/r-5 .ai/workspace/tasks/r-6 .ai/workspace/tasks/r-7

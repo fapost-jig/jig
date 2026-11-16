@@ -3964,6 +3964,8 @@ _task_finding_next_id() {
 # line per P0/P1 finding still open or fixed. Empty, not an error, when the
 # task has no ledger file at all — a task with no findings behaves exactly as
 # it did before this feature existed.
+# Asked by _task_ship_gates_v only when the task has a findings file: keep
+# its no-file case in step with that precondition.
 _task_blocking_findings() {
   local file
   file="$(task_dir "$1")/findings"
@@ -4519,6 +4521,8 @@ _task_receipt_gloss() {
 # receipt, or for a T4 task with no receipt at all (design.md §3). Read by
 # task_set's two gates and task_ship's recheck — the same three call sites
 # _task_blocking_findings has, right after it.
+# Asked by _task_ship_gates_v only when the task has a receipt or is T4:
+# keep its no-receipt case in step with that precondition.
 _task_receipt_gate_message() {
   local id="$1" changed class
   if [ -f "$(task_dir "$id")/receipt" ]; then
@@ -5172,6 +5176,8 @@ _task_route_evidence_list() {
 # _task_route_evidence_gate dies with, or nothing: only a task filed under this
 # check is refused, an older one is warned. Read by `task ship`'s guard, which
 # the actions table shares (_task_ship_refusal).
+# Asked by _task_ship_gates_v only when route_evidence is required: keep
+# its no-evidence case in step with that precondition.
 _task_route_evidence_refusal() {
   local id="$1" point="$2" cmd="$3" missing
   [ "$(task_state_get "$id" route_evidence)" = required ] || return 0
@@ -7219,7 +7225,7 @@ _task_actions_v() {
           # The gates are read in this shell and once per task: the `land` row
           # asks the same ones (_task_ship_refusal_v).
           if [ -z "$reason" ]; then
-            _task_ship_refusal_v reason "$id" 0 || reason="jig could not check whether $id may $action now"
+            _task_ship_refusal_v reason "$id" 0 || _task_actions_withheld_v reason "$id" "$action"
           fi
           [ -n "$reason" ] || _task_actions_ask_v reason "$id" "$action" _task_ship_branch_refusal "$id"
         fi ;;
@@ -7275,21 +7281,29 @@ _task_actions_guard() {
 
 # _task_actions_guard_v <var> <id> <action> <guard> [args] — the same answer
 # into <var>: one subshell, the guard's own. For a guard that may fail or die
-# part way (the ship gates read the ledger, the receipt and git).
+# part way (a guard that reads files or git, or runs a program of its own).
 _task_actions_guard_v() {
   local __tag_var="$1" __tag_id="$2" __tag_action="$3" __tag_out
   shift 3
   if __tag_out=$("$@"); then
     printf -v "$__tag_var" '%s' "$__tag_out"
   else
-    printf -v "$__tag_var" 'jig could not check whether %s may %s now' "$__tag_id" "$__tag_action"
+    _task_actions_withheld_v "$__tag_var" "$__tag_id" "$__tag_action"
   fi
+}
+
+# _task_actions_withheld_v <var> <id> <action> — into <var>, the reason that
+# withholds <action> when its guard could not decide. The one place the words
+# are spelled.
+_task_actions_withheld_v() {
+  printf -v "$1" 'jig could not check whether %s may %s now' "$2" "$3"
 }
 
 # _task_actions_ask_v <var> <id> <action> <guard> [args] — the same answer as
 # _task_actions_guard_v, from a guard run in this shell with its output in a
-# file: no process per row. Only for a guard that reads state and never dies
-# — every row but the ship gates. A non-zero exit still withholds the row.
+# file: no process per row. Only for a guard that reads state and never dies —
+# every row but the ship gates, which the `ship` and `land` rows read in this
+# shell through _task_ship_refusal_v. A non-zero exit still withholds the row.
 _TASK_ASK_FILE=""
 _TASK_ASK_LEVEL=""
 _task_actions_ask_v() {
@@ -7305,7 +7319,7 @@ _task_actions_ask_v() {
   fi
   "$@" > "$_TASK_ASK_FILE" || __taa_rc=$?
   if [ "$__taa_rc" -ne 0 ]; then
-    printf -v "$__taa_var" 'jig could not check whether %s may %s now' "$__taa_id" "$__taa_action"
+    _task_actions_withheld_v "$__taa_var" "$__taa_id" "$__taa_action"
     return 0
   fi
   IFS= read -r -d '' __taa_out < "$_TASK_ASK_FILE" || true
@@ -8155,23 +8169,29 @@ _task_ship_refusal_v() {
 
 # _task_ship_gates_v <var> <id> <draft> — the gates themselves, _task_ship_refusal_v's.
 _task_ship_gates_v() {
-  local __tsg_var="$1" id="$2" draft="$3" kc blocking="" msg="" dir class route
-  printf -v "$__tsg_var" '%s' ""
-  if [ "$draft" -eq 0 ]; then
-    task_state_var kc "$id" knowledge_consolidated
-    if [ "$kc" != "true" ]; then
-      printf -v "$__tsg_var" 'task ship: requires knowledge_consolidated true; record the knowledge decision first: jig task set %s knowledge_consolidated true' "$id"
+  local __tsgt_var="$1" __tsgt_id="$2" __tsgt_draft="$3" __tsgt_kc __tsgt_blocking="" __tsgt_msg="" __tsgt_dir __tsgt_class __tsgt_route
+  printf -v "$__tsgt_var" '%s' ""
+  if [ "$__tsgt_draft" -eq 0 ]; then
+    task_state_var __tsgt_kc "$__tsgt_id" knowledge_consolidated
+    if [ "$__tsgt_kc" != "true" ]; then
+      printf -v "$__tsgt_var" 'task ship: requires knowledge_consolidated true; record the knowledge decision first: jig task set %s knowledge_consolidated true' "$__tsgt_id"
       return 0
     fi
-    task_dir_v dir "$id"
+    task_dir_v __tsgt_dir "$__tsgt_id"
+    # Each gate below is asked only when its input exists (the findings file,
+    # a receipt or class T4, route_evidence required): that precondition is
+    # re-encoded here so that a task with none of them starts no subshell in a
+    # listing. It is coupled to the gate's own no-input case, so a change there
+    # (a class refused without a receipt, say) is made here too. Each gate's
+    # comment names this place.
     # Checked again, independently of knowledge_consolidated above (design §4):
     # a fix landed after consolidation can plant a new finding, and ADR-0030's
     # order check alone would not see it.
-    if [ -f "$dir/findings" ]; then
-      blocking=$(_task_blocking_findings "$id") || return 1
-      if [ -n "$blocking" ]; then
-        msg=$(_task_gate_blocking_message "$id" "$blocking") || return 1
-        printf -v "$__tsg_var" 'task ship: %s' "$msg"
+    if [ -f "$__tsgt_dir/findings" ]; then
+      __tsgt_blocking=$(_task_blocking_findings "$__tsgt_id") || return 1
+      if [ -n "$__tsgt_blocking" ]; then
+        __tsgt_msg=$(_task_gate_blocking_message "$__tsgt_id" "$__tsgt_blocking") || return 1
+        printf -v "$__tsgt_var" 'task ship: %s' "$__tsgt_msg"
         return 0
       fi
     fi
@@ -8179,20 +8199,20 @@ _task_ship_gates_v() {
     # reason: a receipt gone stale after knowledge_consolidated was set true —
     # a later code edit, or a re-review nobody ran — must still refuse here.
     # Without a receipt only a T4 task is refused, and that is its class.
-    task_state_var class "$id" class
-    if [ -f "$dir/receipt" ] || [ "$class" = T4 ]; then
-      msg=$(_task_receipt_gate_message "$id") || return 1
-      if [ -n "$msg" ]; then
-        printf -v "$__tsg_var" 'task ship: %s' "$msg"
+    task_state_var __tsgt_class "$__tsgt_id" class
+    if [ -f "$__tsgt_dir/receipt" ] || [ "$__tsgt_class" = T4 ]; then
+      __tsgt_msg=$(_task_receipt_gate_message "$__tsgt_id") || return 1
+      if [ -n "$__tsgt_msg" ]; then
+        printf -v "$__tsgt_var" 'task ship: %s' "$__tsgt_msg"
         return 0
       fi
     fi
     # And the route, for the same reason: the gate's approval goes stale the
     # moment the design changes after it, whenever that happens.
-    task_state_var route "$id" route_evidence
-    if [ "$route" = required ]; then
-      msg=$(_task_route_evidence_refusal "$id" consolidate "task ship") || return 1
-      printf -v "$__tsg_var" '%s' "$msg"
+    task_state_var __tsgt_route "$__tsgt_id" route_evidence
+    if [ "$__tsgt_route" = required ]; then
+      __tsgt_msg=$(_task_route_evidence_refusal "$__tsgt_id" consolidate "task ship") || return 1
+      printf -v "$__tsgt_var" '%s' "$__tsgt_msg"
     fi
   fi
   return 0
