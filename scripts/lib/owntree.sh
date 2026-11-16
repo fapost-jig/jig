@@ -328,6 +328,11 @@ _ot_msg_epics_many() {
   printf '%s: %s declares more than one epic; keep one Epic: line' "$1" "$2"
 }
 
+# _ot_msg_epic_name_rejected <who> <epic> — an open epic whose name git rejects.
+_ot_msg_epic_name_rejected() {
+  printf '%s: git rejects the epic'"'"'s name: %s' "$1" "$2"
+}
+
 # _ot_msg_epic_missing <who> <spec> <epic> — an open epic that has no ref here or on origin.
 # shellcheck disable=SC2016 # the backticks are literal
 _ot_msg_epic_missing() {
@@ -1334,7 +1339,7 @@ ot_spec_drop_refusal() {
     *' open')
       base=${line% open}
       if ! git check-ref-format --branch "$base" >/dev/null 2>&1; then
-        OT_SD_MSG="spec item: git rejects the epic's name: $base"
+        OT_SD_MSG=$(_ot_msg_epic_name_rejected "spec item" "$base")
         return 0
       fi
       jig_base_ref_v ref "$base"
@@ -1348,13 +1353,18 @@ ot_spec_drop_refusal() {
 
   # The branch the write goes on: the record's, else the spec's own.
   branch="spec/$sid"
-  local recorded=0 tip
+  local recorded=0 tip remote_tip
   if ot_record_read "spec:$sid"; then
     branch=$OT_R_BRANCH
     recorded=1
   fi
   tip=$(_ot_sha "refs/heads/$branch")
   if [ -n "$tip" ]; then
+    # As ot_judge reads the tip: origin's when it is ahead of the local branch.
+    remote_tip=$(_ot_sha "refs/remotes/origin/$branch")
+    if [ -n "$remote_tip" ] && _ot_ancestor "$tip" "$remote_tip"; then
+      tip=$remote_tip
+    fi
     holder=$(_ot_holder "$branch")
     if [ -n "$holder" ]; then
       OT_SD_CODE="branch-checked-out"
@@ -1370,15 +1380,18 @@ ot_spec_drop_refusal() {
     # the row does not hold it. (_ot_resolve adds the pull request's word, for a write
     # that is on top; this row does not ask the forge.) A forge that closed it since is
     # not seen, so the row may withhold what the command would take, never the other way
-    # round.
+    # round. A squash merge is read only for a write with no pull request recorded:
+    # ot_judge asks touched_equal after the forge, and a pull request the forge merged
+    # without this tip (a local commit above what was pushed) is spent there, so with one
+    # recorded the row, which asks no forge, would offer what the command refuses.
     if [ "$recorded" = 1 ] && [ -n "$OT_R_BASE" ] && [ "$OT_R_BASE" != "$base" ] \
       && [ "$OT_R_MERGED" != 1 ] && [ -z "$OT_R_ENDED" ]; then
       jig_base_ref_v rec_base_ref "$OT_R_BASE"
       if ! { _ot_ancestor "$tip" "$ref" \
         || { [ -n "$default_ref" ] && _ot_ancestor "$tip" "$default_ref"; } \
         || { [ -n "$rec_base_ref" ] && _ot_ancestor "$tip" "$rec_base_ref"; } \
-        || ot_touched_equal "$tip" "$ref" \
-        || { [ -n "$rec_base_ref" ] && ot_touched_equal "$tip" "$rec_base_ref"; }; }; then
+        || { [ -z "$OT_R_PR" ] && ot_touched_equal "$tip" "$ref"; } \
+        || { [ -z "$OT_R_PR" ] && [ -n "$rec_base_ref" ] && ot_touched_equal "$tip" "$rec_base_ref"; }; }; then
         OT_SD_CODE="write-still-waits"
         OT_SD_MSG=$(_ot_msg_still_waits "spec drop" "$branch" "$OT_R_BASE" "$OT_R_PR" "$base" "spec:$sid")
         return 0

@@ -472,7 +472,7 @@ spec_phase_rows() {
     [ -n "$id" ] || continue
     roadmap="$root/$id/roadmap.md"
     [ -f "$roadmap" ] || continue
-    loc=$(jig_spec_roadmap_ref "$id") || continue
+    jig_spec_roadmap_ref_v loc "$id" || continue
     if [ -n "$loc" ]; then
       IFS=$'\t' read -r ref source <<EOF
 $loc
@@ -557,7 +557,7 @@ _spec_list_json() {
     if [ -f "$dir/roadmap.md" ]; then
       line=$(jig_spec_epic "$dir/roadmap.md" 2>/dev/null) || line=""
       rc=0
-      loc=$(jig_spec_roadmap_ref "$id") || rc=$?
+      jig_spec_roadmap_ref_v loc "$id" || rc=$?
       ref="" src="$dir/roadmap.md" content=""
       if [ "$rc" -eq 0 ] && [ -n "$loc" ]; then
         ref=${loc%%$'\t'*}
@@ -3364,7 +3364,7 @@ _spec_item_base() {
   [ "${line##* }" = open ] || return 0
   branch=${line% *}
   git check-ref-format --branch "$branch" >/dev/null 2>&1 \
-    || jig_die "spec item: git rejects the epic's name: $branch"
+    || jig_die "$(_ot_msg_epic_name_rejected "spec item" "$branch")"
   ot_fetch "$branch"
   [ -n "$(jig_base_ref "$branch")" ] \
     || jig_fail epic-missing "$(_ot_msg_epic_missing "spec item" "$id" "$branch")"
