@@ -649,6 +649,21 @@ test_jig_agent_git_reports_invalid_value_and_fails() {
   assert_eq "yolo" "$OUT"
 }
 
+test_jig_agent_git_v_answers_in_the_callers_shell_and_keeps_the_invalid_value() {
+  fixture_repo
+  mkdir -p .ai
+
+  run bash -c '
+    JIG_LIB="$JIG_HOME/scripts/lib"; . "$JIG_LIB/common.sh"; . "$JIG_LIB/config.sh"
+    jig_require_repo
+    rc=0; jig_agent_git_v v || rc=$?; printf "%s:%s " "$v" "$rc"
+    printf "agent.git: yolo\n" > .ai/config.local.yaml
+    rc=0; jig_agent_git_v v || rc=$?; printf "%s:%s" "$v" "$rc"
+  '
+  assert_eq 0 "$RC"
+  assert_eq "none:0 yolo:1" "$OUT"
+}
+
 test_jig_ci_timeout_default_leading_zeros_and_failure() {
   fixture_repo
   mkdir -p .ai

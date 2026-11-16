@@ -4670,7 +4670,7 @@ test_spec_list_json_with_no_specs_is_an_empty_list() {
 
 # Off an open epic the copy here is stale by design (ADR-0040): the text form
 # says `progress is on the epic`, and the data is read from the epic's ref, as
-# the status page reads it (spec_roadmap_ref), with that ref named.
+# the status page reads it (jig_spec_roadmap_ref), with that ref named.
 test_spec_list_json_reads_an_open_epic_from_its_ref() {
   fixture_repo
   _sl_spec idea-x 'Idea X' <<'ROADMAP'

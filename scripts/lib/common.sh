@@ -1082,12 +1082,22 @@ jig_task_state_var() {
 # base can be behind it (a teammate who never fetched the branch) or ahead of
 # it (commits nobody pushed), and a bare name lets git pick the local one.
 jig_base_ref() {
-  local name="${1:-}"
-  [ -n "$name" ] || return 0
-  if git -C "$JIG_PROJECT" rev-parse --verify --quiet "refs/remotes/origin/$name^{commit}" >/dev/null 2>&1; then
-    printf '%s\n' "refs/remotes/origin/$name"
-  elif git -C "$JIG_PROJECT" rev-parse --verify --quiet "refs/heads/$name^{commit}" >/dev/null 2>&1; then
-    printf '%s\n' "refs/heads/$name"
+  local __jbr_out
+  jig_base_ref_v __jbr_out "${1:-}"
+  [ -z "$__jbr_out" ] || printf '%s\n' "$__jbr_out"
+  return 0
+}
+
+# jig_base_ref_v <var> <name> — jig_base_ref into <var>, in the caller's shell: the one
+# lookup, minus the subshell a `$(...)` would start for each call of a listing's row.
+jig_base_ref_v() {
+  local __jbr_name="${2:-}"
+  printf -v "$1" '%s' ""
+  [ -n "$__jbr_name" ] || return 0
+  if git -C "$JIG_PROJECT" rev-parse --verify --quiet "refs/remotes/origin/$__jbr_name^{commit}" >/dev/null 2>&1; then
+    printf -v "$1" '%s' "refs/remotes/origin/$__jbr_name"
+  elif git -C "$JIG_PROJECT" rev-parse --verify --quiet "refs/heads/$__jbr_name^{commit}" >/dev/null 2>&1; then
+    printf -v "$1" '%s' "refs/heads/$__jbr_name"
   fi
   return 0
 }
@@ -4660,15 +4670,49 @@ jig_spec_link_v() {
   printf -v "$1" '%s' "$__jsl_found"
 }
 
-# _spec_drop_rewrite <roadmap> <task-id> <suffix> <tmp> — write <roadmap> to
+# jig_spec_roadmap_ref <spec-id> [<current-branch>] — where the current roadmap of a spec
+# is read. Nothing when this checkout's copy is current: no epic, a finished one, or the
+# epic is checked out here. "<ref>\t<source>" when an open epic elsewhere holds
+# it — progress is made there (ADR-0040) — read with no fetch; <source> names
+# the branch and whether the ref is the remote's as of the last fetch. Exit 1
+# when that epic has no ref here at all, 2 when git rejects its name — no
+# fetch can bring that one. The one place the status page (spec_phase_rows), `spec plan`
+# and housekeeping (_hk_roadmap_open_read) decide it, so they cannot disagree. The
+# checkout's branch comes as the second argument (empty for a detached head) from a
+# caller that asks for many specs; without it, it is read here.
+jig_spec_roadmap_ref() {
+  local roadmap line branch here ref
+  roadmap="$JIG_PROJECT/$JIG_AI_DIR/specs/$1/roadmap.md"
+  line=$(jig_spec_epic "$roadmap" 2>/dev/null) || line=""
+  [ -n "$line" ] || return 0
+  [ "${line##* }" != finished ] || return 0
+  branch=${line% *}
+  if [ "$#" -ge 2 ]; then
+    here=$2
+  else
+    here=$(git -C "$JIG_PROJECT" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+  fi
+  [ "$branch" != "$here" ] || return 0
+  git check-ref-format --branch "$branch" >/dev/null 2>&1 || return 2
+  ref=$(jig_base_ref "$branch")
+  [ -n "$ref" ] || return 1
+  case "$ref" in
+    refs/remotes/*) printf '%s\t%s as of the last fetch\n' "$ref" "$branch" ;;
+    *) printf '%s\t%s\n' "$ref" "$branch" ;;
+  esac
+}
+
+# jig_spec_drop_rewrite <roadmap> <task-id> <suffix> <tmp> — write <roadmap> to
 # <tmp> with every unchecked item that names the task checked and <suffix>
 # after its last line, and print the rewritten lines. Exit 3: no item names
 # the task. Exit 4: every item that does is checked already. The id is
 # compared as a string, not a pattern: `.` is legal in an id. A matched item
 # is held until the line after its last continuation line, so the suffix ends
 # the item rather than its first line. Values reach awk through the
-# environment: a `-v` value has its escapes expanded.
-_spec_drop_rewrite() {
+# environment: a `-v` value has its escapes expanded. Here, not in spec.sh, because the
+# actions table (task.sh) asks it, through ot_spec_drop_refusal, whether an item is
+# there to close: one grammar.
+jig_spec_drop_rewrite() {
   local roadmap="$1" tid="$2" suffix="$3" tmp="$4"
   JIG_SD_ID="$tid" JIG_SD_SUFFIX="$suffix" awk -v tmp="$tmp" '
     function flush() {
@@ -4706,8 +4750,6 @@ _spec_drop_rewrite() {
     }
   ' "$roadmap"
 }
-# Here, not in spec.sh, because the actions table (task.sh) asks it, through
-# ot_spec_drop_refusal, whether an item is there to close: one grammar.
 
 # jig_roadmap_open_ids <roadmap.md|-> — task ids named by the unchecked items
 # of a roadmap (`-` reads it from stdin), one per line, each once. An item is

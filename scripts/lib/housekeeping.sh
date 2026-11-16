@@ -1921,12 +1921,12 @@ EOF
 # _hk_roadmap_open_read — every unchecked roadmap item of every spec in this
 # checkout into _HK_ROADMAP_OPEN, once per run, as "<spec><TAB><id>" lines. A
 # spec with an open epic that is not checked out here is read from the epic's
-# ref as well, as `spec plan` reads it (spec_roadmap_ref): its items are filed
+# ref as well, as `spec plan` reads it (jig_spec_roadmap_ref): its items are filed
 # and checked there. An open epic with no ref here puts the spec in
 # _HK_ROADMAP_UNSEEN — its current roadmap cannot be read, so a task linked to
 # it stays.
 _hk_roadmap_open_read() {
-  local f spec id line branch here ref
+  local f spec id loc ref here rc
   [ "$_HK_ROADMAP_READ" = 1 ] && return 0
   _HK_ROADMAP_READ=1
   _HK_ROADMAP_OPEN=""
@@ -1942,15 +1942,14 @@ _hk_roadmap_open_read() {
     done <<EOF
 $(jig_roadmap_open_ids "$f")
 EOF
-    line=$(jig_spec_epic "$f" 2>/dev/null) || line=""
-    [ -n "$line" ] && [ "${line##* }" = open ] || continue
-    branch=${line% *}
-    [ "$branch" != "$here" ] || continue
-    ref=$(jig_base_ref "$branch")
-    if [ -z "$ref" ]; then
+    rc=0
+    loc=$(jig_spec_roadmap_ref "$spec" "$here") || rc=$?
+    if [ "$rc" -ne 0 ]; then
       _HK_ROADMAP_UNSEEN="$_HK_ROADMAP_UNSEEN$spec "
       continue
     fi
+    [ -n "$loc" ] || continue
+    ref=${loc%%$'\t'*}
     while IFS= read -r id; do
       [ -n "$id" ] || continue
       _HK_ROADMAP_OPEN="${_HK_ROADMAP_OPEN}${spec}"$'\t'"${id}"$'\n'

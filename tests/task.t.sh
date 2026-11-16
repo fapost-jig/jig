@@ -17253,7 +17253,7 @@ test_task_abandon_json_takes_the_task_out_of_the_queue_on_stderr() {
   _tw_json abandon T-1
   assert_eq 0 "$RC" "$ERR"
   _tw_one_line
-  assert_contains "$ERR" "task set: task:T-1 left the queue"
+  assert_contains "$ERR" "task abandon: task:T-1 left the queue"
 }
 
 test_task_abandon_json_refusals_carry_their_codes_and_write_nothing() {
@@ -17292,10 +17292,10 @@ test_task_abandon_json_refusals_carry_their_codes_and_write_nothing() {
   assert_eq wrong-status "$(_tr_code)" "$OUT"
   assert_contains "$OUT" "task T-3 is archived; run jig task unarchive T-3 first"
   assert_file_contains .ai/workspace/tasks/T-3/state "status: archived"
-  # The text forms say it as `task set` always did.
+  # The text forms say it with the command's own name in front.
   run jig task abandon T-3
   assert_eq 1 "$RC"
-  assert_contains "$OUT" "is archived; run jig task unarchive T-3 first"
+  assert_contains "$OUT" "task abandon: task T-3 is archived; run jig task unarchive T-3 first"
   run jig task set T-3 status abandoned
   assert_eq 1 "$RC"
   assert_contains "$OUT" "task set: task T-3 is archived; run jig task unarchive T-3 first"
@@ -17502,6 +17502,48 @@ test_task_drop_item_is_offered_for_an_abandoned_task_with_an_open_item() {
   assert_eq '{"id":"drop-item","command":"jig spec drop T-1 --json","offered":true,"reason":null}' "$(_tw_drop_item)"
 }
 
+# _tw_abandoned_with_items <n> <from> — tasks D-<from>.. abandoned, each with an open item
+# of spec alpha, so that the drop-item row reads the whole of what it asks.
+# shellcheck disable=SC2016 # the roadmap's backticks are literal
+_tw_abandoned_with_items() {
+  local n="$1" i="$2" last=$(($1 + $2 - 1))
+  while [ "$i" -le "$last" ]; do
+    jig task new "D-$i" >/dev/null
+    printf '%s\n' "- [ ] \`D-$i\` — thing $i" >> .ai/specs/alpha/roadmap.md
+    printf 'Spec: .ai/specs/alpha/ — Phase 1\n' >> ".ai/workspace/tasks/D-$i/task.md"
+    i=$((i + 1))
+  done
+  git add -A
+  git commit -q -m "items"
+  i=$2
+  while [ "$i" -le "$last" ]; do
+    jig task abandon "D-$i" --reason "superseded" --json >/dev/null 2>&1
+    i=$((i + 1))
+  done
+}
+
+# The drop-item row is asked of every abandoned task that names a spec: what it reads of
+# the config and the refs starts no process of its own for the answer.
+test_task_list_json_asks_the_drop_item_row_without_a_process_per_task() {
+  task_setup_clean
+  ship_cfg_local agent.git commit
+  mkdir -p .ai/specs/alpha
+  : > .ai/specs/alpha/roadmap.md
+  _tw_abandoned_with_items 6 1
+  local linked plain i per
+  _tl_forks task list --all --json >/dev/null || fail "task list --json failed under the probe"
+  linked=$(_tl_forks task list --all --json) || fail "task list --json failed under the probe"
+  for i in 1 2 3 4 5 6; do
+    printf '# D-%s\n' "$i" > ".ai/workspace/tasks/D-$i/task.md"
+  done
+  plain=$(_tl_forks task list --all --json) || fail "task list --json failed under the probe"
+  # What the row costs a task is its own reads of the roadmap and the branch; the
+  # config, the agent level and the default branch's ref are read in this shell
+  # (cfg_v, jig_agent_git_v, jig_base_ref_v), which took three processes off each.
+  per=$(((linked - plain) / 6))
+  [ "$per" -le 22 ] || fail "the drop-item row starts $per processes per task (6 linked: $linked, unlinked: $plain)"
+}
+
 # An archived task that was abandoned keeps its item closable: housekeeping archives
 # abandoned tasks, and the command takes them.
 test_task_drop_item_is_offered_for_a_task_archived_from_abandoned() {
@@ -17600,6 +17642,34 @@ test_task_drop_item_withholds_while_a_write_waits_for_another_base() {
   local reason
   reason=$(printf '%s' "$row" | sed -n 's/.*"reason":"\(.*\)"}$/\1/p')
   assert_contains "$OUT" "$reason"
+}
+
+# An epic name git rejects is said so, as `spec item` says it, and is not shown as a
+# missing epic that `jig spec epic` could cut.
+# shellcheck disable=SC2016 # the roadmap's backticks are literal
+test_task_drop_item_names_an_epic_git_rejects() {
+  _tw_dropable
+  printf 'Epic: bad..name\n\n%s\n' '- [ ] `T-1` — the thing' > .ai/specs/alpha/roadmap.md
+  git add -A
+  git commit -q -m "a bad epic"
+  assert_contains "$(_tw_drop_item)" '"offered":false,"reason":"spec item: git rejects the epic'"'"'s name: bad..name"'
+}
+
+# The same write, landed in the default branch (its pull request merged, and the record
+# does not know): ot_judge calls it landed, so the row does not hold it either, and
+# does not tell a person to merge what is merged.
+# shellcheck disable=SC2016 # the roadmap's backticks are literal
+test_task_drop_item_does_not_withhold_a_write_that_landed_in_its_base() {
+  _tw_dropable "$(printf '## Phase 1\n\n- [ ] `T-1` — the thing')"
+  jig spec item add alpha --phase 1 --text "another" --json >/dev/null 2>&1 \
+    || fail "spec item add failed"
+  printf 'Epic: epic/alpha\n\n## Phase 1\n\n%s\n' '- [ ] `T-1` — the thing' > .ai/specs/alpha/roadmap.md
+  git commit -q -am "an epic"
+  git branch epic/alpha
+  assert_contains "$(_tw_drop_item)" '"reason":"spec drop: spec/alpha still waits to go into main'
+  # The write reaches main: its tip is in main, not in the epic.
+  git merge -q -s ours spec/alpha -m "merged the write"
+  assert_eq '{"id":"drop-item","command":"jig spec drop T-1 --json","offered":true,"reason":null}' "$(_tw_drop_item)"
 }
 
 # An open epic is where the write goes: its copy of the roadmap is the one asked.
