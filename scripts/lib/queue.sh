@@ -1101,7 +1101,7 @@ _queue_next_task_fact() {
 }
 
 # _queue_next_dep_state <on-ref> <merged ids> <open ids> — what a dependency's
-# target stands at: finished, waiting, open, broken or unknown.
+# target stands at: finished, waiting, open, not_started, broken or unknown.
 #
 # A task is finished when it is consolidated or housekeeping saw it merged;
 # broken when it was abandoned or archived or its workspace is gone (the dependency can
@@ -1130,6 +1130,12 @@ _queue_next_dep_state() {
       # person, not the pull request (adr-20261114-a-waiting-run-holds-no-slot).
       [ "$(_jig_task_state_value "$id" autopilot)" != stopped ] || { printf 'waiting'; return 0; }
       case "$open_ids" in *" $id "*) printf 'open'; return 0 ;; esac
+      # Never started (neither branch nor base commit recorded, as `task new` leaves it): there is no work
+      # for housekeeping to judge, so it is not "unknown"; it is waiting to be
+      # taken up.
+      if [ -z "$(_jig_task_state_value "$id" branch)" ] && [ -z "$(_jig_task_state_value "$id" base_commit)" ]; then
+        printf 'not_started'; return 0
+      fi
       printf 'unknown' ;;
     epic:*)
       roadmap="$JIG_PROJECT/$JIG_AI_DIR/specs/$id/roadmap.md"
@@ -1293,7 +1299,10 @@ _queue_next_json() {
         waiting="$waiting${waiting:+,}"
         json_quote "$f2"; waiting="$waiting{\"ref\":$_JSON"
         json_quote "$f3"; waiting="$waiting,\"on\":$_JSON"
-        json_quote "$f4"; waiting="$waiting,\"state\":$_JSON"
+        # `not_started` is the text's finer word for `unknown`; the pinned
+        # JSON contract keeps the one value (jig-ui reads it).
+        if [ "$f4" = not_started ]; then json_quote unknown; else json_quote "$f4"; fi
+        waiting="$waiting,\"state\":$_JSON"
         json_quote "$f5"; waiting="$waiting,\"reason\":$_JSON}" ;;
       taken)
         # `-` stands for a key the record does not hold (jig_checkout_taken).
@@ -1365,6 +1374,7 @@ _queue_next_text() {
         case "$f4" in
           broken) printf '  %s waits for %s: broken — jig queue undepend %s --on %s\n' "$f2" "$f3" "$f2" "$f3" ;;
           waiting) printf '  %s waits for %s: its autopilot run is stopped, waiting for an answer or a free slot — jig status\n' "$f2" "$f3" ;;
+          not_started) printf '  %s waits for %s: not started — jig task start %s\n' "$f2" "$f3" "${f3#task:}" ;;
           unknown)
             case "$f3" in
               task:*) printf '  %s waits for %s: unknown — jig housekeeping\n' "$f2" "$f3" ;;

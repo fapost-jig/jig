@@ -260,7 +260,7 @@ already knows, over the network never, and changes nothing:
 
 ```text
 next: task:booking-form — 1 of 3 on the top level, priority 1, not started
-  task:booking-message waits for task:booking-form: unknown — jig housekeeping
+  task:booking-message waits for task:booking-form: not started — jig task start booking-form
 in progress: task:booking-export (P2)
 resume first: task:booking-import (P1, answered 5 min ago)
 not queued: 1 task — jig queue set <id> --priority <p>

@@ -1006,6 +1006,23 @@ test_queue_next_reads_a_task_dependency_by_what_is_known_of_it() {
     'slots: 2 of 2 free (0 building)')" "$NEXT"
 }
 
+# A dependency nobody has started has no work for housekeeping to judge: the
+# advice says so and names the start, not `jig housekeeping`.
+test_queue_next_names_start_for_a_dependency_not_started() {
+  fixture_jig_repo
+  _qn_task w new
+  _qn_task d new
+  grep -v '^base_commit:' .ai/workspace/tasks/d/state > .ai/workspace/tasks/d/state.tmp
+  mv .ai/workspace/tasks/d/state.tmp .ai/workspace/tasks/d/state
+  jig queue set w --priority 1 >/dev/null
+  jig queue depend w --on d --reason r >/dev/null
+  _qn_next
+  assert_contains "$NEXT" "task:w waits for task:d: not started — jig task start d"
+  assert_not_contains "$NEXT" "jig housekeeping"
+  _q_json next
+  assert_contains "$OUT" '{"ref":"task:w","on":"task:d","state":"unknown","reason":"r"}'
+}
+
 # Only the newest housekeeping run counts: an older `merged` is not a merge.
 test_queue_next_reads_only_the_last_housekeeping_run() {
   fixture_jig_repo
