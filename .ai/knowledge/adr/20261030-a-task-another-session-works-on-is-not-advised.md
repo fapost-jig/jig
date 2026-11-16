@@ -11,7 +11,7 @@ paths:
   - scripts/lib/queue.sh
   - schemas/json.md
 summary: Why a session that works a task records it per clone under runtime/taken, and why jig queue next names such a task as taken instead of advising it.
-reviewed_at: 2026-11-12
+reviewed_at: 2026-11-16
 ---
 # A task another session works on is not advised: the session that works a task records it for the clone, and `jig queue next` names it as taken
 
@@ -98,3 +98,7 @@ What jig already recorded could not answer the question:
 - `checkout.sh` now holds two records; the per-checkout one keeps its own subject and rules.
 - A `jig queue` write carrying a revision read before another session took a task is refused as
   `stale-revision`: the clone did change, and the writer reads again.
+- *Amended 2026-11-16.* A taken record marked `ended:` is not live: the runtime's end-of-session
+  hook marks a finished session's records and `jig_checkout_taken` skips them, so "live" is
+  younger than `checkout.busy_ttl` and not marked ended
+  (adr-20260924-a-checkout-records-what-is-happening-in-it, amendment of the same date).

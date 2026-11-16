@@ -165,6 +165,13 @@ adapter_claude_install_session_hook() {
           { "type": "command", "command": ".ai/scripts/jig-session-hook" }
         ]
       }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          { "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/.ai/scripts/jig-session-end-hook" }
+        ]
+      }
     ]
   }
 }

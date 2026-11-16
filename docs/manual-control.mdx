@@ -300,8 +300,11 @@ as before, and reading, filing or ordering a task does not take it: that covers 
 documents, and writing the `task` document of a task that has no branch yet, which is how a task's
 goal is filed. Any other document before `jig task start`, and the `task` document of a task already
 started, still take it. A note lapses after
-`checkout.busy_ttl` (12 hours unless you set it); to take over the task of a session that is gone,
-just work on it — the newest note holds the task. This needs a runtime that names its sessions
+`checkout.busy_ttl` (12 hours unless you set it), or at once when the runtime says the session ended:
+in Claude Code, the `SessionEnd` hook calling `bash "$CLAUDE_PROJECT_DIR"/.ai/scripts/jig-session-end-hook` (a new
+`.claude/settings.json` made by `jig init` has it; add it by hand to an existing one) marks that
+session's notes ended, and the readers skip them. To take over the task of a session that is gone
+without it, just work on it — the newest note holds the task. This needs a runtime that names its sessions
 (Claude Code does); a session without a name leaves no note and treats every note as another's.
 
 `jig status` shows each queued task's place on its task line — `queue=2/5` is second of five on its
