@@ -1208,8 +1208,11 @@ test_status_session_hook_not_installed() {
 test_status_session_hook_installed() {
   fixture_jig_repo
   mkdir -p .claude
-  printf '{ "hooks": { "SessionStart": [ { "hooks": [ { "type": "command", "command": ".ai/scripts/jig-session-hook" } ] } ] } }\n' \
-    > .claude/settings.json
+  # shellcheck disable=SC2016  # $CLAUDE_PROJECT_DIR is literal settings.json text
+  printf '%s\n' '{ "hooks": {' \
+    '  "SessionStart": [ { "hooks": [ { "type": "command", "command": ".ai/scripts/jig-session-hook" } ] } ],' \
+    '  "SessionEnd": [ { "hooks": [ { "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/.ai/scripts/jig-session-end-hook" } ] } ]' \
+    '} }' > .claude/settings.json
 
   run jig status
   assert_eq 0 "$RC"
@@ -3009,8 +3012,11 @@ test_status_a_terminal_says_nothing_needs_you_when_nothing_does() {
   local v
   v=$(_status_project_version)
   mkdir -p .claude
-  printf '{ "hooks": { "SessionStart": [ { "hooks": [ { "type": "command", "command": ".ai/scripts/jig-session-hook" } ] } ] } }\n' \
-    > .claude/settings.json
+  # shellcheck disable=SC2016  # $CLAUDE_PROJECT_DIR is literal settings.json text
+  printf '%s\n' '{ "hooks": {' \
+    '  "SessionStart": [ { "hooks": [ { "type": "command", "command": ".ai/scripts/jig-session-hook" } ] } ],' \
+    '  "SessionEnd": [ { "hooks": [ { "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/.ai/scripts/jig-session-end-hook" } ] } ]' \
+    '} }' > .claude/settings.json
   run env PATH="$(_status_path_without_jig)" LC_ALL=C JIG_TERMINAL=1 NO_COLOR=1 "$JIG_BIN" status
   assert_eq 0 "$RC"
   assert_eq "$(_status_heading "jig $v | $(basename "$(pwd -P)") | copy mode" "nothing needs you")" \
