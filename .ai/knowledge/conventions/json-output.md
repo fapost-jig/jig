@@ -22,7 +22,7 @@ paths:
   - scripts/lib/reviewers.sh
   - scripts/lib/prdo.sh
 summary: "What a command offering --json may, must and must not do: one envelope through json_run, values from existing producers, no network, schema raised only on an incompatible change."
-reviewed_at: 2026-11-14
+reviewed_at: 2026-11-16
 ---
 # A command's `--json` output
 
@@ -62,7 +62,11 @@ MUST NOT: touch the network on the read path (no gh, no fetch, no ls-remote) —
           to stdout outside the producer; rename or remove a field, or change its type,
           without raising schema; write anything but what the dispatcher already records;
           change jig_die to print JSON; read the revision itself — json_run takes it,
-          before the producer runs
+          before the producer runs; give an object a nullable field where the same read
+          already prints an object of that name with the field always a string — a
+          consumer reads the name, not the record kind it sits on (Jig UI 0.7.0 refused
+          every `jig status --json` over an attention item's `pull_request.state: null`):
+          print the whole object as null instead, or raise schema
 
 A refusal a program could act on (scripts/lib/common.sh, jig_fail)
 

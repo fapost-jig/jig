@@ -409,8 +409,10 @@ what the forge cache says and what a person can do, so a card needs no second re
 ```
 
 `pull_request.ci` is `green`, `red`, `pending`, `none` or `null`, and `mergeable` is `mergeable`,
-`conflicting` or `null`, and `review` is the review object or `null`; `state` and `fetched_at` are
-`null` when housekeeping has no entry for the task's branch. A task parked at the staging branch whose
+`conflicting` or `null`, and `review` is the review object or `null`; `fetched_at` is `null` when the
+cache does not say when. `pull_request` itself is `null` while housekeeping has no entry for the task's
+branch — right after `jig task ship`, until the next run — so `state` is always a string where the
+object is printed; `url` and `actions` are there either way. A task parked at the staging branch whose
 pull request is not approved yet gets this item too, titled by its review: "A pull request is waiting
 for review" (`detail` names who, when the cache does) or "Changes were requested on a pull request". `actions` holds the same objects `jig task list --json` prints for the task, only the
 ones that fit: `merge` and `pr-status`, or `land` and `pr-status` for a task parked at the staging

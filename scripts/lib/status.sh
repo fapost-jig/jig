@@ -2935,15 +2935,25 @@ X
         [ "$xurl" != - ] || xurl=""
         [ "$xci" != - ] || xci=""
         [ "$xmg" != - ] || xmg=""
-        json_quote "$xb"; o="$o,\"pull_request\":{\"branch\":$_JSON"
-        json_quote "$xbase"; o="$o,\"base\":$_JSON"
-        json_str_or_null "$xst"; o="$o,\"state\":$_JSON"
-        json_str_or_null "$xat"; o="$o,\"fetched_at\":$_JSON"
-        json_str_or_null "$xurl"; o="$o,\"url\":$_JSON"
-        json_str_or_null "$xci"; o="$o,\"ci\":$_JSON"
-        json_str_or_null "$xmg"; o="$o,\"mergeable\":$_JSON"
-        _task_review_json_v xrj "$xrv" "$xwf"
-        o="$o,\"review\":$xrj}"
+        # No state means the forge cache has no entry for it yet (a pull
+        # request shipped after the last housekeeping run): the object is
+        # null then, never one whose `state` is null. An attention item's
+        # `pull_request` has always had `state` as a string (the upgrade
+        # kinds came first), and a consumer that reads it as one, whatever
+        # the kind (Jig UI 0.7.0), would refuse the whole read.
+        if [ -z "$xst" ]; then
+          o="$o,\"pull_request\":null"
+        else
+          json_quote "$xb"; o="$o,\"pull_request\":{\"branch\":$_JSON"
+          json_quote "$xbase"; o="$o,\"base\":$_JSON"
+          json_quote "$xst"; o="$o,\"state\":$_JSON"
+          json_str_or_null "$xat"; o="$o,\"fetched_at\":$_JSON"
+          json_str_or_null "$xurl"; o="$o,\"url\":$_JSON"
+          json_str_or_null "$xci"; o="$o,\"ci\":$_JSON"
+          json_str_or_null "$xmg"; o="$o,\"mergeable\":$_JSON"
+          _task_review_json_v xrj "$xrv" "$xwf"
+          o="$o,\"review\":$xrj}"
+        fi
         _task_actions_v xrows "$sid" "$xst" "$xci" "$xmg"
         xl=""
         while IFS="$xt" read -r xa xo xc xr; do
