@@ -280,6 +280,11 @@ findings, the review, the route — have passed.
   edited, and `git ls-files --others --exclude-standard` for new files nobody has added yet — at
   these gates the change is often not committed. Prefer what the diff shows to what a task's notes
   claim: an agent can write any note.
+- **It has a time limit.** Each hook may run for `hooks.timeout` (`5m` unless your project sets
+  another; `0` means no limit). A hook still running at the limit is stopped with everything it
+  started, and the gate is refused with "did not finish in <limit>" and what the hook printed so far.
+  The limit is the hook's, not the task's code: fix the hook or raise `hooks.timeout` in
+  `.ai/config.yaml`.
 - **It only checks.** A hook that changes anything Git can see in the task's folder — a formatter
   rewriting a file, a log left behind — stops the gate, so that nothing reaches a commit unreviewed.
 - **It is run by its path when it is executable**, so its first line chooses the language, and as
@@ -313,8 +318,8 @@ jig task waive <id> consolidate .ai/hooks/docs-site-check.sh --reason "internal 
 
 A hook guards the way a task is finished with Jig, not the repository: CI does not run it, and it
 reads the script from the task's own tree, so a change to the script is part of what review reads.
-A script that never ends holds the task: keep hooks quick, and away from the network and from
-anything that asks a question.
+A script that never ends is stopped at `hooks.timeout` and refuses the gate: keep hooks quick, and
+away from the network and from anything that asks a question.
 
 ## Several agents at once
 

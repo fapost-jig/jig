@@ -5279,10 +5279,17 @@ _task_gate_hook_tree_v() {
 # when neither ref exists). Its stdin is empty and both of its outputs are
 # captured together; what Jig shows goes to stderr, since agents read the
 # stdout of `task set --json` and `task ship`. It runs on this machine, never
-# through `run.exec`, as `worktree.setup` does. No time limit: a hung hook
-# holds the gate (the spec's open question).
+# through `run.exec`, as `worktree.setup` does.
+#
+# Each hook is bounded by `hooks.timeout`, read once per gate: one that is
+# still running at the limit is stopped with its whole process tree
+# (jig_run_bounded) and refuses like a failing exit, so a hook that never ends
+# cannot hold the gate. The limit is per hook, so a slow one does not spend the
+# next one's time and the refusal names the one that hung
+# (adr-20261113-a-project-script-can-refuse-a-completion-gate, amendment).
 _task_gate_hooks() {
   local id="$1" gate="$2" cmd="$3" paths path tree problem out rc dir base ref refused="" nl=$'\n' before after reason
+  local limit secs out_file timed_out=0
   paths=$(_task_gate_hook_paths "$gate")
   [ -n "$paths" ] || return 0
   _task_gate_hook_tree_v tree "$id"
@@ -5291,6 +5298,14 @@ _task_gate_hooks() {
   base=$(jig_task_base "$id")
   ref=$(jig_base_ref "$base")
   [ -z "$ref" ] || base=$ref
+  limit=$(cfg hooks.timeout 5m)
+  if ! secs=$(jig_duration_seconds "$limit" 2>/dev/null); then
+    jig_warn "$cmd: hooks.timeout $limit is not a duration; using 5m"
+    limit=5m
+    secs=300
+  fi
+  out_file=$(mktemp "${TMPDIR:-/tmp}/jig-hook.XXXXXX") || jig_die "$cmd: cannot make a temporary file for a hook's output"
+  jig_cleanup_add "$out_file"
   before=$(_task_gate_hook_tree_print "$tree")
   while IFS= read -r path; do
     [ -n "$path" ] || continue
@@ -5307,19 +5322,20 @@ _task_gate_hooks() {
       fi
       continue
     fi
-    rc=0
-    # The redirections stay inside the substitution: on a bare assignment
-    # bash reports 0 whatever the substitution exited with.
-    out=$(
-      exec </dev/null 2>&1
-      cd "$tree" || exit 1
-      export JIG_TASK_ID="$id" JIG_TASK_DIR="$dir" JIG_GATE="$gate" JIG_BASE="$base"
-      if [ -x "$path" ]; then
-        exec "./$path"
+    jig_run_bounded rc "$secs" _task_gate_hook_run "$tree" "$path" "$id" "$dir" "$gate" "$base" \
+      </dev/null >"$out_file" 2>&1
+    out=$(cat "$out_file")
+    if [ "$rc" = timeout ]; then
+      reason=$(_task_waiver_reason "$id" "$gate" "$path")
+      if [ -n "$reason" ]; then
+        jig_warn "$cmd: hook $path (hooks.$gate) did not finish in $limit and was stopped, waived for $id: $reason${out:+:$nl$out}"
       else
-        exec bash "./$path"
+        timed_out=1
+        refused="$refused$nl- hook $path did not finish in $limit and was stopped"
+        [ -z "$out" ] || refused="$refused:$nl$out"
       fi
-    ) || rc=$?
+      continue
+    fi
     if [ "$rc" -ne 0 ]; then
       # A waived hook has still run, so its output stays in the trace and
       # shows whether it still refuses; only its verdict is set aside.
@@ -5336,6 +5352,10 @@ _task_gate_hooks() {
   done <<EOF
 $paths
 EOF
+  if [ -n "$refused" ] && [ "$timed_out" = 1 ]; then
+    refused="$refused
+a hook that did not finish ran into hooks.timeout ($limit), which is the hook's limit and not the task's code: fix the hook, or raise hooks.timeout in .ai/config.yaml"
+  fi
   [ -z "$refused" ] || jig_die "$cmd: the project's hooks.$gate refused $id:$refused
 a person can waive one for this task, with a reason: jig task waive $id $gate <path> --reason <text>"
   # A hook checks; it never writes. A waiver never covers this check: it
@@ -5345,6 +5365,20 @@ a person can waive one for this task, with a reason: jig task waive $id $gate <p
   after=$(_task_gate_hook_tree_print "$tree")
   [ "$before" = "$after" ] \
     || jig_die "$cmd: the project's hooks.$gate changed files git can see in $tree; a hook only checks: undo its change or keep it as the task's own (and have it reviewed), then retry"
+}
+
+# _task_gate_hook_run <tree> <path> <id> <dir> <gate> <base> — the body of one
+# hook's background job (jig_run_bounded): in the task's tree, told what the
+# hook is told, exec'd so the hook itself leads the process group the limit
+# stops. Runs in its own subshell, so its cd and exports touch nothing of Jig's.
+_task_gate_hook_run() {
+  cd "$1" || exit 1
+  export JIG_TASK_ID="$3" JIG_TASK_DIR="$4" JIG_GATE="$5" JIG_BASE="$6"
+  if [ -x "$2" ]; then
+    exec "./$2"
+  else
+    exec bash "./$2"
+  fi
 }
 
 # _task_gate_hook_tree_print <tree> — one hash of what git sees in <tree>:

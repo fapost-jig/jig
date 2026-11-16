@@ -11,6 +11,7 @@ paths:
   - scripts/lib/status.sh
   - skills/jig-autopilot/SKILL.md
 summary: Why a gate hook's refusal is waived per task by gate and hook path with a reason, why a waived hook still runs and the hook-wrote-files check is never waived, where a waiver is shown (jig status, status page, JSON, commit and pull request body), and why autopilot never waives.
+reviewed_at: 2026-11-16
 ---
 # A person waives a gate hook's refusal for one task, with a reason
 
@@ -82,3 +83,8 @@ is still the spec's open question; staleness can be added later without changing
 - A hung hook still holds its gate; a waiver does not help with it.
 - This amends adr-20261113-a-project-script-can-refuse-a-completion-gate, whose consequence "a
   refusal has no way around it yet" no longer holds.
+
+> **Amendment (2026-11-16).** The consequence "A hung hook still holds its gate; a waiver does not
+> help with it" no longer holds: a hook past `hooks.timeout` is stopped and refuses the gate, and a
+> waiver sets that refusal aside like any other
+> (adr-20261113-a-project-script-can-refuse-a-completion-gate, amendment).

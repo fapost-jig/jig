@@ -268,6 +268,7 @@ task.issue_pattern||text||A regular expression for the tracker issue at the star
 hooks.ready|[]|list||The project's scripts run when a task is marked ready; a non-zero exit refuses it.
 hooks.consolidate|[]|list||The project's scripts run when a task's knowledge decision is recorded; a non-zero exit refuses it.
 hooks.ship|[]|list||The project's scripts run when a task is shipped; a non-zero exit refuses it.
+hooks.timeout|5m|duration||How long each gate hook may run before it is stopped and refuses the gate; 0 waits for ever.
 housekeeping.cadence|1d|duration||How often the session hook runs housekeeping, in whole days.
 housekeeping.fetch|true|boolean|true,false|Whether housekeeping may run git fetch.
 housekeeping.trash_ttl|7d|duration||How long trashed workspaces and specs are kept.
@@ -991,7 +992,7 @@ jig_config_value_problem() {
       esac
       ;;
     housekeeping.trash_ttl | housekeeping.abandoned_ttl | housekeeping.stale_after \
-      | git.staging_stale_after | checkout.busy_ttl | verify.busy_ttl | worktree.setup_timeout)
+      | git.staging_stale_after | checkout.busy_ttl | verify.busy_ttl | worktree.setup_timeout | hooks.timeout)
       case "${value%[dhms]}" in
         '' | *[!0-9]* | ?????????*) printf 'not a duration (e.g. 7d, 12h, 30m, 90s)\n'; return 1 ;;
       esac
