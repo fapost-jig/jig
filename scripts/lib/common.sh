@@ -6301,6 +6301,105 @@ jig_duration_seconds() {
   esac
 }
 
+# --- bounded runs of a project's command
+#
+# Rolled by hand like jig_ls_remote_tags: no `timeout` is guaranteed to exist
+# (ADR-0002). Shared by `worktree.setup` and the gate hooks, so that the two
+# cannot drift apart on how a hung command is stopped (for one, the Windows
+# tree).
+
+# _jig_winpid <pid> — the Windows process id behind the MSYS/Cygwin process
+# <pid>, or nothing when there is none to read.
+_jig_winpid() {
+  cat "/proc/$1/winpid" 2>/dev/null || true
+}
+
+# jig_stop_tree <pid> — under Git Bash, end the Windows process tree of <pid>
+# before its group is signalled. MSYS delivers a signal only to its own
+# processes: a native program the command started — `php` under `composer`,
+# `docker` — never hears it and goes on running. `taskkill /T` walks the tree
+# by parent, so it runs first, while <pid> is still there to be its root.
+# Asked of the machine, not its name (ADR-0037): with no taskkill or no
+# winpid to read — macOS, Linux — nothing: the group signal that
+# follows is the whole stop. MSYS rewrites `/T` into a path unless argument
+# conversion is off, as for _jig_junction.
+jig_stop_tree() {
+  local winpid
+  command -v taskkill >/dev/null 2>&1 || return 0
+  winpid=$(_jig_winpid "$1")
+  case "$winpid" in '' | *[!0-9]*) return 0 ;; esac
+  MSYS2_ARG_CONV_EXCL='*' taskkill /T /F /PID "$winpid" >/dev/null 2>&1 || true
+  return 0
+}
+
+# _jig_bounded_stop — the exit action that stops a bounded run still going
+# when Jig itself ends: its whole tree, as the limit does.
+_JIG_BOUNDED_PID=""
+_jig_bounded_stop() {
+  [ -n "$_JIG_BOUNDED_PID" ] || return 0
+  jig_stop_tree "$_JIG_BOUNDED_PID"
+  kill -TERM -- "-$_JIG_BOUNDED_PID" 2>/dev/null || kill -TERM "$_JIG_BOUNDED_PID" 2>/dev/null || true
+  _JIG_BOUNDED_PID=""
+  return 0
+}
+
+# jig_run_bounded <var> <secs> <command> [args...] — run <command> (a function
+# or a program) and leave in <var> its exit code, or the word `timeout` when it
+# was still running after <secs> seconds and was stopped; 0 waits for ever.
+#
+# The command runs in the background in a process group of its own (`set -m`),
+# so that at the limit the whole group — `make`, the `docker exec` under it,
+# the `composer` under that — is sent SIGTERM, and SIGKILL five seconds later;
+# under Git Bash, where native programs hear no signal, its Windows process
+# tree is ended first (jig_stop_tree). A process a container started inside
+# itself may not get the signal; that boundary is the container's.
+#
+# The caller's redirections on this call (`</dev/null >file 2>&1`) are the
+# command's: the background job inherits them. A group of its own does not
+# hear the terminal's Ctrl-C, which reaches only Jig; so whatever ends Jig
+# ends the command with it (jig_on_exit). One run at a time.
+jig_run_bounded() {
+  local __rb_var="$1" __rb_secs="$2" __rb_pid __rb_rc="" __rb_ticks=0 __rb_max __rb_waited __rb_monitor=0
+  shift 2
+  case "$-" in *m*) __rb_monitor=1 ;; esac
+  set -m
+  "$@" &
+  __rb_pid=$!
+  [ "$__rb_monitor" = 1 ] || set +m
+  _JIG_BOUNDED_PID=$__rb_pid
+  jig_on_exit '_jig_bounded_stop'
+
+  if [ "$__rb_secs" -gt 0 ]; then
+    __rb_max=$((__rb_secs * 5))
+    while kill -0 "$__rb_pid" 2>/dev/null; do
+      if [ "$__rb_ticks" -ge "$__rb_max" ]; then
+        jig_stop_tree "$__rb_pid"
+        # The group may be gone already (taskkill ended it, or it exited
+        # since kill -0): a failed signal must not end Jig mid-gate.
+        kill -TERM -- "-$__rb_pid" 2>/dev/null || kill -TERM "$__rb_pid" 2>/dev/null || true
+        __rb_waited=0
+        while kill -0 "$__rb_pid" 2>/dev/null && [ "$__rb_waited" -lt 25 ]; do
+          sleep 0.2
+          __rb_waited=$((__rb_waited + 1))
+        done
+        kill -KILL -- "-$__rb_pid" 2>/dev/null || true
+        wait "$__rb_pid" 2>/dev/null || true
+        __rb_rc=timeout
+        break
+      fi
+      sleep 0.2
+      __rb_ticks=$((__rb_ticks + 1))
+    done
+  fi
+  if [ -z "$__rb_rc" ]; then
+    __rb_rc=0
+    wait "$__rb_pid" 2>/dev/null || __rb_rc=$?
+  fi
+  _JIG_BOUNDED_PID=""
+  printf -v "$__rb_var" '%s' "$__rb_rc"
+  return 0
+}
+
 # Fixed route vocabulary shared by context and knowledge metadata validation.
 jig_valid_stage() {
   case "$1" in

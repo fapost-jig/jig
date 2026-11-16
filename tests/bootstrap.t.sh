@@ -1394,8 +1394,10 @@ test_setup_is_stopped_at_its_timeout_with_everything_it_started() {
 }
 
 # Under Git Bash a native program the command started hears no signal, so the
-# stop ends the Windows process tree first. Git Bash cannot run here: uname and
-# taskkill are stubs, the winpid lookup is replaced, and only the call is checked.
+# stop ends the Windows process tree first. Git Bash cannot run here: taskkill
+# is a stub and the winpid lookup is replaced, and only the call is checked.
+# The stop asks the machine, not its name (ADR-0037): with a winpid it calls
+# taskkill, and with none — macOS, Linux — it does not.
 test_setup_stop_ends_the_windows_tree_under_git_bash() {
   bootstrap_setup_nested
   local bin="$JIG_TEST_TMP.bin" log="$JIG_TEST_TMP.taskkill"
@@ -1405,10 +1407,8 @@ test_setup_stop_ends_the_windows_tree_under_git_bash() {
     "$log" "$log" > "$bin/taskkill"
   chmod +x "$bin/taskkill"
 
-  local uname_out
-  for uname_out in MINGW64_NT-10.0 Linux; do
-    printf '#!/bin/sh\necho %s\n' "$uname_out" > "$bin/uname"
-    chmod +x "$bin/uname"
+  local fake_winpid
+  for fake_winpid in 4242 ''; do
     rm -f "$log"
     (
       PATH="$bin:$PATH"
@@ -1419,18 +1419,20 @@ test_setup_stop_ends_the_windows_tree_under_git_bash() {
       # shellcheck disable=SC2329
       jig_warn() { :; }
       # shellcheck source=/dev/null
+      . "$JIG_HOME/scripts/lib/common.sh"
+      # shellcheck source=/dev/null
       . "$JIG_HOME/scripts/lib/bootstrap.sh"
       # shellcheck disable=SC2329
-      _bootstrap_winpid() { echo 4242; }
+      _jig_winpid() { printf '%s' "$fake_winpid"; }
       sleep 30 &
-      _JIG_SETUP_PID=$!
-      _bootstrap_setup_stop
+      _JIG_BOUNDED_PID=$!
+      _jig_bounded_stop
       wait "$!" 2>/dev/null
       exit 0
     )
-    case "$uname_out" in
-      MINGW*) assert_eq '/T|/F|/PID|4242|*' "$(cat "$log" 2>/dev/null)" ;;
-      *) [ ! -e "$log" ] || fail "taskkill was called outside Git Bash: $(cat "$log")" ;;
+    case "$fake_winpid" in
+      4242) assert_eq '/T|/F|/PID|4242|*' "$(cat "$log" 2>/dev/null)" ;;
+      *) [ ! -e "$log" ] || fail "taskkill was called with no Windows pid: $(cat "$log")" ;;
     esac
   done
 }

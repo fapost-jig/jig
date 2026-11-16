@@ -16128,6 +16128,119 @@ test_task_gate_hook_ready_that_leaves_a_new_file_refuses() {
   assert_not_contains "$(cat .ai/workspace/tasks/T-1/state)" "status: ready"
 }
 
+# hang_hook <path> — a hook that prints a line, backgrounds a child whose pid
+# it records in <path>.pid, and never finishes on its own (bounded at 8 s, so a
+# failing test cannot hang the suite).
+hang_hook() {
+  mkdir -p "$(dirname "$1")"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'echo before the hang\n'
+    printf 'sleep 8 &\n'
+    printf 'echo $! > "%s.pid"\n' "$PWD/$1"
+    printf 'wait\n'
+  } > "$1"
+  chmod +x "$1"
+}
+
+test_task_gate_hook_past_its_timeout_is_stopped_and_refuses() {
+  task_setup
+  jig task new T-1 >/dev/null
+  task_route_class T-1
+  hang_hook .ai/hooks/hang.sh
+  printf 'hooks.ready: [.ai/hooks/hang.sh]\nhooks.timeout: 1s\n' >> .ai/config.yaml
+
+  local start=$SECONDS
+  run jig task set T-1 status ready
+  assert_eq 1 "$RC"
+  [ $((SECONDS - start)) -lt 7 ] || fail "the gate waited $((SECONDS - start)) s for a hook limited to 1s"
+  assert_contains "$OUT" "hooks.ready refused T-1"
+  assert_contains "$OUT" "hook .ai/hooks/hang.sh did not finish in 1s and was stopped"
+  assert_contains "$OUT" "before the hang"
+  assert_contains "$OUT" "raise hooks.timeout"
+  assert_not_contains "$(cat .ai/workspace/tasks/T-1/state)" "status: ready"
+  # What the hook started is stopped with it.
+  local child
+  child=$(cat .ai/hooks/hang.sh.pid)
+  if kill -0 "$child" 2>/dev/null; then
+    kill "$child" 2>/dev/null || true
+    fail "the child the hook started ($child) outlived the stop"
+  fi
+}
+
+test_task_gate_hook_timeout_is_per_hook_not_per_gate() {
+  task_setup
+  jig task new T-1 >/dev/null
+  task_route_class T-1
+  hang_hook .ai/hooks/hang.sh
+  gate_hook .ai/hooks/after.sh 1 "ran after the hang"
+  printf 'hooks.ready: [.ai/hooks/hang.sh, .ai/hooks/after.sh]\nhooks.timeout: 1s\n' >> .ai/config.yaml
+
+  run jig task set T-1 status ready
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "hook .ai/hooks/hang.sh did not finish in 1s"
+  assert_contains "$OUT" "hook .ai/hooks/after.sh exited 1"
+  assert_contains "$OUT" "ready says ran after the hang"
+}
+
+test_task_gate_hook_timeout_that_is_waived_warns_and_passes() {
+  task_setup
+  jig task new T-1 >/dev/null
+  task_route_class T-1
+  hang_hook .ai/hooks/hang.sh
+  printf 'hooks.ready: [.ai/hooks/hang.sh]\nhooks.timeout: 1s\n' >> .ai/config.yaml
+  jig task waive T-1 ready .ai/hooks/hang.sh --reason "the tool it needs hangs here" >/dev/null
+
+  run jig task set T-1 status ready
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "hook .ai/hooks/hang.sh (hooks.ready) did not finish in 1s and was stopped, waived for T-1: the tool it needs hangs here"
+  assert_contains "$OUT" "before the hang"
+  assert_file_contains .ai/workspace/tasks/T-1/state "status: ready"
+}
+
+test_task_gate_hook_timeout_not_a_duration_warns_and_uses_five_minutes() {
+  task_setup
+  jig task new T-1 >/dev/null
+  task_route_class T-1
+  gate_hook .ai/hooks/check.sh 0 quick
+  printf 'hooks.ready: [.ai/hooks/check.sh]\nhooks.timeout: abc\n' >> .ai/config.yaml
+
+  run jig task set T-1 status ready
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "hooks.timeout abc is not a duration; using 5m"
+  assert_contains "$OUT" "ready says quick"
+  assert_file_contains .ai/workspace/tasks/T-1/state "status: ready"
+}
+
+test_task_gate_hook_timeout_in_config_local_is_ignored() {
+  task_setup
+  jig task new T-1 >/dev/null
+  task_route_class T-1
+  mkdir -p .ai/hooks
+  printf '#!/usr/bin/env bash\nsleep 2\necho slow but done\n' > .ai/hooks/slow.sh
+  chmod +x .ai/hooks/slow.sh
+  printf 'hooks.ready: [.ai/hooks/slow.sh]\n' >> .ai/config.yaml
+  printf 'hooks.timeout: 1s\n' >> .ai/config.local.yaml
+
+  run jig task set T-1 status ready
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "slow but done"
+}
+
+test_task_gate_hook_timeout_zero_waits_for_the_hook() {
+  task_setup
+  jig task new T-1 >/dev/null
+  task_route_class T-1
+  mkdir -p .ai/hooks
+  printf '#!/usr/bin/env bash\nsleep 2\necho slow but done\n' > .ai/hooks/slow.sh
+  chmod +x .ai/hooks/slow.sh
+  printf 'hooks.ready: [.ai/hooks/slow.sh]\nhooks.timeout: 0\n' >> .ai/config.yaml
+
+  run jig task set T-1 status ready
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "slow but done"
+}
+
 # --- hook waivers (adr-20261114-a-person-waives-a-gate-hooks-refusal-for-one-task)
 
 # waive_setup — a task T-1 at a class, with `hooks.ready` naming a refusing

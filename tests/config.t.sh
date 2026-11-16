@@ -255,6 +255,19 @@ test_config_set_duration_keys_validation() {
   _config_rejects housekeeping.stale_after -1d
 }
 
+# hooks.timeout is a project key like hooks.*: `jig config set --local` refuses
+# it, whatever the value, and nothing is written to the local file.
+test_config_set_hooks_timeout_is_not_a_local_key() {
+  fixture_jig_repo
+  local value
+  for value in 2m abc; do
+    run jig config set hooks.timeout "$value" --local
+    assert_eq 1 "$RC"
+    assert_contains "$OUT" "hooks.timeout is not a local key"
+  done
+  assert_no_file .ai/config.local.yaml
+}
+
 test_config_set_boolean_keys_validation() {
   fixture_jig_repo
   _config_accepts housekeeping.fetch true

@@ -68,10 +68,11 @@ task called `2026-10-notes`.
 | `hooks.ready` | `[]` | Your project's scripts, run when a task is marked ready. A script that exits non-zero refuses it. |
 | `hooks.consolidate` | `[]` | The same, when the knowledge decision of a task is recorded. |
 | `hooks.ship` | `[]` | The same, when a task is shipped, before anything is committed or sent. |
+| `hooks.timeout` | `5m` | How long each hook may run before Jig stops it, with everything it started, and refuses the gate. `0` waits for ever. |
 
 Paths are relative to the project. These keys are read only from `.ai/config.yaml`, never from your
 own `config.local.yaml`: a hook is a team rule. A person sets one refusal aside for one task with
-`jig task waive`, with a reason. See
+`jig task waive`, with a reason. A hook that runs past `hooks.timeout` is stopped and refuses the gate; the limit applies to each hook, and a waiver sets that refusal aside too. See
 [your own checks at the finish](/working-with-tasks#your-own-checks-at-the-finish).
 
 ### Housekeeping
