@@ -16113,6 +16113,23 @@ test_task_gate_hook_ship_that_changes_a_tracked_file_refuses() {
   assert_eq "$head_before" "$(git rev-parse HEAD)"
 }
 
+# A hook that commits its change leaves a clean tree; the gate still refuses
+# because HEAD moved (triage finding F6 of gate-hooks).
+test_task_gate_hook_ship_that_commits_refuses() {
+  gate_hook_ship_setup 0
+  printf '#!/usr/bin/env bash\nprintf "formatted\\n" >> README.md\ngit add README.md\ngit commit -q -m "hook commit"\n' > .ai/hooks/ship.sh
+  printf 'base\n' > README.md
+  git add README.md .ai/hooks/ship.sh
+  git commit -q -m "fixture: a committing hook"
+  ship_stage_change
+  local head_before
+  head_before=$(git rev-parse HEAD)
+
+  run jig task ship T-1 --message-file msg.txt
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "hooks.ship changed files git can see"
+}
+
 test_task_gate_hook_ready_that_leaves_a_new_file_refuses() {
   task_setup
   jig task new T-1 >/dev/null
