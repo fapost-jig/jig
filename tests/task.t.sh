@@ -7689,7 +7689,7 @@ test_task_land_by_human_refuses_while_a_ship_waits_for_ci() {
   shuman_setup
   printf 'APPROVED|APPROVED\n' > gh-review
   mkdir -p .ai/runtime/shipping
-  printf 'pid: %s\nsince: 2026-11-13T10:00:00Z\n' "$$" > .ai/runtime/shipping/T-1
+  printf 'pid: %s\nsince: 2026-11-13T10:00:00Z\ndeadline: %s\n' "$$" "$(( $(date +%s) + 3600 ))" > .ai/runtime/shipping/T-1
 
   shuman_land
   assert_eq 1 "$RC" "$ERR"
@@ -7701,7 +7701,7 @@ test_task_land_by_human_refuses_while_a_ship_waits_for_ci() {
   (exit 0) &
   local dead=$!
   wait "$dead"
-  printf 'pid: %s\nsince: 2026-11-13T10:00:00Z\n' "$dead" > .ai/runtime/shipping/T-1
+  printf 'pid: %s\nsince: 2026-11-13T10:00:00Z\ndeadline: %s\n' "$dead" "$(( $(date +%s) + 3600 ))" > .ai/runtime/shipping/T-1
   shuman_land
   assert_eq 0 "$RC" "$ERR"
 }
@@ -7777,7 +7777,7 @@ test_task_land_without_by_human_keeps_the_agents_form() {
 test_task_ship_keeps_a_shipping_record_while_it_waits_for_ci() {
   sship_setup merge
   printf 'APPROVED|APPROVED\n' > gh-review
-  printf 'mkdir -p seen && cp .ai/runtime/shipping/T-1 seen/shipping && cp .ai/runtime/shipping/T-1 seen/pid\n' > gh-hook-checks.sh
+  printf 'mkdir -p seen && cp .ai/runtime/shipping/T-1 seen/shipping && cp .ai/runtime/shipping/T-1 seen/pid && ls -a .ai/runtime/shipping > seen/ls\n' > gh-hook-checks.sh
 
   run jig task ship T-1 --message-file msg.txt
   assert_eq 0 "$RC" "$OUT"
@@ -7785,6 +7785,9 @@ test_task_ship_keeps_a_shipping_record_while_it_waits_for_ci() {
   assert_file seen/shipping
   assert_file_contains seen/shipping "pid: "
   assert_file_contains seen/shipping "since: 20"
+  assert_eq 1 "$(grep -c '^deadline: [0-9][0-9]*$' seen/shipping)" "the record carries a numeric deadline"
+  assert_file_contains seen/ls "T-1"
+  assert_eq 0 "$(grep -c 'tmp' seen/ls)" "no temporary file is left beside the record"
   assert_no_file .ai/runtime/shipping/T-1 "the record goes when the wait ends"
 }
 
@@ -7805,14 +7808,35 @@ test_task_list_json_shipping_is_since_while_the_ship_lives_and_null_after() {
   assert_contains "$OUT" '"shipping":null'
 
   mkdir -p .ai/runtime/shipping
-  printf 'pid: %s\nsince: 2026-11-13T10:00:00Z\n' "$$" > .ai/runtime/shipping/T-1
+  printf 'pid: %s\nsince: 2026-11-13T10:00:00Z\ndeadline: %s\n' "$$" "$(( $(date +%s) + 3600 ))" > .ai/runtime/shipping/T-1
   _tl_json
   assert_contains "$OUT" '"pull_request":null,"shipping":{"since":"2026-11-13T10:00:00Z"},"housekeeping_flags"'
 
   (exit 0) &
   local dead=$!
   wait "$dead"
-  printf 'pid: %s\nsince: 2026-11-13T10:00:00Z\n' "$dead" > .ai/runtime/shipping/T-1
+  printf 'pid: %s\nsince: 2026-11-13T10:00:00Z\ndeadline: %s\n' "$dead" "$(( $(date +%s) + 3600 ))" > .ai/runtime/shipping/T-1
+  _tl_json
+  assert_contains "$OUT" '"shipping":null'
+  assert_file .ai/runtime/shipping/T-1 "a read deletes nothing"
+}
+
+test_task_list_json_shipping_is_null_past_its_deadline_or_without_one() {
+  task_setup_clean
+  jig task new T-1 >/dev/null
+  mkdir -p .ai/runtime/shipping
+
+  # A live pid with a deadline in the past: a recycled pid of a killed ship.
+  printf 'pid: %s\nsince: 2026-11-13T10:00:00Z\ndeadline: %s\n' "$$" "$(( $(date +%s) - 60 ))" > .ai/runtime/shipping/T-1
+  _tl_json
+  assert_contains "$OUT" '"shipping":null'
+  assert_file .ai/runtime/shipping/T-1 "a read deletes nothing"
+
+  printf 'pid: %s\nsince: 2026-11-13T10:00:00Z\n' "$$" > .ai/runtime/shipping/T-1
+  _tl_json
+  assert_contains "$OUT" '"shipping":null'
+
+  printf 'pid: %s\nsince: 2026-11-13T10:00:00Z\ndeadline: abc\n' "$$" > .ai/runtime/shipping/T-1
   _tl_json
   assert_contains "$OUT" '"shipping":null'
   assert_file .ai/runtime/shipping/T-1 "a read deletes nothing"
@@ -7839,7 +7863,7 @@ test_task_actions_land_row_is_withheld_while_a_ship_waits() {
   run jig task ship T-1 --message-file msg.txt
   assert_eq 0 "$RC" "$OUT"
   mkdir -p .ai/runtime/shipping
-  printf 'pid: %s\nsince: 2026-11-13T10:00:00Z\n' "$$" > .ai/runtime/shipping/T-1
+  printf 'pid: %s\nsince: 2026-11-13T10:00:00Z\ndeadline: %s\n' "$$" "$(( $(date +%s) + 3600 ))" > .ai/runtime/shipping/T-1
 
   run jig task list --json
   assert_contains "$OUT" '"id":"land","command":"jig task land T-1 --by human","offered":false,"reason":"task land: a jig task ship of T-1 has been waiting for CI since 2026-11-13T10:00:00Z and lands the pull request itself"'
@@ -7952,7 +7976,7 @@ test_task_actions_review_and_merge_rows_are_withheld_while_the_agent_is_on_the_t
   sed '/^autopilot:/d' .ai/workspace/tasks/T-1/state > s.tmp
   mv s.tmp .ai/workspace/tasks/T-1/state
   mkdir -p .ai/runtime/shipping
-  printf 'pid: %s\nsince: 2026-11-13T10:00:00Z\n' "$$" > .ai/runtime/shipping/T-1
+  printf 'pid: %s\nsince: 2026-11-13T10:00:00Z\ndeadline: %s\n' "$$" "$(( $(date +%s) + 3600 ))" > .ai/runtime/shipping/T-1
   run jig task list --json
   assert_contains "$OUT" '"id":"merge","command":"jig task merge-pr T-1 --by human","offered":false,"reason":"task merge-pr: a jig task ship of T-1 has been waiting for CI since 2026-11-13T10:00:00Z and merges the pull request itself"'
   assert_contains "$OUT" '{"id":"request-review","command":"jig task request-review T-1 --reviewer <login> --by human","offered":true,"reason":null}'

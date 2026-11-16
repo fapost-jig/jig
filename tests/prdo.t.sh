@@ -521,10 +521,18 @@ test_prdo_merge_pr_refuses_while_the_agent_is_on_the_task() {
 test_prdo_merge_pr_refuses_while_a_ship_waits_for_ci() {
   pd_setup github
   mkdir -p .ai/runtime/shipping
-  printf 'pid: %s\nsince: 2026-11-13T10:00:00Z\n' "$$" > .ai/runtime/shipping/T-1
+  printf 'pid: %s\nsince: 2026-11-13T10:00:00Z\ndeadline: %s\n' "$$" "$(( $(date +%s) + 3600 ))" > .ai/runtime/shipping/T-1
   pd_split jig task merge-pr T-1 --by human --json
   pd_refused ship-running
   assert_contains "$OUT" "since 2026-11-13T10:00:00Z"
+}
+
+test_prdo_merge_pr_ignores_a_shipping_record_past_its_deadline() {
+  pd_setup github
+  mkdir -p .ai/runtime/shipping
+  printf 'pid: %s\nsince: 2026-11-13T10:00:00Z\ndeadline: %s\n' "$$" "$(( $(date +%s) - 60 ))" > .ai/runtime/shipping/T-1
+  pd_split jig task merge-pr T-1 --by human --json
+  assert_not_contains "$OUT$ERR" "ship-running"
 }
 
 test_prdo_merge_pr_refuses_a_stale_revision_before_merging() {

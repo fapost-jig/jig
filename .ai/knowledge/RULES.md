@@ -95,7 +95,8 @@
   ship` waiting for CI is the same shape: `<clone root>/.ai/runtime/shipping/<id>`, the path built
   by one function from a validated id, removed by `rm -f` of that one file only by the ship that
   wrote it — the record still names its own pid — when its wait ends or it exits; a record whose
-  process is gone is read as absent and never removed by a reader
+  process is gone, or whose `deadline` (written by the ship, its CI timeout plus 15 minutes) has
+  passed or is missing, is read as absent and never removed by a reader
   (adr-20261114-a-persons-pull-request-action-does-not-read-agent-git). A write in Jig's own tree holds
   its lock the same way, under `.ai/runtime/writes/lock/`, or `<git-common-dir>/jig/writes/lock/`
   where that directory is not named `.git`, the path checked to end so before either deletion: it
