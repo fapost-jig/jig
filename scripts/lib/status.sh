@@ -2456,8 +2456,26 @@ $upr
 UPR
   fi
   if [ -n "$up_from" ] && [ "$up_covered" = 0 ]; then
-    _status_attn upgrade-available project "" "" "Jig in this project is older than on this machine" \
-      "this project runs $up_from; this machine has $up_to" "jig upgrade"
+    # 0d. This checkout is behind this machine's Jig, but the base branch here
+    # is not: an upgrade landed there (merged by `jig upgrade` itself,
+    # task upgrade-merges-itself), and this branch has not taken it in. `jig upgrade` would answer "nothing
+    # changed" here, so the way forward is the base, not another upgrade.
+    local ub_branch ub_have ub_base
+    ub_base=$(cfg git.base_branch main)
+    ub_branch=$(git -C "$JIG_PROJECT" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+    ub_have=""
+    if [ -n "$ub_branch" ] && [ "$ub_branch" != "$ub_base" ]; then
+      ub_have=$(jig_git_show_path "refs/heads/$ub_base" "$JIG_AI_DIR/manifest" 2>/dev/null \
+        | sed -n 's/^jig\.version:[[:space:]]*//p' | head -n 1) || ub_have=""
+      [ -z "$ub_have" ] || ub_have=$(jig_version_core "$ub_have")
+    fi
+    if [ -n "$ub_have" ] && ! jig_version_newer "$up_to" "$ub_have"; then
+      _status_attn upgrade-on-base project "" "" "Jig on $ub_base is newer than on this branch" \
+        "$ub_branch runs $up_from; $ub_base here already has $ub_have" "git merge $ub_base"
+    else
+      _status_attn upgrade-available project "" "" "Jig in this project is older than on this machine" \
+        "this project runs $up_from; this machine has $up_to" "jig upgrade"
+    fi
   fi
 
   while IFS= read -r rec; do
@@ -2965,7 +2983,7 @@ REC
     json_str_or_null "$url"; o="$o,\"url\":$_JSON"
     # The one kind with data of its own: both versions, so a program shows
     # them without reading `detail`, whose words may change.
-    if [ "$kind" = upgrade-available ] && vers=$(_status_project_behind); then
+    if { [ "$kind" = upgrade-available ] || [ "$kind" = upgrade-on-base ]; } && vers=$(_status_project_behind); then
       json_quote "${vers%% *}"; o="$o,\"versions\":{\"from\":$_JSON"
       json_quote "${vers#* }"; o="$o,\"to\":$_JSON}"
     fi

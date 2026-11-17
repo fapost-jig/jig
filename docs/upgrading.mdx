@@ -52,10 +52,13 @@ order does not change: do it once, and read every release between yours and the 
 
     - **No uncommitted changes to files git already tracks.** Commit them, stash them with
       `git stash`, or finish the work they belong to. New files git does not track yet do not count.
-    - **You are not on the branch of a task that is still in progress.** The upgrade works on a
-      branch of its own and would take your checkout off the task's branch. Go to your base branch
-      (usually `main`) first. If a task has a worktree of its own, run the upgrade in the main
-      checkout, not inside that worktree.
+    - **You are not on the branch of a task that is still in progress.** Only where the upgrade
+      works in your checkout ([below](#where-the-upgrade-works-and-who-merges-it)): there it works
+      on a branch of its own and would take your checkout off the task's branch. Go to your base
+      branch (usually `main`) first. If a task has a worktree of its own, run the upgrade in the
+      main checkout, not inside that worktree. When the project has an `origin` (and `upgrade.merge` is not `human` below `push`), the upgrade works
+      in Jig's own tree and asks nothing of your checkout: uncommitted changes and a task in
+      progress do not stop it.
 
     Then ask what would change, without changing anything:
 
@@ -77,9 +80,14 @@ order does not change: do it once, and read every release between yours and the 
 
   <Step title="See how far the upgrade went on its own, and finish the rest">
     The upgrade is a change of its own: it creates the branch `jig/upgrade-<version>` from your base
-    branch and makes one commit titled `Upgrade Jig <from> -> <to>`. How much more it does depends on
-    `agent.git`, the setting that says how far your agent may go with git on your behalf (run
-    `jig config keys` to see where yours comes from). Find your level:
+    branch and makes one commit titled `Upgrade Jig <from> -> <to>`. In a project with an `origin`
+    it then pushes it, opens the pull request and merges it once CI is green, whatever `agent.git`
+    says, unless you set `upgrade.merge: human` ([below](#where-the-upgrade-works-and-who-merges-it)),
+    so there is nothing to finish by hand: the run prints `merged <address>` and says how the base
+    branch here moved. The levels below apply to a project with no `origin`, and to
+    `upgrade.merge: human`, where the upgrade goes as far as `agent.git`, the setting that says how
+    far your agent may go with git on your behalf (run `jig config keys` to see where yours comes
+    from). Find your level:
 
     **`none`** — the change is staged and nothing is committed. The run prints the one command that
     commits it:
@@ -303,7 +311,9 @@ order does not change: do it once, and read every release between yours and the 
 ### When the upgrade refuses
 
 A refusal lists all its reasons at once, before anything is touched, and the fix is in the message.
-The usual ones:
+The usual ones. The first, third and fourth rows are asked only where the upgrade works in your
+checkout (see [above](#an-upgrade-is-a-change-of-its-own)); in Jig's own tree only the line endings
+one stands:
 
 | The message says | What it means and what to do |
 |---|---|
@@ -311,7 +321,7 @@ The usual ones:
 | `task <id> is started and its branch … is checked out here` | You are on the branch of a task in progress. Run `jig task start <id> --worktree` (it gives the task a folder of its own and puts this checkout back on your base branch), then `jig upgrade` again. If this is already a worktree of its own, run the upgrade in the main checkout. If another session is still working on the task, wait until it has finished. |
 | `core.autocrlf is true here and Jig's files are not pinned to LF …` | Git would convert Jig's files to CRLF line endings, as it does by default on Windows, and every file would look changed. The message lists the lines to add to `.gitattributes`; add them, commit, and run again. |
 | `` `jig verify` is running in this checkout `` | A verification is in progress, and replacing its scripts would break it. Run the upgrade when it has finished. |
-| `the upgrade to <version> is already on branch <name>, which has not been merged into <base> yet` | An earlier run's branch is still waiting for its merge. Merge it, or `git checkout <name>` and run `jig upgrade` there to carry it on; a second branch would only become a second pull request. When GitHub or GitLab knows the branch's pull request, the message names it and its state: an open one means the upgrade is done and only waits for the merge (`not-merged` in `--json`), and after the merge `jig upgrade --land` brings it here. |
+| `the upgrade to <version> is already on branch <name>, which has not been merged into <base> yet` | With `upgrade.merge: human`: an earlier run's branch is still waiting for its merge. Merge it, or `git checkout <name>` and run `jig upgrade` there to carry it on; a second branch would only become a second pull request. With `upgrade.merge: agent` (the default) the run carries that branch on itself: it pushes it if origin lacks it, opens the pull request if there is none, waits for CI and merges. When GitHub or GitLab knows the branch's pull request, the message names it and its state: an open one means the upgrade is done and only waits for the merge (`not-merged` in `--json`), and after the merge `jig upgrade --land` brings it here. |
 | `upgrade: not committed, because the install is not complete …` | The self-check did not confirm the install, so nothing was committed. Run `jig upgrade` again on the same branch; it carries on. |
 
 `jig upgrade --dry-run` does not refuse for these reasons; it prints them as `note:` lines, so you
@@ -405,7 +415,11 @@ rather than to a command that ran while you were making coffee.
 
 ## An upgrade is a change of its own
 
-From the next release on, `jig upgrade` does its work as one separate change, the way a task does:
+From the next release on, `jig upgrade` does its work as one separate change, the way a task does.
+The list below is the run **in your checkout**, which is where it works when the project has no
+`origin`, works on one branch (`git.branch_per_task: false`), has no commit yet, or has
+`upgrade.merge: human` with `agent.git` below `push`. Otherwise it works in Jig's own tree and
+asks nothing of your checkout: [see below](#where-the-upgrade-works-and-who-merges-it).
 
 1. **The newest Jig does the work.** When the copy running the command is older than the Jig it
    upgrades from, it hands the whole run to that newer one and says so:
@@ -434,7 +448,7 @@ From the next release on, `jig upgrade` does its work as one separate change, th
    it; at `commit`, `push`, `pr` and `merge` it commits, pushes, opens the pull request and merges
    it once CI is green, exactly as `jig task ship` does.
 
-It ends by saying where you are and how to get back:
+In your checkout it ends by saying where you are and how to get back:
 
 ```text
 next: this upgrade is on branch jig/upgrade-0.17.0; once it is merged into main, merge that into the branches still in progress
@@ -445,7 +459,8 @@ Branches that were already in progress get the upgrade when you merge the base b
 If nothing needed changing, the run goes back to the branch you were on and removes the one it
 made.
 
-Once you have merged the upgrade's pull request, bring it here in one step:
+Where Jig does not merge the upgrade itself (`upgrade.merge: human`, or a pull request you merged
+yourself), once the pull request is merged, bring it here in one step:
 
 ```bash
 jig upgrade --land
@@ -477,6 +492,52 @@ Two kinds of project work differently. One that uses a single branch
 (`git.branch_per_task: false`) gets the commit on the branch it is on, and nothing is pushed. One
 installed with `jig init --link` — Jig's own repository — keeps upgrading in place, with no branch
 and no commit.
+
+### Where the upgrade works, and who merges it
+
+In a project with a first commit, a branch per task (`git.branch_per_task`, the default) and an
+`origin`, the upgrade does not work in your checkout at all. It takes Jig's own tree (the one a
+[write](/agent-ships) uses, inside `.git/jig/`), puts it at a fresh `origin/<base>`, installs there,
+and cuts `jig/upgrade-<version>` only when it commits. Your checkout keeps its branch, its
+uncommitted changes and a started task on it; none of those stops the upgrade, and nothing in your
+checkout changes until the base branch moves (below). The tree and the clone's lock are given back
+before the wait for CI, so the lock is not held for the wait. While a write holds the lock the upgrade
+refuses with `write-busy`; run it again.
+
+`upgrade.merge` decides who carries the upgrade to the base:
+
+- `agent` (the default): every step that leaves your machine runs at level `merge`, whatever
+  `agent.git` says — the push, the pull request, the merge once at least one check ran and every
+  check passed within `agent.ci_timeout` minutes, the deletion of the branch. The run says
+  `upgrade: shipping at merge (upgrade.merge)`. A run can now take as long as the CI does (30
+  minutes by default), and a program that starts it, Jig UI included, has to treat that as normal;
+  `jig status` shows the upgrade as waiting while it does.
+- `human`: each step goes by `agent.git`, and Jig never merges: at `pr` or `merge` it opens the
+  pull request and leaves the merge to you. Below `push`, or without an `origin`, the upgrade works
+  in your checkout as it always did.
+
+`upgrade.merge` is yours alone, in `.ai/config.local.yaml` (`jig config set --local upgrade.merge
+human`); a value in `.ai/config.yaml` is ignored, as for `agent.git`. A project that wants a person to
+read every upgrade requires a review in the forge's branch protection: the merge Jig makes never
+bypasses it, and then the pull request stays open with `not merged: …`.
+
+After a merge the run lets the upgrade's branch go, here and on `origin`, and moves your base
+branch the way [`jig refresh`](/reading-jig-as-data) does, without switching you: fast-forwarded
+where it is checked out and the files allow, only the ref where it is checked out nowhere. Where it
+cannot move — your changes stand in the way, another worktree has it, a `jig verify` runs on it — a
+`next:` line says so, and `jig refresh` or `jig upgrade --land` moves it later. A checkout on another
+branch does not get the new Jig until that branch merges the base, and the run says so. Older
+`jig/upgrade-<version>` branches that were never merged are listed in `note:` lines as superseded;
+Jig never deletes or closes them, since commits of yours may lie on them.
+
+Run again after `not merged: the checks did not finish…`, an upgrade whose branch is still unmerged
+is carried on, not refused: pushed if `origin` lacks it, its pull request opened if none is open,
+and merged on green CI — but only when the branch carries nothing that is not Jig's. A pre-commit
+hook that needs the project's dependencies can fail in Jig's tree; the run then ends with
+`not committed: the project's pre-commit hook refused in Jig's tree: <first line>` and leaves no
+branch and no tree. `jig upgrade --land` stays for `upgrade.merge: human`, for a pull request you
+merged yourself, and for a base that did not move; run by an older copy of Jig in the project, it is
+handed to the newer `jig` on your machine, as an upgrade is.
 
 ## From 0.45.0 to 0.46.0
 

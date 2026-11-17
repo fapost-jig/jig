@@ -123,3 +123,10 @@ noticing a change nobody saw; and each paid its own fetch, tree, push and questi
   `--revision` they are a `decide` of one kind, unchanged in answer and commit.
 - **An id given twice to `decide` is `usage`**: a person decided one document once. The one-way commands
   still drop a repeat.
+
+> **Amendment (2026-11-17).** `jig upgrade` uses the same tree and lock without being a write: no record,
+> no revision claim, through owntree's level-free public steps `ot_lock_and_sweep`, `ot_tree_add` and
+> `ot_close`, which `ot_begin` and `ot_open` now call too. "`none` refuses" and "a write never merges"
+> stay a write's: the upgrade ships at the level `upgrade.merge` gives, commits at `none`, and merges
+> after it has removed the tree and given the lock back, so no CI wait holds the lock. It picks its
+> branch name against `ls-remote` as a write does (adr-20261117-an-upgrade-is-built-in-jigs-own-tree-and-merges-itself).

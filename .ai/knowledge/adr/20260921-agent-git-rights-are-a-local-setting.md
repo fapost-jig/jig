@@ -138,3 +138,10 @@ contributor's agent starts committing.
 > (adr-20261111-in-the-staging-flow-a-task-ships-into-the-staging-branch).
 
 > **Amendment (2026-11-14).** The level limits the agent, never a person: `jig task land`, `promote`, `request-review` and `merge-pr` with `--by human` do not read `agent.git` or `autopilot.git`, and the forge's protection still holds (adr-20261114-a-persons-pull-request-action-does-not-read-agent-git).
+
+> **Amendment (2026-11-17).** One more local-only key: `upgrade.merge` (`agent` | `human`, default
+> `agent`). Unlike every key before it, `agent` grants beyond `agent.git`: a copy-mode upgrade ships at
+> the effective level `merge` — commit, push, pull request, merge on green CI — at every `agent.git`,
+> `none` and unset included, because it is Jig's release made in Jig's own tree, not the agent's work
+> in a person's checkout. `human` keeps the upgrade at `agent.git` and never merges it, even at `merge`.
+> An invalid value reads as `human` (adr-20261117-an-upgrade-is-built-in-jigs-own-tree-and-merges-itself).

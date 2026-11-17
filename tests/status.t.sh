@@ -4198,6 +4198,42 @@ test_status_json_holds_upgrade_available_back_while_an_upgrade_waits() {
   assert_contains "$ITEM" '"kind":"upgrade-available"'
 }
 
+# A checkout on a task's branch whose Jig is older than this machine's, while the
+# base branch here already records it (an upgrade merged and the base moved): the
+# way forward is to merge the base, not `jig upgrade`, which would answer
+# "nothing changed" there. `upgrade-on-base` replaces `upgrade-available`; on the
+# base itself, or while the base is behind too, nothing changes.
+test_status_json_says_upgrade_on_base_for_a_branch_behind_its_base() {
+  fixture_jig_repo
+  git add -A
+  git commit -q -m "jig init"
+  git checkout -q -b task/behind
+  git checkout -q main
+  sed 's/^jig\.version: .*/jig.version: 9.0.0/' .ai/manifest > manifest.tmp
+  mv manifest.tmp .ai/manifest
+  git commit -q -am "the base took the upgrade"
+  git checkout -q task/behind
+  local version
+  version=$(_status_project_version)
+
+  _st_upgrade_item 9.0.0
+  assert_eq "" "$ITEM" "upgrade-available was offered although the base has the upgrade"
+  assert_contains "$OUT" '"kind":"upgrade-on-base"'
+  assert_contains "$OUT" '"todo":"git merge main"'
+  assert_contains "$OUT" "\"versions\":{\"from\":\"$version\",\"to\":\"9.0.0\"}"
+
+  # The machine is newer than the base too: an upgrade is still what is missing.
+  _st_upgrade_item 9.1.0
+  assert_contains "$ITEM" '"kind":"upgrade-available"'
+  assert_not_contains "$OUT" '"kind":"upgrade-on-base"'
+
+  # On the base, behind the machine: `jig upgrade` it is.
+  git checkout -q main
+  _st_upgrade_item 9.1.0
+  assert_contains "$ITEM" '"kind":"upgrade-available"'
+  assert_not_contains "$OUT" '"kind":"upgrade-on-base"'
+}
+
 # Right after `jig upgrade --land` the cache may still say open: a base here
 # that already records the version makes no item. A branch name with no
 # version reads as `"to": null`.

@@ -7,13 +7,14 @@
 # gitignored, one file per clone. It wins over this file for the keys it is
 # allowed to answer (the housekeeping.* ones, checkout.busy_ttl,
 # git.worktree_root and git.delete_merged_branches), and `jig status` shows
-# what it changes. Seven more are read from there and never from this file at
+# what it changes. Eight more are read from there and never from this file at
 # all, because a value committed here would decide for every contributor what
 # their own agent may do on their behalf: agent.git (how far the agent takes a finished task),
 # autopilot.git (the same for an autopilot run; agent.git when not set), agent.ci_timeout,
 # autopilot.unattended, autopilot.parallel, route.depth (full or lean: how
-# much of a class's route your tasks run) and release.merge (agent or human: who
-# merges an epic's final pull request, which is the release). The same holds for
+# much of a class's route your tasks run), release.merge (agent or human: who
+# merges an epic's final pull request, which is the release) and upgrade.merge
+# (agent or human: whether `jig upgrade` merges its own pull request). The same holds for
 # notify.telegram.token, notify.telegram.chat_id and notify.autopilot: where your
 # autopilot runs' Telegram messages go — a bot token committed here is anyone's.
 #

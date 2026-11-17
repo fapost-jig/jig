@@ -103,3 +103,12 @@ person's git work: switch to the base, pull, delete the branch. Jig UI may not r
 - `jig_ship_leave` has a third caller; RULES.md's deletion paragraph names it.
 - The cache format is read by version: a mixed-version clone whose older jig reads a new line sees
   the new columns in `fetched_at`.
+
+> **Amendment (2026-11-17).** Under `upgrade.merge: agent` (the default) the upgrade merges its own pull
+> request, writes `merged` into the forge cache itself and moves the base without switching any
+> checkout, so `--land` is the step only after a person's merge, after `human`, or for a base the merge
+> could not move. `--land` is handed to the machine's newer jig when the project's copy is older
+> (`_upgrade_handoff`'s rule): a 0.45.0 copy refused "switch to main" on a third branch although 0.46.0
+> no longer does. A linked worktree on the upgrade's branch stays where it is and only the base's ref
+> moves. `jig status` gains `upgrade-on-base` for a checkout off the base whose base already carries the
+> machine's version (adr-20261117-an-upgrade-is-built-in-jigs-own-tree-and-merges-itself).

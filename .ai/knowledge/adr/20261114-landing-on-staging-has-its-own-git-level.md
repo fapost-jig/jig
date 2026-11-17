@@ -99,3 +99,8 @@ key where they read the level of staging work. `jig-setup` asks about it only on
   at `agent.git: none` with `agent.git_staging` at `commit` or above, and the command then exits 3:
   whether a task changes the flow is the command's to find out, like the other flow refusals.
 - Rolling the code back returns every staging task to `agent.git`; nothing is migrated.
+
+> **Amendment (2026-11-17).** The consequence "upgrades … still stop at a pull request" no longer holds
+> by default: an upgrade merges its own pull request into the main branch at any level unless
+> `upgrade.merge` is `human`. It still goes into `git.base_branch`, never into staging, and
+> `agent.git_staging` does not touch it (adr-20261117-an-upgrade-is-built-in-jigs-own-tree-and-merges-itself).

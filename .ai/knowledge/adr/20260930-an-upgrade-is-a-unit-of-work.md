@@ -156,3 +156,12 @@ branch prints it as a note, as it prints every stop.
 > its merge: housekeeping never deletes a branch checked out anywhere
 > (adr-20261007-a-merged-branch-leaves-with-its-work). `none` and `commit` stay on the branch,
 > which holds the only copy; a linked worktree is never moved.
+
+> **Amendment (2026-11-17).** Where the upgrade's branch will reach origin, steps 2, 3 and 7 happen in
+> Jig's own tree (`<git-common-dir>/jig/tree`), not in the checkout: only the line-ending stop remains
+> (uncommitted changes, an occupied HEAD and a running `jig verify` no longer refuse, since the checkout
+> is not touched), the tree stands on the fresh `origin/<base>` and never on the checkout's branch, the
+> commit is made detached and the branch created at it, and nothing switches the checkout before or
+> after the merge — the amendments of 2026-10-05 and 2026-10-14 apply to the in-checkout path only. Step 7
+> merges at the effective level `upgrade.merge` gives. On the in-checkout path "a run already on a
+> `jig/upgrade-*` branch stays there" holds only for this version's branch (adr-20261117-an-upgrade-is-built-in-jigs-own-tree-and-merges-itself).

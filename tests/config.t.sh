@@ -877,6 +877,38 @@ test_config_release_merge_is_local_only() {
     "config.local: release.merge in .ai/config.yaml is ignored (set it in .ai/config.local.yaml)"
 }
 
+# upgrade.merge says whether `jig upgrade` merges its own pull request: agent or
+# human, local only, and an invalid value reads as human.
+test_config_set_upgrade_merge_validation() {
+  fixture_jig_repo
+  _config_accepts upgrade.merge agent
+  _config_accepts upgrade.merge human
+  _config_rejects upgrade.merge nobody
+}
+
+test_config_upgrade_merge_is_local_only() {
+  fixture_jig_repo
+  printf 'upgrade.merge: human\n' >> .ai/config.yaml
+  run jig status
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" \
+    "config.local: upgrade.merge in .ai/config.yaml is ignored (set it in .ai/config.local.yaml)"
+}
+
+test_config_upgrade_merge_reads_agent_by_default_and_human_when_invalid() {
+  fixture_jig_repo
+  # shellcheck disable=SC2016 # expanded by the inner bash, not here
+  run bash -c '
+    JIG_LIB="$JIG_HOME/scripts/lib"; . "$JIG_LIB/common.sh"; . "$JIG_LIB/config.sh"
+    jig_require_repo
+    rc=0; a=$(jig_upgrade_merge) || rc=$?
+    printf "%s:%s " "$a" "$rc"
+    printf "upgrade.merge: sometimes\n" > .ai/config.local.yaml
+    rc=0; a=$(jig_upgrade_merge) || rc=$?
+    printf "%s:%s" "$a" "$rc"'
+  assert_eq "agent:0 human:1" "$OUT"
+}
+
 # The model a stage is delegated to is the runtime's word, never Jig's
 # (adr-20261005-jig-names-the-roles-not-the-models): any value the file can
 # hold is accepted as written, and only what the file format cannot hold is

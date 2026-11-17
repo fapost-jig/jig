@@ -130,3 +130,8 @@ On by default; `git.delete_merged_branches: false` (a local key) keeps every bra
 > hand under the name of a task whose record is still in trash, and a project that switched
 > `git.branch_per_task` from `false` to `true` with records of the old mode still in its workspace.
 > (task branch-sweep-without-template-prefix)
+
+> **Amendment (2026-11-17).** After a merge it made itself, `jig upgrade` lets its branch go through
+> `jig_branch_leave` with the merged head from any checkout — never `jig_ship_leave`, which switches one
+> — and deletes it on origin at its effective level, which under `upgrade.merge: agent` is `merge`
+> whatever `agent.git` says (adr-20261117-an-upgrade-is-built-in-jigs-own-tree-and-merges-itself).
