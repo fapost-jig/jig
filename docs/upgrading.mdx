@@ -314,7 +314,7 @@ order does not change: do it once, and read every release between yours and the 
 A refusal lists all its reasons at once, before anything is touched, and the fix is in the message.
 The usual ones. The first, second and fourth rows are asked only where the upgrade works in your
 checkout (see [above](#an-upgrade-is-a-change-of-its-own)); in Jig's own tree only the line endings
-one stands, and the last three rows can stop it instead:
+one stands, and the last four rows can stop it instead:
 
 | The message says | What it means and what to do |
 |---|---|
@@ -326,7 +326,8 @@ one stands, and the last three rows can stop it instead:
 | `upgrade: not committed, because the install is not complete …` | The self-check did not confirm the install, so nothing was committed. Run `jig upgrade` again on the same branch; it carries on. |
 | `upgrade: another write is running in this clone (…); try again in a moment` | A write from a page or a program holds the clone's lock, which the upgrade needs for Jig's own tree (`write-busy` in `--json`). Run `jig upgrade` again when that write has finished. |
 | `… is what an unfinished write left, and git will not remove it; delete that directory, then try again` | A run that was cut short left a directory under `.git/jig/` where Jig's tree goes (`tree-in-the-way`). Delete the directory the message names, then run `jig upgrade` again. |
-| `upgrade: not committed: the project's pre-commit hook refused in Jig's tree: …` | Your pre-commit hook failed in Jig's tree, which has no installed dependencies (`commit-refused`). Nothing was left behind and your checkout was not touched. Until the hook can run there, make the upgrade work in your checkout, where its dependencies are: `jig config set --local upgrade.merge human agent.git commit`, then `jig upgrade`; it commits there. Push the branch and open the pull request yourself, then set `agent.git` back. |
+| `upgrade: not committed: the project's pre-commit hook refused in Jig's tree: …` | Your pre-commit hook failed in Jig's tree, which has no installed dependencies (`commit-refused`). Nothing was left behind and your checkout was not touched. Until the hook can run there, make the upgrade work in your checkout, where its dependencies are: `jig config set --local upgrade.merge human agent.git commit`, then `jig upgrade`; it commits there. Push the branch and open the pull request yourself, then set `agent.git` and `upgrade.merge` back (`jig config set --local upgrade.merge agent`, the default): left at `human`, no later upgrade merges itself. |
+| `upgrade: jig/upgrade-<version> carries commits Jig did not write, so Jig does not push or merge it for you …` | With `upgrade.merge: agent`, the branch an earlier run left for this version holds a commit that is not Jig's upgrade commit, and your own `agent.git` is not `merge` (`branch-has-other-commits` in `--json`). Nothing was pushed or merged; the message names the branch's pull request when there is one. Review the branch and merge it yourself, or move those commits to another branch and run `jig upgrade` again. |
 
 `jig upgrade --dry-run` does not refuse for these reasons; it prints them as `note:` lines, so you
 can see them before you try. The one refusal a dry run shares with the real run is a source that is
@@ -523,8 +524,12 @@ pr https://github.com/example/example/pull/7
 merged https://github.com/example/example/pull/7
 upgrade: deleted branch jig/upgrade-0.47.0
 upgrade: deleted branch jig/upgrade-0.47.0 on origin
-upgrade: main here moved to abd00a710f23
+upgrade: main here moved to 3f9c1e27b4d8
 ```
+
+The base moves to what the forge made of the merge, not to the upgrade's own commit: on GitHub a
+merge commit where the repository allows one (otherwise a squash or a rebase), so the last line
+names a commit the earlier lines do not.
 
 `upgrade.merge` decides who carries the upgrade to the base:
 
@@ -546,22 +551,22 @@ jig config set --local upgrade.merge human
 ```
 
 `agent` applies even at `agent.git: none`: it is the one place where `none` no longer means that
-nothing leaves your machine. A project that wants a person to
-read every upgrade requires a review in the forge's branch protection: the merge Jig makes never
-bypasses it, and then the pull request stays open with `not merged: …`.
+nothing leaves your machine. A project that wants a person to read every upgrade requires a review
+in the forge's branch protection: the merge Jig makes never bypasses it, and then the pull request
+stays open with `not merged: …`.
 
-After a merge the run lets the upgrade's branch go, here and on `origin`, and moves your base
-branch the way [`jig refresh`](/reading-jig-as-data) does, without switching you: fast-forwarded
-where it is checked out and the files allow, only the ref where it is checked out nowhere. Where it
-cannot move — your changes stand in the way, another worktree has it, a `jig verify` runs on it — a
-`next:` line says so, and `jig refresh` or `jig upgrade --land` moves it later. A checkout on another
-branch does not get the new Jig until that branch merges the base, and the run says so. Older
+After a merge the run lets the upgrade's branch go, here and on `origin`, and moves your base branch
+the way [`jig refresh`](/reading-jig-as-data) does, without switching you: fast-forwarded where it
+is checked out and the files allow, only the ref where it is checked out nowhere. Where it cannot
+move — your changes stand in the way, another worktree has it, a `jig verify` runs on it — a `next:`
+line says so, and `jig refresh` or `jig upgrade --land` moves it later. A checkout on another branch
+does not get the new Jig until that branch merges the base, and the run says so. Older
 `jig/upgrade-<version>` branches that were never merged are listed in `note:` lines as superseded.
-`jig housekeeping` deletes such a branch, here and on `origin`, when only Jig's own
-upgrade commits are on it, and at `agent.git: pr` or above first closes its open pull request with a
-comment; one that carries a commit of yours is only named, with a `kept branch` line, and stays.
-What a sweep prints, at `agent.git: pr`, when the base carries Jig 2.0.0 and an unmerged `1.5.0`
-branch is left (the numbers are an example):
+`jig housekeeping` deletes such a branch, here and on `origin`, when only Jig's own upgrade commits
+are on it, and at `agent.git: pr` or above first closes its open pull request with a comment; one
+that carries a commit of yours is only named, with a `kept branch` line, and stays. What a sweep
+prints, at `agent.git: pr`, when the base carries Jig 2.0.0 and an unmerged `1.5.0` branch is left
+(the numbers are an example):
 
 ```text
 $ jig housekeeping
@@ -584,8 +589,8 @@ and merged on green CI — but only when the branch carries nothing that is not 
 hook that needs the project's dependencies can fail in Jig's tree; the run then ends with
 `not committed: the project's pre-commit hook refused in Jig's tree: <first line>` and leaves no
 branch and no tree. `jig upgrade --land` stays for `upgrade.merge: human`, for a pull request you
-merged yourself, and for a base that did not move; run by an older copy of Jig in the project (0.47.0
-or later), it is handed to the newer `jig` on your machine, as an upgrade is.
+merged yourself, and for a base that did not move; run by an older copy of Jig in the project
+(0.47.0 or later), it is handed to the newer `jig` on your machine, as an upgrade is.
 
 ## From 0.46.0 to 0.47.0
 
@@ -601,13 +606,14 @@ jig config set --local upgrade.merge human
 ```
 
 or add `upgrade.merge: human` to `.ai/config.local.yaml` by hand. Then the upgrade goes by
-`agent.git` as before ([Where the upgrade works, and who merges it](#where-the-upgrade-works-and-who-merges-it)).
+`agent.git` as before
+([Where the upgrade works, and who merges it](#where-the-upgrade-works-and-who-merges-it)).
 
-**The dry run is still the old one.** Only a real run is handed over: `.ai/scripts/jig upgrade
---dry-run` (which the 0.46.0 `jig-upgrade` skill runs) is 0.46.0's own, so it may name uncommitted
-changes or a task's branch as reasons the upgrade would stop, which the real run in Jig's tree does
-not have, and it does not say the upgrade will merge itself. `jig upgrade --dry-run` with the
-global `jig` shows the 0.47.0 plan.
+**The dry run is still the old one.** Only a real run is handed over:
+`.ai/scripts/jig upgrade --dry-run` (which the 0.46.0 `jig-upgrade` skill runs) is 0.46.0's own, so
+it may name uncommitted changes or a task's branch as reasons the upgrade would stop, which the real
+run in Jig's tree does not have, and it does not say the upgrade will merge itself.
+`jig upgrade --dry-run` with the global `jig` shows the 0.47.0 plan.
 
 **Landing it yourself.** With `upgrade.merge: human`, once you have merged the pull request, land it
 with the global `jig upgrade --land`: the project's 0.46.0 copy lands by itself, the 0.46.0 way.
@@ -620,17 +626,18 @@ The installer did not change.
 
 - A run can take as long as CI does, up to `agent.ci_timeout` (30 minutes by default), where it
   merges.
-- Where the upgrade works in Jig's own tree, uncommitted changes and a task branch no longer stop it.
-- On a branch that has not merged the base yet, the status page and `jig status --json` say `upgrade-on-base`
-  with `git merge <base>`, in place of offering an upgrade there.
-- Housekeeping deletes older `jig/upgrade-*` branches that a newer upgrade overtook, and closes their
-  open pull requests at `agent.git: pr` or above.
+- Where the upgrade works in Jig's own tree, uncommitted changes and a task branch no longer stop
+  it.
+- On a branch that has not merged the base yet, the status page and `jig status --json` say
+  `upgrade-on-base` with `git merge <base>`, in place of offering an upgrade there.
+- Housekeeping deletes older `jig/upgrade-*` branches that a newer upgrade overtook, and closes
+  their open pull requests at `agent.git: pr` or above.
 - A pre-commit hook that needs the project's dependencies refuses the upgrade in Jig's tree
   ([When the upgrade refuses](#when-the-upgrade-refuses) has the workaround;
   [known issues](/known-issues)).
 - A program that reads Jig's JSON: `jig upgrade --json` has new `git` fields (`path`, `level_key`,
   `merge_by`, `not_merged`, `base`, `superseded`, `ignored`) and the refusal codes `write-busy`,
-  `tree-in-the-way` and `commit-refused`
+  `tree-in-the-way`, `commit-refused` and `branch-has-other-commits`
   ([Reading Jig as data](/reading-jig-as-data#upgrading-a-project)).
 
 ## From 0.45.0 to 0.46.0

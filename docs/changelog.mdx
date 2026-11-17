@@ -37,13 +37,23 @@ the base.
   commit on it is Jig's own upgrade commit. A branch with a commit of yours is named and kept.
   `git.delete_merged_branches: false` turns it off. See
   [Upgrading](/upgrading#where-the-upgrade-works-and-who-merges-it).
+- **An upgrade branch with your commit on it is not merged for you.** Run again while this
+  version's `jig/upgrade-<version>` waits unmerged, `jig upgrade` carries it on only when every
+  commit on it is Jig's own; a commit of yours there refuses the run with `branch-has-other-commits`
+  and nothing sent, unless your own `agent.git` is `merge`. See
+  [When the upgrade refuses](/upgrading#when-the-upgrade-refuses).
+- **Fixed: the upgrade in your checkout no longer commits onto an older upgrade branch.** Run while
+  you stood on another version's `jig/upgrade-<version>`, it committed there, and the new version
+  rode into the old pull request; now it stays only on this version's own branch and cuts a new one
+  from the base otherwise.
 - **`jig upgrade --land` from an older copy goes to the newer Jig.** From 0.47.0 on, run by a
   project's `.ai/scripts/jig` older than the `jig` on your machine, it is handed to that `jig`, as an
   upgrade is; a 0.46.0 copy still lands by itself.
 - **For programs and Jig UI.** `jig upgrade --json` gains `git.path` (`tree` or `checkout`),
   `git.level_key`, `git.merge_by`, `git.not_merged`, `git.base`, `git.superseded` and `git.ignored`,
-  and three refusal codes: `write-busy`, `tree-in-the-way` and `commit-refused`. One call can last
-  as long as CI does. See [Reading Jig as data](/reading-jig-as-data#upgrading-a-project).
+  and four refusal codes: `write-busy`, `tree-in-the-way`, `commit-refused` and
+  `branch-has-other-commits`. One call can last as long as CI does. See
+  [Reading Jig as data](/reading-jig-as-data#upgrading-a-project).
 - **What was proven where.** Everything above is proven by the test suite against stand-in
   remotes and a stand-in forge (`gh`, `glab`), which the release's CI runs on Linux, macOS and
   Windows (Git Bash); none of it has run yet against a live GitHub or GitLab pull request. This

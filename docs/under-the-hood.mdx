@@ -104,17 +104,18 @@ it waits for and why, and a pause asked of it that it has not honoured yet.
   through a directory link still ignores it. With
   `--session-hook` it creates `.claude/settings.json` only when that file does not exist; an existing
   one is never edited. It asks nothing and commits nothing.
-- **`jig upgrade`** fetches nothing: it copies from the Jig on your machine, and only when that is a
-  release (a checkout at its version's tag, with no local changes); otherwise it refuses unless given `--unreleased`. It replaces framework
-  files you have not edited, keeps and reports the ones you have, and deletes a file the new version
-  no longer ships only when you have not edited it — this can be outside `.ai/`, for example an old
-  skill under `.claude/skills/`. It never touches knowledge, specifications or configuration. Of
-  `AGENTS.md` it writes one thing: the section between `<!-- jig:begin -->` and `<!-- jig:end -->`,
-  and only while that section is still exactly what Jig last put there. Change a word inside it and
-  Jig keeps your version from then on, saying `keep-modified AGENTS.md (Jig section)`; delete the
-  markers and nothing comes back. Each run ends with a summary line, and a run with nothing to place
-  and nothing to record leaves `.ai/manifest` alone — a project only starts using another checkout
-  of Jig once an upgrade has really installed from it.
+- **`jig upgrade`** downloads no Jig: it copies from the Jig on your machine, and only when that is
+  a release (a checkout at its version's tag, with no local changes); otherwise it refuses unless
+  given `--unreleased`. It replaces framework files you have not edited, keeps and reports the ones
+  you have, and deletes a file the new version no longer ships only when you have not edited it —
+  this can be outside `.ai/`, for example an old skill under `.claude/skills/`. It never touches
+  knowledge, specifications or configuration. Of `AGENTS.md` it writes one thing: the section
+  between `<!-- jig:begin -->` and `<!-- jig:end -->`, and only while that section is still exactly
+  what Jig last put there. Change a word inside it and Jig keeps your version from then on, saying
+  `keep-modified AGENTS.md (Jig section)`; delete the markers and nothing comes back. Each run ends
+  with a summary line, and a run with nothing to place and nothing to record leaves `.ai/manifest`
+  alone — a project only starts using another checkout of Jig once an upgrade has really installed
+  from it.
 - **`jig verify`** runs your project's own tools — test scripts, linters, `php artisan test`, Gradle
   or Maven wrappers. **That is running your project's code**, with whatever that code does; some
   toolchains download dependencies by themselves. Jig installs nothing. A missing tool is a skip,

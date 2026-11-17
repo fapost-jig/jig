@@ -105,9 +105,9 @@ you (or your agent, when you ask) land it later with `jig task land <id>`.
 
 `agent.git_staging` lets the agent land on the staging branch without merging anything into your
 main branch. With `agent.git: pr` and `agent.git_staging: merge`, your agent lands its own tasks on
-the staging branch once CI passed and the review rule allows, while specifications,
-epics, releases and promotion still stop at a pull request for you (a Jig upgrade goes by
-`upgrade.merge`, [not by this](/upgrading#where-the-upgrade-works-and-who-merges-it)). Not set, `agent.git` answers
+the staging branch once CI passed and the review rule allows, while specifications, epics, releases
+and promotion still stop at a pull request for you (a Jig upgrade goes by `upgrade.merge`,
+[not by this](/upgrading#where-the-upgrade-works-and-who-merges-it)). Not set, `agent.git` answers
 everywhere, as before. A task of an epic and a task that changes the git flow itself go into their
 own base, and `agent.git` decides those. These settings limit what Jig does for your agent: an agent
 that bypasses Jig (`gh pr merge`) is held only by the "Jig first" rules in your project's
