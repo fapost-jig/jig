@@ -365,7 +365,7 @@ request, in plain words:
 |---|---|
 | Approving the design of a risky task | Approves its own design. One line under **Approved by the agent, not a human** says what was approved and names the decision record the task wrote; the design itself is not pasted into the pull request |
 | A decision nobody has made | Picks the most careful option, the one easiest to undo. Listed under **Decided without you** |
-| A project's gate hook refuses and the task's work cannot satisfy it | Never waives it. Stops, and opens a **draft** pull request that starts with **Not finished: hooks.<gate> refused**; a person waives the hook and resumes the run |
+| A project's gate hook refuses and the task's work cannot satisfy it | Never waives it. Stops, and opens a **draft** pull request that starts with **Not finished: `hooks.<gate>` refused**; a person waives the hook and resumes the run |
 | Something that would destroy data or history | Never does it. It finds another way or leaves that part out, and says so under **Decided without you** |
 | A problem still there after two attempts to fix it | Stops working and opens a **draft** pull request that starts with **Not finished** and says why. A draft is never merged — with `git.staging_land: external`, where your CI lands whatever is pushed, it is committed and kept on your machine instead, not pushed — and the run never resumes itself for more attempts |
 | The task turns out smaller than its design approval assumed | Keeps the risky task's route. Only a person can lower a task out of the classes that need a design approval |

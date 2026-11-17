@@ -282,7 +282,7 @@ findings, the review, the route — have passed.
   claim: an agent can write any note.
 - **It has a time limit.** Each hook may run for `hooks.timeout` (`5m` unless your project sets
   another; `0` means no limit). A hook still running at the limit is stopped with everything it
-  started, and the gate is refused with "did not finish in <limit>" and what the hook printed so far.
+  started, and the gate is refused with `did not finish in <limit>` and what the hook printed so far.
   The limit is the hook's, not the task's code: fix the hook or raise `hooks.timeout` in
   `.ai/config.yaml`.
 - **It only checks.** A hook that changes anything Git can see in the task's folder — a formatter
