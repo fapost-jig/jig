@@ -411,14 +411,17 @@ jig upgrade --dry-run    # in a project: what would change
 jig upgrade              # in a project: update its copy of Jig
 ```
 
-`self-update` refuses a checkout with uncommitted changes and changes no project. `upgrade` fetches
-nothing: it copies from the Jig on your machine, updates only files Jig installed and you did not
-edit, removes the ones Jig no longer ships unless you edited them, keeps and reports the edited ones, and never touches project knowledge or configuration.
-In `AGENTS.md` it updates one thing — the section between `<!-- jig:begin -->` and
-`<!-- jig:end -->`, and only while that section is still exactly what Jig last wrote there, so
-improvements to Jig's own instructions reach your project without you doing anything. Edit inside
-those markers and Jig keeps your version instead. `jig status` tells you when the project's copy is older than the tool. Review the
-diff and commit it.
+`self-update` refuses a checkout with uncommitted changes and changes no project. In a project with
+an `origin`, `upgrade` pushes, opens and merges its own pull request by default, unless
+`upgrade.merge` is `human` ([Upgrading](/upgrading#where-the-upgrade-works-and-who-merges-it)).
+`upgrade` downloads no Jig: it copies from the Jig on your machine, updates only files Jig installed
+and you did not edit, removes the ones Jig no longer ships unless you edited them, keeps and reports
+the edited ones, and never touches project knowledge or configuration. In `AGENTS.md` it updates one
+thing — the section between `<!-- jig:begin -->` and `<!-- jig:end -->`, and only while that section
+is still exactly what Jig last wrote there, so improvements to Jig's own instructions reach your
+project without you doing anything. Edit inside those markers and Jig keeps your version instead.
+`jig status` tells you when the project's copy is older than the tool. Review the diff and commit
+it.
 
 Run `jig doctor` any time something seems off: it checks the tool, the project and the agent
 instructions, one line each, with a fix for every warning.

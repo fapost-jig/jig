@@ -142,5 +142,8 @@ a task's pull request as the person's own act, whatever `agent.git` says, with
 `jig task pr-status --json` saying why a pull request waits and `jig pr reviewers --json` whom to ask;
 `jig task list --json` gives each staging task's review, its promotion, the spec it came from and
 whether an agent's ship is about to merge it, and `jig version --json` says, outside any project,
-which Jig is installed and whether a newer one is out. Its plans
+which Jig is installed and whether a newer one is out. From 0.47.0 `jig upgrade` merges its own pull
+request, so one call can last as long as CI does; `jig upgrade --json` says where it worked
+(`git.path`) and why it did not merge (`git.not_merged`), and a branch behind its base is
+`upgrade-on-base` in `jig status --json`. Its plans
 live in its own repository, and its documentation at [jig-ui.fapost.in](https://jig-ui.fapost.in).

@@ -81,15 +81,15 @@ be reworded.
 | `already-exists` | what the command would create is already there: a task with that id, a roadmap item with that text. Nothing was written — for a task id, choose another |
 | `already-filed` | the roadmap item you asked to file already names a task, filed earlier here or in another clone; the message names it. Nothing was written — another id does not help, read the roadmap again |
 | `git-not-allowed` | [a write on a branch of its own](#writes-on-a-branch-of-their-own) was asked for at `agent.git: none`, where Jig commits nothing. Nothing was written; the message names the setting |
-| `write-busy` | another such write is running in this project. Nothing was written — try again in a moment; if it goes on, the message names a leftover claim of a stopped write to delete |
+| `write-busy` | another such write, or a `jig upgrade` that works in Jig's tree, is running in this project. Nothing was written — try again in a moment; if it goes on, the message names a leftover claim of a stopped write to delete |
 | `unreleased-source` | copy-mode `jig init` or `jig upgrade` (dry run too) found the framework checkout off its release tag, or at it with uncommitted changes, and `--unreleased` was not given. Nothing was changed; the message names where the checkout stands and the ways out |
 | `branch-checked-out` | the write's branch is checked out somewhere, and Jig never moves a checkout. Nothing was written; the message names where |
 | `branch-diverged` | the write's branch and the one on the remote have diverged. Nothing was written, and nothing is forced |
-| `branch-has-other-commits` | the write's branch has commits here that no write made and the remote does not have: yours, and a write does not publish them. Nothing was written; the message names the branch |
+| `branch-has-other-commits` | the write's branch has commits here that no write made and the remote does not have: yours, and a write does not publish them. Nothing was written; the message names the branch. `jig upgrade` answers it for this version's unmerged `jig/upgrade-<version>` branch when it holds commits Jig did not write and your own `agent.git` is not `merge`: nothing was pushed or merged |
 | `base-not-on-origin` | the write's base is not on the remote, at `agent.git: push` or above: a branch cut from it would carry out whatever is on it. Nothing was written; push that base yourself |
 | `write-still-waits` | an earlier edit of the same spec, or of knowledge, still waits where this one cannot go: into another base, because an epic opened or finished since, or as edits that never reached the remote above ones whose pull request was closed or whose branch was deleted there. Nothing was written; the message names the branch and what to do |
-| `tree-in-the-way` | an unfinished write left files at Jig's tree that git will not remove (links and empty directories Jig clears itself). Nothing was written, and trying again does not help: delete the path the message names |
-| `commit-refused` | Git refused the commit, usually a hook of the project; the message says what it said. This edit was not committed; an earlier one already waiting on the branch still waits |
+| `tree-in-the-way` | an unfinished write or `jig upgrade` left files at Jig's tree that git will not remove (links and empty directories Jig clears itself). Nothing was written, and trying again does not help: delete the path the message names |
+| `commit-refused` | Git refused the commit, usually a hook of the project; the message says what it said. This edit was not committed (for `jig upgrade`: nothing was left, no branch and no tree); an earlier one already waiting on the branch still waits |
 | `epic-missing` | the spec is built on an epic branch that is neither here nor on the remote. Nothing was written |
 | `not-linkable` | the task cannot be linked to the roadmap item, or the item is done. Nothing was written |
 | `not-proposed` | the knowledge document is not a proposal, nor, for `reject`, a stub whose linked file changed since it was approved: it was decided already, perhaps on a branch that still waits. Nothing was written |
@@ -1018,11 +1018,16 @@ can do those, a script cannot. `jig upgrade --dry-run --json` changes nothing an
 
 By default (`upgrade.merge: agent`) the upgrade is built in Jig's own tree, never touches the
 checkout, and merges its own pull request on green CI, so one call can last as long as CI does
-(`agent.ci_timeout`, 30 minutes by default); show it as running, and read `git.merged`, `git.merge_by`,
-`git.not_merged` (`{code, reason}` when Jig tried and did not merge) and `git.base` (what became of
-the base branch here) in the data. A branch that did not take the new Jig yet, because the base moved
-but the branch did not, is the `upgrade-on-base` item of `jig status --json`, whose `todo` is
-`git merge <base>`; it is listed in place of `upgrade-available` there, with the same `versions`.
+(`agent.ci_timeout`, 30 minutes by default); show it as running, and read `git.merged`,
+`git.merge_by`, `git.not_merged` (`{code, reason}` when Jig tried and did not merge) and `git.base`
+(what became of the base branch here) in the data. `git.path` says where the run worked (`tree` or
+`checkout`), `git.ignored` lists the gitignored framework paths that sent it to the checkout (empty
+otherwise), `git.level_key` says which key set the level (`upgrade.merge` or `agent.git`), and
+`git.superseded` names the older, unmerged upgrade branches the merge overtook (the upgrade never
+deletes them; `jig housekeeping` does, when only Jig's commits are on them; one with a commit of
+yours stays). A branch that did not take the new Jig yet, because the base moved but the branch did
+not, is the `upgrade-on-base` item of `jig status --json`, whose `todo` is `git merge <base>`; it is
+listed in place of `upgrade-available` there, with the same `versions`.
 
 An upgrade with `upgrade.merge: human` at `agent.git: pr` ends with its pull request open and the
 project where it was, still at the old Jig. `jig status --json` keeps saying so — `upgrade-pull-request-waiting`,
