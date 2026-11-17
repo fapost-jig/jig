@@ -3819,6 +3819,54 @@ test_upgrade_ignored_path_fallback_reports_itself_in_json() {
   rm -rf "$src" "$remote"
 }
 
+# upgrade.merge human never merges on the ignored-path fallback either, even at agent.git
+# merge: --json says the run worked in the checkout and left the merge to a human.
+test_upgrade_merge_human_never_merges_on_the_ignored_path_fallback() {
+  local src remote
+  remote=$(_upgrade_merge_project merge)
+  PATH="$PWD/stub-bin:$PATH"
+  printf '.codex/skills/jig-newthing/\n' >> .gitignore
+  git add .gitignore
+  git commit -q -m "ignore a path"
+  git push -q origin main
+  jig config set --local upgrade.merge human >/dev/null
+  src=$(_unit_source)
+
+  _up_json upgrade --from "$src" --json
+  assert_eq 0 "$RC" "$ERR"
+  assert_contains "$OUT" '"path":"checkout"'
+  assert_contains "$OUT" '"merge_by":"human"'
+  assert_contains "$OUT" '"merged":false'
+  assert_no_file stub-bin/merged
+  assert_file .codex/skills/jig-newthing/SKILL.md
+
+  rm -rf "$src" "$remote"
+}
+
+# A repeat that carries on an upgrade branch already waiting works on that branch and
+# touches nothing in the checkout, so --json reports the tree path with no ignored paths.
+test_upgrade_carry_on_reports_the_tree_path() {
+  local src remote
+  remote=$(_upgrade_merge_project pr)
+  PATH="$PWD/stub-bin:$PATH"
+  printf '.codex/skills/jig-newthing/\n' >> .gitignore
+  git add .gitignore
+  git commit -q -m "ignore a path"
+  git push -q origin main
+  src=$(_unit_source)
+
+  run jig upgrade --from "$src"
+  assert_eq 0 "$RC"
+  assert_no_file stub-bin/merged
+  git checkout -q main
+
+  _up_json upgrade --from "$src" --json
+  assert_eq 0 "$RC" "$ERR"
+  assert_contains "$OUT" '"path":"tree","ignored":[]'
+
+  rm -rf "$src" "$remote"
+}
+
 # upgrade.merge human never merges, on the in-checkout path either, even at agent.git merge.
 test_upgrade_merge_human_never_merges_in_the_checkout() {
   _unit_project
