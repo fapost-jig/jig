@@ -4,9 +4,51 @@ description: "What each release of Jig changed."
 ---
 
 Jig is pre-1.0, so a minor version may change commands, the `.ai/` layout or the installer.
-Update the tool with `jig self-update`, then run `jig upgrade` in each project and commit the diff
-([Install](/install#keep-jig-up-to-date)). Releases are tagged on
+Update the tool with `jig self-update`, then run `jig upgrade` in each project; it ships the change
+as far as your settings allow ([Install](/install#keep-jig-up-to-date)). Releases are tagged on
 [GitHub](https://github.com/fapost-lab/jig/tags).
+
+## 0.47.0 — 2026-11-17
+
+`jig upgrade` now carries its own pull request to the merge. In a project with an `origin` it works
+in Jig's own tree instead of your checkout, so uncommitted changes and a task in progress no longer
+stop it, and it merges once CI is green. Housekeeping clears the upgrade branches a newer upgrade
+left behind, and a branch that has not yet taken in an upgrade merged to the base is told to merge
+the base.
+
+- **The upgrade builds in Jig's own tree and merges itself.** With the new personal key
+  `upgrade.merge` (`agent` by default, local only), `jig upgrade` pushes `jig/upgrade-<version>`,
+  opens the pull request and merges it once at least one check ran and all passed within
+  `agent.ci_timeout`, whatever `agent.git` says: **even at `agent.git: none`, the upgrade now
+  commits, pushes and merges.** To keep the merge yours, run `jig config set --local upgrade.merge
+  human` with the global `jig` **before** you upgrade (the project's 0.46.0 copy refuses the key):
+  the upgrade then goes by `agent.git` and never merges. See
+  [From 0.46.0 to 0.47.0](/upgrading#from-0460-to-0470). A run can last as long as CI does.
+  In a project with no `origin` or no first commit, on one branch, or one that gitignores a
+  framework path, it works in your checkout instead, and goes as far as `agent.git` allows. See
+  [Where the upgrade works, and who merges it](/upgrading#where-the-upgrade-works-and-who-merges-it).
+- **A branch behind its base is told so.** On a branch other than the base, when the base here
+  already has the newer Jig, `jig status --json` and the status page list `upgrade-on-base` with
+  `git merge <base>`, in place of `upgrade-available`: `jig upgrade` there would find nothing to
+  change. See [Reading Jig as data](/reading-jig-as-data#what-needs-you).
+- **Housekeeping clears superseded upgrade branches.** A `jig/upgrade-<version>` branch a newer Jig
+  on the base has overtaken is deleted, here and (at `agent.git: push` or higher) on `origin`, and
+  at `pr` or higher its open pull request is closed with a comment first; but only when every
+  commit on it is Jig's own upgrade commit. A branch with a commit of yours is named and kept.
+  `git.delete_merged_branches: false` turns it off. See
+  [Upgrading](/upgrading#where-the-upgrade-works-and-who-merges-it).
+- **`jig upgrade --land` from an older copy goes to the newer Jig.** From 0.47.0 on, run by a
+  project's `.ai/scripts/jig` older than the `jig` on your machine, it is handed to that `jig`, as an
+  upgrade is; a 0.46.0 copy still lands by itself.
+- **For programs and Jig UI.** `jig upgrade --json` gains `git.path` (`tree` or `checkout`),
+  `git.level_key`, `git.merge_by`, `git.not_merged`, `git.base`, `git.superseded` and `git.ignored`,
+  and three refusal codes: `write-busy`, `tree-in-the-way` and `commit-refused`. One call can last
+  as long as CI does. See [Reading Jig as data](/reading-jig-as-data#upgrading-a-project).
+- **What was proven where.** Everything above is proven by the test suite against stand-in
+  remotes and a stand-in forge (`gh`, `glab`), which the release's CI runs on Linux, macOS and
+  Windows (Git Bash); none of it has run yet against a live GitHub or GitLab pull request. This
+  repository installs Jig in link mode, so its own upgrades never take the new path. A pre-commit
+  hook that needs your dependencies now refuses the upgrade ([known issues](/known-issues)).
 
 ## 0.46.0 — 2026-11-16
 

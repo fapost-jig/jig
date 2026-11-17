@@ -64,8 +64,10 @@ sandbox.
 The one-off git worktree at `<git-common-dir>/jig/tree` that a write from outside a session
 (`jig spec item`, `jig knowledge accept --revision`) is made in, so that no checkout moves. Made and
 removed by each write. Its branch, the **write branch** (`spec/<id>`, `knowledge/decisions`), is
-what waits until it lands (adr-20261104-a-write-goes-in-jigs-own-tree). Not a Task Worktree: no
-task owns it, and nobody ever works in it. Informal synonyms: write tree.
+what waits until it lands (adr-20261104-a-write-goes-in-jigs-own-tree). A copy-mode `jig upgrade`
+in a project with an `origin` is built there too, under the same lock, and its branch is
+`jig/upgrade-<version>` (adr-20261117-an-upgrade-is-built-in-jigs-own-tree-and-merges-itself). Not a
+Task Worktree: no task owns it, and nobody ever works in it. Informal synonyms: write tree.
 
 ## Review Tree
 

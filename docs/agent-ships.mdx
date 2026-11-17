@@ -115,7 +115,8 @@ Up to `pr`, merging is your decision. The same levels apply to a specification's
 **One exception: `jig upgrade`.** A project's Jig upgrade is one reproducible commit, built in Jig's
 own tree and checked by CI, so it is not left to this level: with `upgrade.merge: agent` (the
 default, in `.ai/config.local.yaml` only) each of its steps runs at `merge` whatever `agent.git`
-says, in a project that has an `origin`. `upgrade.merge: human` hands it back: the upgrade goes by
+says, even at `none`, in a project that has an `origin`, a first commit and `git.branch_per_task: true`.
+`upgrade.merge: human` hands it back: the upgrade goes by
 `agent.git`, and never merges, even at `merge`. See
 [Where the upgrade works, and who merges it](/upgrading#where-the-upgrade-works-and-who-merges-it).
 </Accordion>

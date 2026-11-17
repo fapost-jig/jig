@@ -242,8 +242,10 @@ Some settings are a matter of personal taste rather than project policy. Put the
   merge, and a `major` one always is. Other task pull requests are not affected; local only.
 - `upgrade.merge` — whether `jig upgrade` carries its own pull request to the merge on your
   behalf: `agent` (the default) pushes it, opens the pull request and merges it once CI is green,
-  whatever `agent.git` says; `human` leaves every step to `agent.git` and never merges. Only in a
-  project with an `origin`; local only, as `agent.git` is. An invalid value reads as `human`. See
+  whatever `agent.git` says, even at `none`; `human` leaves every step to `agent.git` and never
+  merges (`jig config set --local upgrade.merge human`). The upgrade works in Jig's own tree, and
+  merges, only in a project with a first commit, `git.branch_per_task: true` and an `origin`; local
+  only, as `agent.git` is. An invalid value reads as `human`. See
   [Where the upgrade works, and who merges it](/upgrading#where-the-upgrade-works-and-who-merges-it).
 - `run.exec` — where this machine runs the project's checks: `auto` (the default: Jig finds out),
   `host`, or the command that reaches the project's container. Local only: the place is a property

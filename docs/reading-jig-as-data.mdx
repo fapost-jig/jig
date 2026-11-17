@@ -1020,7 +1020,11 @@ By default (`upgrade.merge: agent`) the upgrade is built in Jig's own tree, neve
 checkout, and merges its own pull request on green CI, so one call can last as long as CI does
 (`agent.ci_timeout`, 30 minutes by default); show it as running, and read `git.merged`, `git.merge_by`,
 `git.not_merged` (`{code, reason}` when Jig tried and did not merge) and `git.base` (what became of
-the base branch here) in the data. A branch that did not take the new Jig yet, because the base moved
+the base branch here) in the data. `git.path` says where the run worked (`tree` or `checkout`),
+`git.ignored` lists the gitignored framework paths that sent it to the checkout (empty otherwise),
+`git.level_key` says which key set the level (`upgrade.merge` or `agent.git`), and `git.superseded`
+names the older, unmerged upgrade branches the merge overtook (the upgrade never deletes them;
+housekeeping does, later). A branch that did not take the new Jig yet, because the base moved
 but the branch did not, is the `upgrade-on-base` item of `jig status --json`, whose `todo` is
 `git merge <base>`; it is listed in place of `upgrade-available` there, with the same `versions`.
 
