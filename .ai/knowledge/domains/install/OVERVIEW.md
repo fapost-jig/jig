@@ -22,7 +22,7 @@ paths:
   - scripts/lib/section.sh
   - scripts/lib/output.sh
   - scripts/lib/globalskill.sh
-reviewed_at: 2026-11-12
+reviewed_at: 2026-11-18
 ---
 # Install
 

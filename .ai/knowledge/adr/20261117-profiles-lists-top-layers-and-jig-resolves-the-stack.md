@@ -13,6 +13,7 @@ paths:
   - scripts/lib/init.sh
   - schemas/profile.md
 summary: "Why a profile may extend one other (extends), why profiles: lists the top layers and Jig resolves the stack in one place (layer before base, errors not warnings, pure layers, stock versus project names), and how this refines the rule that upgrade never edits profiles:."
+reviewed_at: 2026-11-18
 ---
 # `profiles:` lists the top layers, and Jig resolves their stack (`extends`)
 

@@ -10,6 +10,7 @@ paths:
   - scripts/lib/init.sh
   - scripts/lib/profiles.sh
 summary: Why a first jig init without --profiles activates the detected profiles, never widens an existing choice, and skips dependency directories when detecting.
+reviewed_at: 2026-11-18
 ---
 # A first `jig init` activates the profiles it detects
 

@@ -17,7 +17,7 @@ paths:
   - schemas/profile.md
   - scripts/lib/runenv.sh
   - scripts/lib/hostruntime.sh
-reviewed_at: 2026-11-17
+reviewed_at: 2026-11-18
 ---
 # Verify
 
