@@ -11,7 +11,7 @@ Goal: the two failures of the motivating case stop without the layer model. Done
 project's `jig verify --explain` plans one PHPUnit pass, and `jig doctor` names a profile under
 `.ai/profiles/` that `profiles:` does not reach.
 
-- [ ] `laravel-php-duplicate-suite` — `php` leaves its test check to `laravel` when both are active, and `--explain` says so
+- [x] `laravel-php-duplicate-suite` — `php` leaves its test check to `laravel` when both are active, and `--explain` says so
 - [ ] Unreached profiles are named — `jig doctor` and `jig status` name a profile under `.ai/profiles/` that no active profile reaches
 
 ## Phase 2 — Checks have names
