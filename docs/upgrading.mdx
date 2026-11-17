@@ -527,8 +527,10 @@ where it is checked out and the files allow, only the ref where it is checked ou
 cannot move — your changes stand in the way, another worktree has it, a `jig verify` runs on it — a
 `next:` line says so, and `jig refresh` or `jig upgrade --land` moves it later. A checkout on another
 branch does not get the new Jig until that branch merges the base, and the run says so. Older
-`jig/upgrade-<version>` branches that were never merged are listed in `note:` lines as superseded;
-Jig never deletes or closes them, since commits of yours may lie on them.
+`jig/upgrade-<version>` branches that were never merged are listed in `note:` lines as superseded.
+`jig housekeeping` deletes such a branch, here and on `origin`, when only Jig's own
+upgrade commits are on it, and at `agent.git: pr` or above first closes its open pull request with a
+comment; one that carries a commit of yours is only named, with a `kept branch` line, and stays.
 
 Run again after `not merged: the checks did not finish…`, an upgrade whose branch is still unmerged
 is carried on, not refused: pushed if `origin` lacks it, its pull request opened if none is open,
@@ -1083,7 +1085,12 @@ holding a commit that is nowhere else: Jig deletes with `git branch -d`, and pas
 a branch whose last commit is in a pull request the hosting site reports merged; anything else Jig
 keeps and says `kept branch <name>: git does not see all of its commits merged`. Housekeeping's
 sweep runs only in the clone's main checkout, and nothing is deleted when
-`git.delete_merged_branches` is `false`.
+`git.delete_merged_branches` is `false`. One exception came later: an
+upgrade branch a newer Jig on the base has overtaken goes without being merged, and its open pull
+request is closed first at `agent.git: pr` or above, but only when every commit on it is Jig's own
+upgrade commit; one with a commit of yours is only named (`kept branch <name>: superseded by Jig …`).
+The dry run says `would delete superseded branch <name>`, `… on origin, if it is still at the
+checked commit`, and `would close pull request <url>`.
 
 **What you will see after a merge Jig made.** When `jig upgrade` or `jig task ship` merges the pull
 request itself (`agent.git: merge`), the run puts you back on your base branch, brings it up to date

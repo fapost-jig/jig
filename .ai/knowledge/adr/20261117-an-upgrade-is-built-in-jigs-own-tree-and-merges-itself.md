@@ -143,3 +143,8 @@ adr-20261104 already gives Jig a tree of its own for writes that must not move a
 
 adr-20260921, adr-20260930, adr-20260926, adr-20261029, adr-20261104, adr-20261114, adr-20261007:
 each carries an amendment of 2026-11-17 pointing here.
+
+> **Amendment (2026-11-17).** An upgrade still never stands on an older upgrade branch, but
+> housekeeping now deletes one that holds only Jig's commits, here and on origin, and closes its
+> pull request at `pr` or above; the `note:` says so
+> (adr-20261117-a-superseded-upgrade-branch-leaves-without-landing).

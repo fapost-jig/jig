@@ -4242,6 +4242,473 @@ test_housekeeping_keeps_a_branch_with_an_open_pull_request() {
   rm -rf "$remote"
 }
 
+# --- superseded upgrade branches (adr-20261117-a-superseded-upgrade-branch-leaves-without-landing) ---
+
+# hk_set_version <version> — the manifest records Jig <version>.
+hk_set_version() {
+  sed "s|^jig.version:.*|jig.version: $1|" .ai/manifest > .ai/manifest.tmp
+  mv .ai/manifest.tmp .ai/manifest
+}
+
+# hk_upgrade_setup — main records Jig 1.0.0, committed.
+hk_upgrade_setup() {
+  hk_setup
+  # With a level: GitHub as the forge, fetch on, this person's agent at <level>.
+  if [ -n "${1:-}" ]; then
+    hk_cfg forge github
+    hk_cfg housekeeping.fetch true
+    hk_cfg_local agent.git "$1"
+  fi
+  hk_set_version 1.0.0
+  git add -A
+  git commit -q -m "jig init snapshot"
+}
+
+# hk_upgrade_branch <name> <version> — a branch cut from main with the one
+# commit `jig upgrade` writes: the manifest moves to <version>. Stays on main.
+hk_upgrade_branch() {
+  hk_tick
+  git checkout -q -b "$1" main
+  hk_set_version "$2"
+  git add .ai/manifest
+  git commit -q -m "Upgrade Jig 1.0.0 -> $2"
+  git checkout -q main
+}
+
+# hk_upgrade_base <version> — main moves on to Jig <version> by a commit of its
+# own, so no upgrade branch is merged into it.
+hk_upgrade_base() {
+  hk_tick
+  hk_set_version "$1"
+  git commit -q -am "Upgrade Jig 1.0.0 -> $1"
+}
+
+# hk_upgrade_commit_on <branch> <file> — a commit of a person's on <branch>.
+hk_upgrade_commit_on() {
+  hk_tick
+  git checkout -q "$1"
+  printf 'mine\n' > "$2"
+  git add "$2"
+  git commit -q -m "my own work"
+  git checkout -q main
+}
+
+hk_has_branch() { git show-ref --verify --quiet "refs/heads/$1"; }
+
+test_housekeeping_deletes_a_superseded_upgrade_branch() {
+  hk_upgrade_setup
+  hk_upgrade_branch jig/upgrade-1.5.0 1.5.0
+  hk_upgrade_base 2.0.0
+  local tip
+  tip=$(git rev-parse --short=7 jig/upgrade-1.5.0)
+
+  run jig housekeeping
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "housekeeping: deleted superseded branch jig/upgrade-1.5.0 (was $tip): main carries Jig 2.0.0"
+  if hk_has_branch jig/upgrade-1.5.0; then fail "the superseded branch is still here"; fi
+  assert_file_contains .ai/runtime/housekeeping.log "branch=jig/upgrade-1.5.0 where=local action=delete"
+}
+
+test_housekeeping_keeps_a_superseded_upgrade_branch_with_a_commit_of_a_person() {
+  hk_upgrade_setup
+  hk_upgrade_branch jig/upgrade-1.5.0 1.5.0
+  hk_upgrade_commit_on jig/upgrade-1.5.0 mine.txt
+  hk_upgrade_base 2.0.0
+  local foreign
+  foreign=$(git rev-parse --short=7 jig/upgrade-1.5.0)
+
+  run jig housekeeping
+  assert_contains "$OUT" "housekeeping: kept branch jig/upgrade-1.5.0: superseded by Jig 2.0.0 on main, but commit $foreign on it is not Jig's upgrade; delete it yourself once nothing on it is needed"
+  hk_has_branch jig/upgrade-1.5.0 || fail "a branch with a commit of a person's was deleted"
+  assert_file_contains .ai/runtime/housekeeping.log "branch=jig/upgrade-1.5.0 where=local action=keep"
+}
+
+test_housekeeping_keeps_a_superseded_upgrade_branch_with_a_merge_commit() {
+  hk_upgrade_setup
+  hk_upgrade_branch jig/upgrade-1.5.0 1.5.0
+  hk_branch side none
+  hk_tick
+  git checkout -q jig/upgrade-1.5.0
+  git merge -q --no-ff -m "Upgrade Jig 1.0.0 -> 1.5.0" side
+  git checkout -q main
+  hk_upgrade_base 2.0.0
+
+  run jig housekeeping
+  assert_contains "$OUT" "kept branch jig/upgrade-1.5.0: superseded by Jig 2.0.0 on main, but commit"
+  hk_has_branch jig/upgrade-1.5.0 || fail "a branch with a merge commit was deleted"
+}
+
+test_housekeeping_keeps_a_superseded_upgrade_branch_whose_commit_touches_a_path_outside_the_manifest() {
+  hk_upgrade_setup
+  hk_tick
+  git checkout -q -b jig/upgrade-1.5.0 main
+  hk_set_version 1.5.0
+  printf 'x\n' > stray.txt
+  git add .ai/manifest stray.txt
+  git commit -q -m "Upgrade Jig 1.0.0 -> 1.5.0"
+  git checkout -q main
+  hk_upgrade_base 2.0.0
+
+  run jig housekeeping
+  assert_contains "$OUT" "kept branch jig/upgrade-1.5.0: superseded by Jig 2.0.0 on main, but commit"
+  hk_has_branch jig/upgrade-1.5.0 || fail "a branch with a foreign path was deleted"
+}
+
+test_housekeeping_leaves_an_upgrade_branch_alone_when_the_base_is_not_newer() {
+  hk_upgrade_setup
+  hk_upgrade_branch jig/upgrade-1.5.0 1.5.0
+  hk_upgrade_base 1.5.0
+
+  run jig housekeeping
+  assert_not_contains "$OUT" "jig/upgrade-1.5.0"
+  hk_has_branch jig/upgrade-1.5.0 || fail "an upgrade branch not overtaken was deleted"
+}
+
+test_housekeeping_leaves_an_upgrade_branch_alone_when_its_name_and_manifest_disagree() {
+  hk_upgrade_setup
+  hk_upgrade_branch jig/upgrade-1.5.0 1.6.0
+  hk_upgrade_base 2.0.0
+
+  run jig housekeeping
+  assert_not_contains "$OUT" "jig/upgrade-1.5.0"
+  hk_has_branch jig/upgrade-1.5.0 || fail "a branch whose name and manifest disagree was deleted"
+}
+
+test_housekeeping_keeps_a_superseded_upgrade_branch_checked_out_in_a_worktree() {
+  hk_upgrade_setup
+  hk_upgrade_branch jig/upgrade-1.5.0 1.5.0
+  hk_upgrade_base 2.0.0
+  git worktree add -q "$PWD/hk-wt-busy" jig/upgrade-1.5.0
+  printf 'hk-wt-busy/\n' >> .git/info/exclude
+
+  run jig housekeeping
+  assert_not_contains "$OUT" "deleted superseded branch"
+  hk_has_branch jig/upgrade-1.5.0 || fail "a branch checked out in a worktree was deleted"
+  git worktree remove --force "$PWD/hk-wt-busy"
+}
+
+test_housekeeping_keeps_a_superseded_upgrade_branch_when_the_key_is_off() {
+  hk_upgrade_setup
+  hk_upgrade_branch jig/upgrade-1.5.0 1.5.0
+  hk_upgrade_base 2.0.0
+  hk_cfg_local git.delete_merged_branches false
+
+  run jig housekeeping
+  assert_not_contains "$OUT" "jig/upgrade-1.5.0"
+  hk_has_branch jig/upgrade-1.5.0 || fail "the key was off and the branch was deleted"
+}
+
+test_housekeeping_dry_run_names_a_superseded_upgrade_branch_and_deletes_none() {
+  hk_upgrade_setup
+  hk_upgrade_branch jig/upgrade-1.5.0 1.5.0
+  hk_upgrade_base 2.0.0
+  hk_upgrade_branch jig/upgrade-1.6.0 1.6.0
+  hk_upgrade_commit_on jig/upgrade-1.6.0 mine.txt
+
+  run jig housekeeping --dry-run
+  assert_contains "$OUT" "would delete superseded branch jig/upgrade-1.5.0"
+  assert_contains "$OUT" "kept branch jig/upgrade-1.6.0: superseded by Jig 2.0.0"
+  hk_has_branch jig/upgrade-1.5.0 || fail "a dry run deleted a branch"
+  hk_has_branch jig/upgrade-1.6.0 || fail "a dry run deleted a branch"
+}
+
+# hk_upgrade_origin — a bare origin holding main and the upgrade branch
+# jig/upgrade-1.5.0 (pushed with an upstream). Prints the bare repository's path.
+hk_upgrade_origin() {
+  local remote
+  remote="$PWD/hk-origin.git"
+  printf 'hk-origin.git/\n' >> .git/info/exclude
+  git init -q --bare "$remote"
+  git remote add origin "$remote"
+  git push -q origin main
+  git push -q -u origin jig/upgrade-1.5.0 2>/dev/null
+  printf '%s\n' "$remote"
+}
+
+# hk_stub_gh_close <rows> [<close-exit-code>] — a gh that lists <rows> and
+# records every other call in stub-bin/calls; `pr close` exits with the code.
+hk_stub_gh_close() {
+  mkdir -p stub-bin
+  printf '%s\n' "$1" > stub-bin/rows
+  : > stub-bin/calls
+  cat > stub-bin/gh <<STUB
+#!/usr/bin/env bash
+case "\$1" in
+  auth) exit 0 ;;
+  pr)
+    case "\$2" in
+      list)
+        # The run's list of every pull request, or one branch's open ones
+        # (--head/--base <branch>), in the shape each call's --jq gives.
+        case "\$3" in
+          --head) awk -F '\t' -v b="\$4" 'BEGIN { OFS = FS } \$1 == b && \$3 == "OPEN" { print \$1, \$2, \$4, \$5 }' "$PWD/stub-bin/rows" ;;
+          --base) awk -F '\t' -v b="\$4" 'BEGIN { OFS = FS } \$2 == b && \$3 == "OPEN" { print \$1, \$2, \$4, \$5 }' "$PWD/stub-bin/rows" ;;
+          *) if [ -f "$PWD/stub-bin/all" ]; then cat "$PWD/stub-bin/all"; else cat "$PWD/stub-bin/rows"; fi ;;
+        esac ;;
+      close) printf '%s\n' "\$*" >> "$PWD/stub-bin/calls"; exit ${2:-0} ;;
+    esac ;;
+esac
+STUB
+  chmod +x stub-bin/gh
+  printf 'stub-bin/\n' >> .git/info/exclude
+  PATH="$PWD/stub-bin:$PATH"
+  export PATH
+}
+
+test_housekeeping_deletes_a_superseded_upgrade_branch_on_origin_at_push() {
+  hk_upgrade_setup push
+  hk_upgrade_branch jig/upgrade-1.5.0 1.5.0
+  hk_upgrade_base 2.0.0
+  local remote
+  remote=$(hk_upgrade_origin)
+  hk_stub_gh_close ""
+  hk_stub_git_pushes
+
+  run jig housekeeping
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "housekeeping: deleted superseded branch jig/upgrade-1.5.0"
+  assert_contains "$OUT" "housekeeping: deleted branch jig/upgrade-1.5.0 on origin"
+  if hk_has_branch jig/upgrade-1.5.0; then fail "the local branch is still here"; fi
+  if git -C "$remote" show-ref --verify --quiet refs/heads/jig/upgrade-1.5.0; then fail "origin's branch is still there"; fi
+  assert_eq 1 "$(grep -c push stub-bin/pushes)"
+  assert_eq 0 "$(wc -c < stub-bin/calls | tr -d ' ')"
+  assert_file_contains .ai/runtime/housekeeping.log "branch=jig/upgrade-1.5.0 where=origin action=delete"
+  rm -rf "$remote"
+}
+
+test_housekeeping_closes_the_pull_request_of_a_superseded_upgrade_branch_at_pr() {
+  hk_upgrade_setup pr
+  hk_upgrade_branch jig/upgrade-1.5.0 1.5.0
+  hk_upgrade_base 2.0.0
+  local remote tip url t
+  t=$(printf '\t')
+  url=https://github.com/example/example/pull/9
+  remote=$(hk_upgrade_origin)
+  tip=$(git rev-parse jig/upgrade-1.5.0)
+  hk_stub_gh_close "jig/upgrade-1.5.0${t}main${t}OPEN${t}$tip${t}$url"
+
+  run jig housekeeping
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "housekeeping: closed pull request $url: superseded by Jig 2.0.0"
+  assert_contains "$OUT" "housekeeping: deleted branch jig/upgrade-1.5.0 on origin"
+  assert_file_contains stub-bin/calls "pr close $url --comment Superseded: main already carries Jig 2.0.0, newer than this upgrade (1.5.0)."
+  if grep -q -- "--delete-branch" stub-bin/calls; then fail "the pull request was closed with --delete-branch"; fi
+  if git -C "$remote" show-ref --verify --quiet refs/heads/jig/upgrade-1.5.0; then fail "origin's branch is still there"; fi
+  assert_file_contains .ai/runtime/housekeeping.log "branch=jig/upgrade-1.5.0 where=origin action=close-pr"
+  rm -rf "$remote"
+}
+
+test_housekeeping_keeps_the_open_pull_request_of_a_superseded_upgrade_branch_at_push() {
+  hk_upgrade_setup push
+  hk_upgrade_branch jig/upgrade-1.5.0 1.5.0
+  hk_upgrade_base 2.0.0
+  local remote tip url t
+  t=$(printf '\t')
+  url=https://github.com/example/example/pull/9
+  remote=$(hk_upgrade_origin)
+  tip=$(git rev-parse jig/upgrade-1.5.0)
+  hk_stub_gh_close "jig/upgrade-1.5.0${t}main${t}OPEN${t}$tip${t}$url"
+
+  run jig housekeeping
+  assert_contains "$OUT" "housekeeping: kept branch jig/upgrade-1.5.0 on origin: its pull request $url is open; closing it needs agent.git pr or above"
+  git -C "$remote" show-ref --verify --quiet refs/heads/jig/upgrade-1.5.0 || fail "origin's branch was deleted"
+  assert_eq 0 "$(wc -c < stub-bin/calls | tr -d ' ')"
+  rm -rf "$remote"
+}
+
+test_housekeeping_keeps_origins_upgrade_branch_when_its_pull_request_cannot_be_closed() {
+  hk_upgrade_setup pr
+  hk_upgrade_branch jig/upgrade-1.5.0 1.5.0
+  hk_upgrade_base 2.0.0
+  local remote tip url t
+  t=$(printf '\t')
+  url=https://github.com/example/example/pull/9
+  remote=$(hk_upgrade_origin)
+  tip=$(git rev-parse jig/upgrade-1.5.0)
+  hk_stub_gh_close "jig/upgrade-1.5.0${t}main${t}OPEN${t}$tip${t}$url" 1
+
+  run jig housekeeping
+  assert_contains "$OUT" "housekeeping: kept branch jig/upgrade-1.5.0 on origin: its pull request $url could not be closed"
+  git -C "$remote" show-ref --verify --quiet refs/heads/jig/upgrade-1.5.0 || fail "origin's branch was deleted"
+  rm -rf "$remote"
+}
+
+test_housekeeping_keeps_origins_upgrade_branch_when_the_forge_does_not_answer() {
+  hk_upgrade_setup pr
+  hk_upgrade_branch jig/upgrade-1.5.0 1.5.0
+  hk_upgrade_base 2.0.0
+  local remote
+  remote=$(hk_upgrade_origin)
+  hk_stub_gh_close ""
+  # `gh pr list` fails: whether a pull request is open is unknown.
+  cat > stub-bin/gh <<'STUB'
+#!/usr/bin/env bash
+case "$1" in auth) exit 0 ;; esac
+exit 1
+STUB
+
+  run jig housekeeping
+  assert_contains "$OUT" "housekeeping: deleted superseded branch jig/upgrade-1.5.0"
+  assert_contains "$OUT" "housekeeping: kept branch jig/upgrade-1.5.0 on origin: the forge did not say whether a pull request is open on it"
+  git -C "$remote" show-ref --verify --quiet refs/heads/jig/upgrade-1.5.0 || fail "origin's branch was deleted"
+  rm -rf "$remote"
+}
+
+test_housekeeping_asks_the_forge_for_an_old_upgrade_pull_request_the_list_does_not_hold() {
+  hk_upgrade_setup push
+  hk_upgrade_branch jig/upgrade-1.5.0 1.5.0
+  hk_upgrade_base 2.0.0
+  local remote tip url t
+  t=$(printf '\t')
+  url=https://github.com/example/example/pull/9
+  remote=$(hk_upgrade_origin)
+  tip=$(git rev-parse jig/upgrade-1.5.0)
+  hk_stub_gh_close "jig/upgrade-1.5.0${t}main${t}OPEN${t}$tip${t}$url"
+  # The run's list of the newest pull requests no longer holds it.
+  : > stub-bin/all
+
+  run jig housekeeping
+  assert_contains "$OUT" "housekeeping: kept branch jig/upgrade-1.5.0 on origin: its pull request $url is open; closing it needs agent.git pr or above"
+  git -C "$remote" show-ref --verify --quiet refs/heads/jig/upgrade-1.5.0 || fail "origin's branch was deleted"
+  rm -rf "$remote"
+}
+
+test_housekeeping_keeps_origins_upgrade_branch_without_a_forge() {
+  hk_upgrade_setup push
+  hk_cfg forge none
+  hk_upgrade_branch jig/upgrade-1.5.0 1.5.0
+  hk_upgrade_base 2.0.0
+  local remote
+  remote=$(hk_upgrade_origin)
+
+  run jig housekeeping
+  assert_contains "$OUT" "housekeeping: deleted superseded branch jig/upgrade-1.5.0"
+  assert_contains "$OUT" "housekeeping: kept branch jig/upgrade-1.5.0 on origin: the forge did not say whether a pull request is open on it"
+  git -C "$remote" show-ref --verify --quiet refs/heads/jig/upgrade-1.5.0 || fail "origin's branch was deleted"
+  rm -rf "$remote"
+}
+
+test_housekeeping_dry_run_of_an_upgrade_branch_with_an_open_pull_request_at_push_deletes_nothing_on_origin() {
+  hk_upgrade_setup push
+  hk_upgrade_branch jig/upgrade-1.5.0 1.5.0
+  hk_upgrade_commit_on jig/upgrade-1.5.0 mine.txt
+  hk_upgrade_branch jig/upgrade-1.6.0 1.6.0
+  hk_upgrade_base 2.0.0
+  local remote tip url t before
+  t=$(printf '\t')
+  url=https://github.com/example/example/pull/9
+  remote=$(hk_upgrade_origin)
+  git push -q -u origin jig/upgrade-1.6.0 2>/dev/null
+  tip=$(git rev-parse jig/upgrade-1.6.0)
+  hk_stub_gh_close "jig/upgrade-1.6.0${t}main${t}OPEN${t}$tip${t}$url"
+  before=$(cat .ai/runtime/housekeeping.log 2>/dev/null || true)
+
+  run jig housekeeping --dry-run
+  assert_contains "$OUT" "would delete superseded branch jig/upgrade-1.6.0"
+  assert_contains "$OUT" "kept branch jig/upgrade-1.6.0 on origin: its pull request $url is open; closing it needs agent.git pr or above"
+  assert_contains "$OUT" "kept branch jig/upgrade-1.5.0: superseded by Jig 2.0.0 on main, but commit"
+  assert_not_contains "$OUT" "would delete superseded branch jig/upgrade-1.6.0 on origin"
+  assert_eq "$before" "$(cat .ai/runtime/housekeeping.log 2>/dev/null || true)"
+  rm -rf "$remote"
+}
+
+test_housekeeping_keeps_origins_upgrade_branch_with_a_pull_request_stacked_on_it() {
+  hk_upgrade_setup pr
+  hk_upgrade_branch jig/upgrade-1.5.0 1.5.0
+  hk_upgrade_base 2.0.0
+  local remote t
+  t=$(printf '\t')
+  remote=$(hk_upgrade_origin)
+  hk_stub_gh_close "task/next${t}jig/upgrade-1.5.0${t}OPEN${t}abc${t}https://github.com/example/example/pull/10"
+
+  run jig housekeeping
+  assert_contains "$OUT" "housekeeping: kept branch jig/upgrade-1.5.0 on origin: a pull request is stacked on it"
+  git -C "$remote" show-ref --verify --quiet refs/heads/jig/upgrade-1.5.0 || fail "origin's branch was deleted"
+  rm -rf "$remote"
+}
+
+test_housekeeping_keeps_origins_upgrade_branch_with_a_commit_of_a_person() {
+  hk_upgrade_setup push
+  hk_upgrade_branch jig/upgrade-1.5.0 1.5.0
+  hk_upgrade_base 2.0.0
+  local remote
+  remote=$(hk_upgrade_origin)
+  # The person's commit is on origin's copy alone, fetched here.
+  hk_upgrade_commit_on jig/upgrade-1.5.0 mine.txt
+  git push -q origin jig/upgrade-1.5.0
+  git branch -q -f jig/upgrade-1.5.0 "$(git rev-parse jig/upgrade-1.5.0~1)"
+  git fetch -q origin
+  hk_stub_gh_close ""
+
+  run jig housekeeping
+  assert_contains "$OUT" "kept branch jig/upgrade-1.5.0 on origin: superseded by Jig 2.0.0 on main, but commit"
+  git -C "$remote" show-ref --verify --quiet refs/heads/jig/upgrade-1.5.0 || fail "origin's branch was deleted"
+  rm -rf "$remote"
+}
+
+test_housekeeping_dry_run_names_a_superseded_upgrade_branch_on_origin_and_writes_nothing() {
+  hk_upgrade_setup pr
+  hk_upgrade_branch jig/upgrade-1.5.0 1.5.0
+  hk_upgrade_base 2.0.0
+  local remote tip url t
+  t=$(printf '\t')
+  url=https://github.com/example/example/pull/9
+  remote=$(hk_upgrade_origin)
+  tip=$(git rev-parse jig/upgrade-1.5.0)
+  hk_stub_gh_close "jig/upgrade-1.5.0${t}main${t}OPEN${t}$tip${t}$url"
+
+  run jig housekeeping --dry-run
+  assert_contains "$OUT" "would delete superseded branch jig/upgrade-1.5.0 on origin, if it is still at the checked commit"
+  assert_contains "$OUT" "would close pull request $url"
+  git -C "$remote" show-ref --verify --quiet refs/heads/jig/upgrade-1.5.0 || fail "a dry run deleted origin's branch"
+  assert_eq 0 "$(wc -c < stub-bin/calls | tr -d ' ')"
+  rm -rf "$remote"
+}
+
+# jig_upgrade_superseded and jig_upgrade_commits_are_jigs (common.sh), called
+# directly in the repository the test built.
+hk_upgrade_lib() {
+  run bash -c '
+    set -eu
+    JIG_LIB="$JIG_HOME/scripts/lib"
+    . "$JIG_LIB/version.sh"; . "$JIG_LIB/common.sh"; . "$JIG_LIB/config.sh"
+    JIG_PROJECT="$PWD"
+    JIG_AI_DIR=.ai
+    '"$1"
+}
+
+test_jig_upgrade_superseded_needs_a_name_a_manifest_and_a_newer_base_that_agree() {
+  hk_upgrade_setup
+  hk_upgrade_branch jig/upgrade-1.5.0 1.5.0
+  hk_upgrade_branch jig/upgrade-1.5.0-2 1.5.0
+  hk_upgrade_branch jig/upgrade-1.6.0 1.5.0
+  hk_upgrade_branch feature/x 1.5.0
+  hk_upgrade_base 2.0.0
+
+  # shellcheck disable=SC2016 # expanded by the inner bash, not here
+  hk_upgrade_lib 'for b in jig/upgrade-1.5.0 jig/upgrade-1.5.0-2 jig/upgrade-1.6.0 feature/x; do
+      if h=$(jig_upgrade_superseded "$b" "refs/heads/$b" refs/heads/main); then printf "%s=%s " "$b" "$h"; else printf "%s=no " "$b"; fi
+    done
+    if h=$(jig_upgrade_superseded jig/upgrade-2.0.0 refs/heads/jig/upgrade-1.5.0 refs/heads/main); then printf "name-newer=%s" "$h"; else printf "name-newer=no"; fi'
+  assert_eq 0 "$RC"
+  assert_eq "jig/upgrade-1.5.0=2.0.0 jig/upgrade-1.5.0-2=2.0.0 jig/upgrade-1.6.0=no feature/x=no name-newer=no" "$OUT"
+}
+
+test_jig_upgrade_commits_are_jigs_names_the_first_commit_that_is_not() {
+  hk_upgrade_setup
+  hk_upgrade_branch jig/upgrade-1.5.0 1.5.0
+  hk_upgrade_commit_on jig/upgrade-1.5.0 mine.txt
+  local foreign
+  foreign=$(git rev-parse jig/upgrade-1.5.0)
+
+  # shellcheck disable=SC2016 # expanded by the inner bash, not here
+  hk_upgrade_lib 'if jig_upgrade_commits_are_jigs refs/heads/main refs/heads/jig/upgrade-1.5.0 1.5.0; then printf "jigs"; else printf "not:%s" "$JIG_UPGRADE_NOT_JIGS"; fi
+    if jig_upgrade_commits_are_jigs refs/heads/main refs/heads/jig/upgrade-1.5.0~1 1.5.0; then printf " jigs:[%s]" "$JIG_UPGRADE_NOT_JIGS"; else printf " not"; fi
+    if jig_upgrade_commits_are_jigs refs/heads/main refs/heads/main 1.5.0; then printf " jigs"; else printf " empty:[%s]" "$JIG_UPGRADE_NOT_JIGS"; fi'
+  assert_eq 0 "$RC"
+  assert_eq "not:$foreign jigs:[] empty:[]" "$OUT"
+}
+
 # hk_is_jigs <branch> — call jig_branch_is_jigs (common.sh) directly.
 hk_is_jigs() {
   bash -c '

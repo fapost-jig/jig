@@ -76,7 +76,9 @@ one guard of `jig spec drop --json`, of local refs; it sources nothing and calls
 A helper that two commands must never disagree about lives in `lib/common.sh` instead —
 `jig_base_fast_forward` and `jig_branch_worktree` ("move the base forward without switching a
 checkout" — `refresh` and `upgrade` after its merge),
-`jig_git_touched_files` ("what did this task touch"), `jig_staging_in_use` and `jig_staging_states`
+`jig_git_touched_files` ("what did this task touch"), `jig_upgrade_commits_are_jigs` and
+`jig_upgrade_superseded` ("is every commit on this upgrade branch Jig's, and has a newer Jig on the
+base overtaken it" — `upgrade` before it carries a branch on, housekeeping before it deletes one), `jig_staging_in_use` and `jig_staging_states`
 ("is this project on a sound staging flow, and which tasks' work is on its staging branch" —
 `task list --json`, `status` and housekeeping all show it), `jig_parked_states` ("which of these
 task branches wait at the staging branch, and why" — from git and the forge cache, laid over by

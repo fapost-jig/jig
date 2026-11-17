@@ -84,7 +84,14 @@
   says (adr-20261117-an-upgrade-is-built-in-jigs-own-tree-and-merges-itself); and housekeeping's `_hk_branch_sweep`, which leaves the
   branch of every workspace it keeps, touches origin only at `agent.git` `push` or above, and
   fetches with `--no-prune` so the upstream `-d` needs is still there.
-  (adr-20261007-a-merged-branch-leaves-with-its-work)
+  (adr-20261007-a-merged-branch-leaves-with-its-work) One branch leaves without landing: in that
+  sweep, a `jig/upgrade-<v>` branch the base has superseded with a newer Jig (`jig_upgrade_superseded`)
+  whose every commit is Jig's own upgrade commit (`jig_upgrade_commits_are_jigs`), by `git update-ref
+  -d` at the tip that was checked; origin's copy, judged on its own commits, in the same lease push,
+  and never while the forge did not answer or a pull request is stacked on it; its open pull request
+  closed with a comment before that, only at `pr` or above and only while its head is the checked
+  commit. A branch with any other commit is named and kept, here and on origin.
+  (adr-20261117-a-superseded-upgrade-branch-leaves-without-landing)
   `jig verify`'s run record is the
   sixth, and it is the shape ADR-0035 already allows rather than a new one: the directory
   `<clone root>/.ai/runtime/verify/busy/` holds the record `run`, created exclusively by bash —

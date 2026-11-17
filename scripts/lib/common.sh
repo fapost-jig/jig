@@ -6804,3 +6804,87 @@ jig_verify_busy_holder() {
   printf '%s %s\n' "$age" "$checkout"
 }
 
+
+# --- upgrade branches (shared by upgrade, status and housekeeping) -----------
+
+# jig_upgrade_version_at <ref> — the Jig version the manifest records at <ref>;
+# nothing when <ref> or its manifest does not exist.
+jig_upgrade_version_at() {
+  jig_git_show_path "$1" "$JIG_AI_DIR/manifest" 2>/dev/null \
+    | sed -n 's/^jig\.version:[[:space:]]*//p' | head -n 1 || true
+}
+
+# jig_upgrade_branch_version <branch> — the version `jig/upgrade-<to>[-<n>]` is
+# named for; nothing when the name holds no release version.
+jig_upgrade_branch_version() {
+  local v="${1#jig/upgrade-}"
+  if jig_release_version "v$v" >/dev/null 2>&1; then
+    printf '%s\n' "$v"
+    return 0
+  fi
+  jig_release_version "v${v%-*}" 2>/dev/null || true
+}
+
+# jig_upgrade_manifest_paths_at <ref> — the paths the manifest at <ref> records.
+jig_upgrade_manifest_paths_at() {
+  jig_git_show_path "$1" "$JIG_AI_DIR/manifest" 2>/dev/null \
+    | awk '{ sub(/\r$/, "") } body { if ($0 != "") { sub(/^[^ ]* /, ""); print } next } $0 == "---" { body = 1 }' || true
+}
+
+# The first commit jig_upgrade_commits_are_jigs found that is not Jig's; empty
+# when it passed, or when the branch had no commit over the base. Set in the
+# caller's shell, so call that function outside `$(...)`.
+JIG_UPGRADE_NOT_JIGS=""
+
+# jig_upgrade_commits_are_jigs <base-ref> <branch-ref> <label> — the branch has at least one
+# commit over the base, and every one is a commit `jig upgrade` wrote: a single parent,
+# the subject `Upgrade Jig <from> -> <label>`, and every path it touches one the manifest
+# records (before or after), the manifest itself, or AGENTS.md. A person's commit that
+# merely borrows the subject, or carries a file of their own, is not. On failure
+# JIG_UPGRADE_NOT_JIGS names the first commit that is not Jig's.
+# shellcheck disable=SC2034 # JIG_UPGRADE_NOT_JIGS is read by housekeeping.sh
+jig_upgrade_commits_are_jigs() {
+  local sha any=0 allowed subject parents stray ok=1
+  JIG_UPGRADE_NOT_JIGS=""
+  allowed=$(mktemp "${TMPDIR:-/tmp}/jig-upgrade-allowed.XXXXXX")
+  jig_cleanup_add "$allowed"
+  { jig_upgrade_manifest_paths_at "$1"; jig_upgrade_manifest_paths_at "$2"
+    printf '%s\n' "$JIG_AI_DIR/manifest" AGENTS.md; } > "$allowed"
+  while IFS= read -r sha; do
+    [ -n "$sha" ] || continue
+    any=1
+    subject=$(git -C "$JIG_PROJECT" log -1 --format=%s "$sha")
+    case "$subject" in
+      "Upgrade Jig "*" -> $3") ;;
+      *) ok=0; JIG_UPGRADE_NOT_JIGS=$sha; break ;;
+    esac
+    parents=$(git -C "$JIG_PROJECT" rev-list --parents -1 "$sha" | wc -w | tr -d ' ')
+    if [ "$parents" != 2 ]; then ok=0; JIG_UPGRADE_NOT_JIGS=$sha; break; fi
+    stray=$(git -C "$JIG_PROJECT" -c core.quotepath=off diff-tree --no-commit-id --name-only -r "$sha^" "$sha" \
+      | grep -Fxv -f "$allowed" || true)
+    if [ -n "$stray" ]; then ok=0; JIG_UPGRADE_NOT_JIGS=$sha; break; fi
+  done <<EOF2
+$(git -C "$JIG_PROJECT" rev-list "$1..$2" 2>/dev/null)
+EOF2
+  [ "$any" = 1 ] && [ "$ok" = 1 ]
+}
+
+# jig_upgrade_superseded <branch> <ref> <base-ref> — exit 0, printing the Jig
+# version the base carries, when upgrade branch <branch> (its tip <ref>) is
+# overtaken: the name holds the release <v>, the manifest at <ref> records the
+# same release, and the manifest at <base-ref> records a strictly newer one.
+# Exit 1, printing nothing, otherwise. Whether the branch holds only Jig's
+# commits is jig_upgrade_commits_are_jigs' question
+# (adr-20261117-a-superseded-upgrade-branch-leaves-without-landing).
+jig_upgrade_superseded() {
+  local v at have
+  v=$(jig_upgrade_branch_version "$1")
+  [ -n "$v" ] || return 1
+  at=$(jig_upgrade_version_at "$2")
+  [ -n "$at" ] || return 1
+  [ "$(jig_version_core "$at")" = "$v" ] || return 1
+  have=$(jig_upgrade_version_at "$3")
+  [ -n "$have" ] || return 1
+  jig_version_newer "$(jig_version_core "$have")" "$v" || return 1
+  printf '%s\n' "$have"
+}
