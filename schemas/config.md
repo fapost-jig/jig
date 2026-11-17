@@ -44,6 +44,7 @@ Absent keys take the default. Paths are not configurable.
 | `autopilot.parallel` | `2` | only | how many tasks of a roadmap phase a phase run has agents building at once, 1 to 16; a task whose work is consolidated and waiting its turn to ship holds no slot, and the agents that repair the merge queue are outside the limit (adr-20260922-a-phase-run-is-coordinated) |
 | `route.depth` | `full` | only | how much of its class's route a task runs: `full`, or `lean`, which trims the analysis, the plan and a second review round where the class allows it and never below the class's floor — tests on changed files, CI before a merge, consolidation, and a T3/T4 gate and architecture review stay. A task's own `route_depth` (`jig task new --lean`, `jig task set`) wins over it; `jig task route <id>` names the result (adr-20261002-route-depth-is-a-personal-choice) |
 | `release.merge` | `agent` | only | who merges an epic's final pull request — the release — in an unattended run at `agent.git: merge`: `agent` merges it once CI passed (a `major` is always a draft), `human` opens it and leaves the merge to you; it changes nothing for task pull requests, which `agent.git` governs (ADR-0040 as amended 2026-10-04) |
+| `upgrade.merge` | `agent` | only | whether `jig upgrade` carries its own pull request to the merge: `agent` runs every step of an upgrade that has an `origin` at level `merge` (push, pull request, merge on green CI within `agent.ci_timeout`, deletion of the branch) whatever `agent.git` says; `human` leaves each step to `agent.git` and never merges. An invalid value reads as `human`. A project that wants a person to read upgrades requires a review in the forge's branch protection, which the merge never bypasses |
 | `knowledge.require_frontmatter` | `true` | | `jig knowledge check` fails on missing frontmatter |
 | `verify.full_run` | `local` | | `local` runs everything by default; `ci` narrows a flag-less `jig verify` to changed files, trusting CI to run the full set on the pull request |
 | `verify.busy_ttl` | `30m` | yes | how long a run record still counts as a live `jig verify` on this clone; a second run waits while one is live, `0` never waits, and `CI` switches the whole mechanism off (adr-20260925-one-test-run-per-clone-and-a-dead-run-is-not-a-pass) |
@@ -93,7 +94,7 @@ Values `set` accepts, per key:
 | `agent.ci_timeout` | whole minutes, 0 to 9999 |
 | `autopilot.parallel` | a whole number, 1 to 16 |
 | `route.depth` | `full` or `lean` |
-| `release.merge` | `agent` or `human` |
+| `release.merge`, `upgrade.merge` | `agent` or `human` |
 | `github.account` | a GitHub login: letters, digits, `_` and single hyphens, at most 39 characters |
 | `git.worktree_root` | a path, unquoted |
 | `run.exec` | `auto`, `host`, or a command of plain words: no quote, `$`, backtick or backslash |

@@ -68,10 +68,14 @@ own: `jig_checkout_occupants` ("who occupies this checkout's HEAD"), the one rul
 `jig queue list` read (adr-20261030-a-task-another-session-works-on-is-not-advised).
 `lib/owntree.sh` holds the steps of a write made in Jig's own tree, which never moves a checkout
 (adr-20261104-a-write-goes-in-jigs-own-tree): `spec` and `knowledge` write through it, `writes` is
-its command (`jig writes`, what waits and carrying it further), and `housekeeping` and `status` read
+its command (`jig writes`, what waits and carrying it further), `upgrade` builds and ships in its tree
+through the level-free steps `ot_lock_and_sweep`, `ot_tree_add` and `ot_close` without being a write
+(adr-20261117-an-upgrade-is-built-in-jigs-own-tree-and-merges-itself), and `housekeeping` and `status` read
 it; `task` reads it for the actions table's `drop-item` row, which asks `ot_spec_drop_refusal`, the
 one guard of `jig spec drop --json`, of local refs; it sources nothing and calls the `jig_ship_*` steps every ship takes.
 A helper that two commands must never disagree about lives in `lib/common.sh` instead —
+`jig_base_fast_forward` and `jig_branch_worktree` ("move the base forward without switching a
+checkout" — `refresh` and `upgrade` after its merge),
 `jig_git_touched_files` ("what did this task touch"), `jig_staging_in_use` and `jig_staging_states`
 ("is this project on a sound staging flow, and which tasks' work is on its staging branch" —
 `task list --json`, `status` and housekeeping all show it), `jig_parked_states` ("which of these

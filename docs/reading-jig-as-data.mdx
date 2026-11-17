@@ -1016,8 +1016,16 @@ can do those, a script cannot. `jig upgrade --dry-run --json` changes nothing an
 `would_stop` what a real run would refuse for. Which projects need an upgrade at all is the
 `upgrade-available` item of `jig status --json` ([What needs you](#what-needs-you)).
 
-An upgrade at `agent.git: pr` ends with its pull request open and the project back on its base
-branch, still at the old Jig. `jig status --json` keeps saying so — `upgrade-pull-request-waiting`,
+By default (`upgrade.merge: agent`) the upgrade is built in Jig's own tree, never touches the
+checkout, and merges its own pull request on green CI, so one call can last as long as CI does
+(`agent.ci_timeout`, 30 minutes by default); show it as running, and read `git.merged`, `git.merge_by`,
+`git.not_merged` (`{code, reason}` when Jig tried and did not merge) and `git.base` (what became of
+the base branch here) in the data. A branch that did not take the new Jig yet, because the base moved
+but the branch did not, is the `upgrade-on-base` item of `jig status --json`, whose `todo` is
+`git merge <base>`; it is listed in place of `upgrade-available` there, with the same `versions`.
+
+An upgrade with `upgrade.merge: human` at `agent.git: pr` ends with its pull request open and the
+project where it was, still at the old Jig. `jig status --json` keeps saying so — `upgrade-pull-request-waiting`,
 then `upgrade-pull-request-merged` — so a program shows the state from the project, not from its
 own memory. Run again before the merge, `jig upgrade --json` is refused as `not-merged` when the
 forge reports that pull request open, with its URL in the message: the upgrade is done and waits for
@@ -1042,6 +1050,11 @@ the message:
 ```json
 {"schema":1,"revision":1792500000,"generated_at":"2026-10-25T09:08:11Z","error":{"code":"upgrade-blocked","message":"upgrade: nothing was changed:\n  - the working tree has uncommitted changes; commit them, stash them (`git stash`), or finish the task they belong to, then run `jig upgrade` again"}}
 ```
+
+Where the upgrade works in Jig's own tree, only the line-endings reason can stop it; it can also
+be refused as `write-busy` (a write holds the clone's lock: try again in a moment),
+`tree-in-the-way` (an unfinished run left something at Jig's tree: a person deletes it) and
+`commit-refused` (the project's pre-commit hook refused in Jig's tree; nothing was left behind).
 
 The whole shape is in `schemas/json.md`.
 

@@ -108,7 +108,12 @@ project owns.
   older running code hands the run to the source's dispatcher; a dirty tree, an unpinned
   CRLF clone, a started task on this checkout's HEAD (`jig_checkout_occupants`, the rule
   `task start` reads) or a `jig verify` in this checkout refuse it before anything is touched; it works on `jig/upgrade-<to>` cut from the base branch, commits once only
-  after that self-check confirms the install, and ships as far as `agent.git` allows. Link
+  after that self-check confirms the install, and ships as far as `agent.git` allows. Where
+  its branch will reach origin it does all of this in Jig's own tree instead, never touching
+  the checkout (only the CRLF stop remains), and under the personal `upgrade.merge: agent`
+  (the default) it ships at level `merge` whatever `agent.git` says: pull request, merge on
+  green CI, its branch let go and the base moved as `jig refresh` moves it
+  (adr-20261117-an-upgrade-is-built-in-jigs-own-tree-and-merges-itself). Link
   mode stays an in-place upgrade.
 - The adapter contract: where each runtime's skills live and how a skill is transformed
   on the way in.

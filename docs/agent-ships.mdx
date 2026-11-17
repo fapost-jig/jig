@@ -111,6 +111,13 @@ points; the agent can also help you choose a step in between.
 
 Up to `pr`, merging is your decision. The same levels apply to a specification's epic
 ([Specs and epics](#specs-and-epics)).
+
+**One exception: `jig upgrade`.** A project's Jig upgrade is one reproducible commit, built in Jig's
+own tree and checked by CI, so it is not left to this level: with `upgrade.merge: agent` (the
+default, in `.ai/config.local.yaml` only) each of its steps runs at `merge` whatever `agent.git`
+says, in a project that has an `origin`. `upgrade.merge: human` hands it back: the upgrade goes by
+`agent.git`, and never merges, even at `merge`. See
+[Where the upgrade works, and who merges it](/upgrading#where-the-upgrade-works-and-who-merges-it).
 </Accordion>
 
 <span id="the-merge-level" />
@@ -260,7 +267,7 @@ Without this choice, autopilot goes exactly as far as everything else.
 `.ai/config.local.yaml`. It decides how far `jig task ship` goes for a task whose autopilot run is
 going (`jig task autopilot <id> start` until `end`, a [phase run](/autopilot#running-a-whole-phase)'s
 tasks included; a run stopped to ask you is yours again, and goes by `agent.git`), and how far `jig spec ship` goes when `autopilot.unattended` is `true`. Everything
-else — a task shipped outside a run, `jig upgrade` — goes by `agent.git`. Not set, it is `agent.git`.
+else — a task shipped outside a run — goes by `agent.git`, `jig upgrade` by `upgrade.merge` and then `agent.git`. Not set, it is `agent.git`.
 
 ```bash
 jig config set agent.git pr autopilot.git merge --local

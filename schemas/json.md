@@ -56,27 +56,27 @@ need to tell it apart (`already-filed`, out of `already-exists`); the release no
 | `already-exists` | a write would create what the clone already has: `jig task new` with an id another task holds, `jig queue request` for a request already pending, `jig spec item add` with the text of an item the roadmap has, `jig spec item file` with a `--new` id another task holds. Another id is the remedy. Nothing was written |
 | `already-filed` | `jig spec item file` was asked to file an item that already names a task, filed earlier here or in another clone; `message` names that task. Another id does not help: read the roadmap again. Checked before the task id, so an item that names a task is `already-filed` even when the id is taken too. Nothing was written |
 | `git-not-allowed` | a write in Jig's own tree was asked for at `agent.git: none`, where Jig commits nothing. `message` names the setting. Nothing was written |
-| `write-busy` | another write in Jig's own tree is running in this clone. Nothing was written; try again in a moment |
+| `write-busy` | another write in Jig's own tree, or a `jig upgrade` that works there, is running in this clone. Nothing was written; try again in a moment |
 | `branch-checked-out` | the write's branch is checked out somewhere, and Jig never moves a checkout; `message` names the path. Nothing was written |
 | `branch-diverged` | the write's branch and origin's have diverged. Nothing was written, and nothing is forced |
-| `branch-has-other-commits` | the write's branch has commits here that no write of Jig's made and origin does not have: a person's, which a write does not publish. `message` names the branch. Nothing was written |
+| `branch-has-other-commits` | the write's branch has commits here that no write of Jig's made and origin does not have: a person's, which a write does not publish. `message` names the branch. Nothing was written. `jig upgrade` answers it for an unmerged `jig/upgrade-<version>` branch holding commits Jig did not write when the person's own `agent.git` is not `merge`: nothing was pushed or merged |
 | `base-not-on-origin` | the write's base is not on origin, at `agent.git: push` or above: a branch cut from it would carry out whatever is on it, and no pull request could open into it. `message` names the base to push. Nothing was written |
 | `write-still-waits` | an earlier write of the same target still waits where this one cannot follow: for another base than this edit's (an epic opened or finished since), or as edits that never reached origin above a write whose pull request was closed unmerged or whose branch origin deleted. `message` names the branch, and what to do. Nothing was written |
-| `tree-in-the-way` | an unfinished write left something at Jig's tree that git will not remove. `message` names the path for a person to delete; a retry does not clear it. Nothing was written |
-| `commit-refused` | git refused the commit in Jig's own tree, usually a project's hook; `message` holds what it said. This edit was not committed; an earlier one that already waits on the branch still waits |
+| `tree-in-the-way` | an unfinished write or `jig upgrade` left something at Jig's tree that git will not remove. `message` names the path for a person to delete; a retry does not clear it. Nothing was written |
+| `commit-refused` | git refused the commit in Jig's own tree, usually a project's hook; `message` holds what it said. This edit was not committed (for `jig upgrade`: nothing was left, no branch and no tree); an earlier one that already waits on the branch still waits |
 | `epic-missing` | a roadmap write found its spec on an open epic that is neither here nor on origin. Nothing was written |
 | `not-linkable` | `jig spec item file` cannot link this task or file this item: the task is finished, started or linked to another spec, or the item is checked. Nothing was written |
 | `not-proposed` | `jig knowledge accept` or `reject` named a document that is not a proposal — for `reject`, nor an accepted stub whose source is `changed`, `unrecorded` or `missing`: decided already, on the branch if that decision still waits. Nothing was written |
 | `not-on-base` | `jig knowledge accept`, `reject` or `reviewed` with `--json` or `--revision` named a document this checkout has and the base the decision is judged on does not — for `reject` of a stub, also a change to its source the base does not carry: not committed, or not on origin's base. Nothing was written |
 | `not-on-branch` | the base has it and `knowledge/decisions`, cut before it got there and still waiting, does not, and taking the base into that branch conflicts (the message names the files). A decision that needs the base and does not conflict takes it in, one merge commit on the same branch, and joins the pull request that waits (adr-20261115-the-decisions-branch-takes-in-the-base). Nothing was written; merge or close the decisions waiting, then decide |
 | `source-missing` | `jig knowledge accept` or `reviewed` named a stub whose source is missing, invalid or not tracked. Nothing was written |
-| `upgrade-blocked` | `jig upgrade` would not start here and changed nothing: uncommitted changes, a started task's branch checked out, `jig verify` running in this checkout, or line endings Jig's files are not pinned against. For `jig upgrade --land`: uncommitted changes, a checkout on another branch than the base or the upgrade's, the base checked out in another worktree, or a base that cannot be fast-forwarded to origin's. `message` lists every reason, one per line, each with what to do |
+| `upgrade-blocked` | `jig upgrade` would not start here and changed nothing. Where the upgrade works in the checkout (no `origin`, `git.branch_per_task: false`, no commit yet, or `upgrade.merge: human` below `push`): uncommitted changes, a started task's branch checked out, `jig verify` running in this checkout, or line endings Jig's files are not pinned against. Where it works in Jig's own tree: only the line endings reason, since nothing in the checkout is touched. For `jig upgrade --land`: uncommitted changes, a checkout on another branch than the base or the upgrade's, the base checked out in another worktree, or a base that cannot be fast-forwarded to origin's. `message` lists every reason, one per line, each with what to do |
 | `unreleased-source` | `jig init` or `jig upgrade` in copy mode (dry run too) found the framework source checkout not at the release tag of its version, or at it with uncommitted changes, and `--unreleased` was not given. `message` names where the checkout stands and the two ways out. Nothing was changed |
 | `unknown-key` | `jig config set --json` was given a name no reader of Jig reads. Nothing was written |
 | `not-local` | `jig config set --json` was given a key Jig reads but only the team's `.ai/config.yaml` answers for. Nothing was written |
 | `invalid-value` | `jig config set --json` was given a value its key does not accept: outside the fixed set, not a number, not a duration. Nothing was written |
 | `secret-key` | `jig config set --json` was asked to put a secret (`notify.telegram.token`) on a command line, which Jig never does. Nothing was written |
-| `not-merged` | `jig upgrade --land` found the upgrade's pull request still open on the forge; or `jig upgrade` found the upgrade to this version already on an unmerged `jig/upgrade-<version>` branch whose pull request the forge reports open — the upgrade is done and waits for its merge, and `message` names the pull request's URL. Nothing was changed; merge it and run `jig upgrade --land` |
+| `not-merged` | `jig upgrade --land` found the upgrade's pull request still open on the forge; or `jig upgrade` with `upgrade.merge: human` found the upgrade to this version already on an unmerged `jig/upgrade-<version>` branch whose pull request the forge reports open (with `agent`, that branch is carried on instead) — the upgrade is done and waits for its merge, and `message` names the pull request's URL. Nothing was changed; merge it and run `jig upgrade --land` |
 | `not-on-staging` | `jig task promote` found none of the task's own commits in the tested staging commit. Nothing was pushed and no pull request opened |
 | `behind-staging` | `jig task promote` found own commits of the task the tested staging commit does not have, pushed or not: a fix made after the test. Nothing was pushed and no pull request opened |
 | `carries-staging` | `jig task promote` found the staging branch merged into the task's branch: its pull request would take untested work of others into the base. Nothing was pushed and no pull request opened |
@@ -524,7 +524,7 @@ An item:
 | `actions` | array of objects | on `pull-request-waiting` and `pull-request-was-open`: the task's own rows of the actions table, the same objects `jig task list --json` prints (`{"id", "command", "offered", "reason"}`) — `land` and `pr-status` for a task parked at the staging branch for review and landing, `merge` and `pr-status` otherwise. `offered` is the table's answer from the cache's state, `ci` and `mergeable`; `reason` says why a row is withheld |
 | `question` | string or null | on `autopilot-stopped`: the run's stop reason verbatim, the text of the journal's last `stop` line (`null` when none was recorded); `detail` carries the same words with their age |
 | `stopped_at` | string or null | on `autopilot-stopped`: when that stop was logged, UTC ISO 8601 (`null` when unknown) |
-| `versions` | object | on `upgrade-available`, `{"from", "to"}`; on the two `upgrade-pull-request-*` kinds, `{"to"}`, the version the branch is named for (`null` when the name holds none) |
+| `versions` | object | on `upgrade-available` and `upgrade-on-base`, `{"from", "to"}`; on the two `upgrade-pull-request-*` kinds, `{"to"}`, the version the branch is named for (`null` when the name holds none) |
 | `staging` | object | on `staging-unpromoted`, `{"branch", "days"}` — the task's branch and the whole days since its work last landed on the staging branch; on `staging-unowned`, `{"commits", "list", "ack"}` — `commits`, how many of the reader's own commits the item is about (exact); `list`, those commits newest first, at most 20 of them (so it can be shorter than `commits`), each `{"sha", "subject", "date"}` — the full sha, the subject line, the author date in ISO 8601 with its offset; `ack`, the command that marks all of them as known, `jig staging ack --expect <commits>` (run it in the project as it is: it refuses, exit 1 and nothing written, when the count has moved since this read, so a commit the reader was not shown is never marked; read again then. `jig staging ack --dry-run` lists every one of them) |
 
 The kinds, in the order they are listed:
@@ -535,6 +535,7 @@ The kinds, in the order they are listed:
 | `upgrade-pull-request-waiting` | project | an upgrade's pull request is open: the forge cache's newest line for a `jig/upgrade-*` branch into `git.base_branch` says `open`, and the base branch here does not already record its version (as it does right after `jig upgrade --land`, before housekeeping hears the merge). Merge it, then `jig upgrade --land`. One item per such branch |
 | `upgrade-pull-request-merged` | project | an upgrade's pull request was merged, and the base branch here (`refs/heads/<git.base_branch>`) still records an older Jig than the version its branch is named for; `todo` is `jig upgrade --land`. A merged upgrade the base here already carries makes no item |
 | `upgrade-available` | project | this project's installed Jig (the manifest's `jig.version`) is an older release than the one on this machine (a machine on unreleased code, `X.Y.Z+<sha>`, offers none); `todo` is `jig upgrade`, and the item carries `versions: {from, to}` — the project's and the machine's. Not listed while an `upgrade-pull-request-*` item is for the machine's version or a newer one (or for a branch whose name holds no version): `jig upgrade` again would cut a second branch for the same upgrade. One for an older version, such as an abandoned pull request left open, does not hold it back |
+| `upgrade-on-base` | project | this checkout is on a branch other than `git.base_branch`, its installed Jig (the manifest's `jig.version`) is an older release than the one on this machine, and `refs/heads/<git.base_branch>` here already records this machine's version or a newer one: an upgrade landed there, and this branch has not taken it in. It replaces `upgrade-available` in that case, because `jig upgrade` here would only say `nothing changed`; `todo` is `git merge <base>`, and the item carries `versions: {from, to}` as `upgrade-available` does |
 | `phase-stopped` | phase | tasks of a phase run stopped and none of them is answered yet; `todo` is `Answer each from any session: jig task autopilot <id> answer --answer <text>; the coordinator resumes them.` (`... resumes it.` for one task). A task whose stop was answered is not listed |
 | `autopilot-stopped` | task | an autopilot run stopped with a question and nobody has answered it yet; `todo` is `Answer from any session: jig task autopilot <id> answer --answer <text>; the run resumes when a session with a free slot runs jig task autopilot <id> resume (jig queue next lists it under resume first).`, with ` --by human` after `<text>` for a run started unattended; a run at its repair limit keeps the draft-or-handover `todo`. An answered run (`autopilot=answered`) is not an item: it waits for a free slot, not for a person. The item carries `question` and `stopped_at` |
 | `gate-waiting` | task | a T3/T4 design waits at its human gate |
@@ -1334,8 +1335,10 @@ source holds a newer version than the jig that was called), that jig's data is t
 ```json
 {"mode": "copy", "dry_run": false, "from": "0.32.0", "to": "0.33.0", "outcome": "upgraded",
  "files": {"placed": 12, "kept": 100, "removed": 0, "conflicts": 0},
- "git": {"level": "pr", "branch": "jig/upgrade-0.33.0", "commit": "<sha>", "pushed": true,
-         "pull_request": "<url>", "merged": false},
+ "git": {"level": "merge", "branch": "jig/upgrade-0.33.0",
+         "commit": "<sha>", "pushed": true, "pull_request": "<url>", "merged": true,
+         "level_key": "upgrade.merge", "path": "tree", "ignored": [], "merge_by": "agent", "not_merged": null,
+         "base": "fast-forwarded", "superseded": []},
  "manual_steps": [], "would_stop": []}
 ```
 
@@ -1346,11 +1349,24 @@ source holds a newer version than the jig that was called), that jig's data is t
 | `from`, `to` | the project's Jig before the run (the manifest's `jig.version`) and the version it upgrades to; `null` when unknown. Either carries `+<short sha>` (`0.40.0+278958c`) for unreleased code, taken with `--unreleased` |
 | `outcome` | `planned` (a dry run), `linked` (link mode, every link in place), `nothing-to-do`, `incomplete` (the self-check failed, so nothing was committed; run again), `staged` (changed and left for the person to commit: `agent.git` is `none`, or the repository has no commit yet), `upgraded` (committed) |
 | `files` | how many framework files the run placed, kept as they were, removed and left in conflict; `null` in link mode |
-| `git` | how far git went, by `agent.git` (`level`): the upgrade's `branch` (`null` when the project works on one branch), the `commit` (`null` when staged), `pushed`, the `pull_request` URL or `null`, and `merged`. `null` when nothing was staged or committed |
+| `git` | how far git went: the `level` every step shipped at and the key it was read from (`level_key`: `upgrade.merge`, which makes it `merge` whatever `agent.git` says, or `agent.git`); the upgrade's `branch` (`null` when the project works on one branch), the `commit` (`null` when staged), `pushed`, the `pull_request` URL or `null`, and `merged`; `merge_by`, `agent` or `human`, the value of `upgrade.merge` (an invalid one reads `human`); `not_merged`, `{"code", "reason"}` when Jig tried and did not merge (`code` one of `forge-unavailable`, `no-pull-request`, `draft`, `forge-refused`, `ci-red`, `ci-none`, `ci-pending`, `notes-stale`; `reason` its text) and `null` otherwise; `base`, what became of the base branch here after a merge (`fast-forwarded`, `up-to-date`, `blocked-by-changes`, `checked-out-elsewhere`, `verify-running`, `diverged`, `missing`) and `null` otherwise, the values being those of `jig refresh --json`'s `base.outcome` plus `verify-running`; `superseded`, the names of older, unmerged `jig/upgrade-*` branches the merge overtook (never deleted). `path`, `tree` or `checkout`: where the run worked; a project that gitignores a framework path the upgrade places has the run work in the checkout, at `agent.git` (`level_key` says so; `upgrade.merge: human` never merges there either), and `ignored` lists those paths (empty otherwise). `null` when nothing was staged or committed |
 | `manual_steps` | the steps this release asks for by hand, as the upgrade commit lists them; empty when there are none |
 | `would_stop` | for a dry run, every reason a real run would refuse, as `upgrade-blocked` would name it; empty otherwise |
 
-Refusals: `upgrade-blocked` before anything is touched; `not-merged` when the upgrade to this version
+A run that works in Jig's own tree (a project with an `origin`; `upgrade.merge: agent`, or
+`agent.git` `push` or above) touches nothing in the checkout, and may last as long as CI does
+(`agent.ci_timeout`, 30 minutes by default, plus a grace); `jig status` shows the upgrade as waiting
+meanwhile. A `commit-refused` failure (`not committed: the project's pre-commit hook refused in Jig's
+tree: …`) leaves no branch and no tree; `write-busy` means a write holds the clone's lock, and a
+retry succeeds. `branch-has-other-commits` means the unmerged `jig/upgrade-<version>` branch to carry on
+holds commits Jig did not write (a commit of Jig's has the subject `Upgrade Jig <from> -> <to>` and
+touches only the manifest's paths, `.ai/manifest` and `AGENTS.md`), and the person's own `agent.git` is not
+`merge`: nothing was pushed or merged, and the message names the branch and its pull request when known.
+A project that gitignores a framework path the upgrade places has the run work in the checkout instead,
+with a `note:` line; a second clone finds the branch names origin holds.
+
+Refusals: `upgrade-blocked` before anything is touched; `not-merged` when `upgrade.merge` is `human`
+and the upgrade to this version
 is already on an unmerged `jig/upgrade-<version>` branch whose pull request the forge reports open
 (the forge is asked once, only then; without its answer, or for a merged or closed pull request, the
 refusal reads `failed`); `usage` for an argument the command does
@@ -1369,7 +1385,9 @@ fast-forwards it to `origin/<base>` — from any other branch or a detached HEAD
 base's ref, never the checkout — and lets the upgrade's branch go the way a merge Jig made itself
 does — here when git sees its work merged, and on origin, at the head the forge merged, only at
 `agent.git` `push` or above. It never stashes and never forces. `--land` takes no other argument
-but `--json`, and reads no framework source.
+but `--json`, and reads no framework source. When the `jig` this machine's PATH selects is newer than
+the project's installed one, the run is handed to it, as an upgrade is, and its answer is the
+envelope.
 
 The upgrade it lands is the newest merged one with something left to do here: its version not yet
 on the base branch here, or its branch still here. Standing on an upgrade branch, only that

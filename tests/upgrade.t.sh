@@ -1752,6 +1752,9 @@ test_upgrade_in_a_bare_repositorys_worktree_does_not_name_a_main_checkout() {
   cd "$wt" || fail "could not enter the worktree"
   jig task new T-1 >/dev/null
   jig task start T-1 >/dev/null 2>&1
+  # The bare clone has an origin; what is asked of the checkout belongs to the
+  # run that works in it (upgrade.merge human, and no level that pushes).
+  printf 'upgrade.merge: human\n' > .ai/config.local.yaml
 
   run jig upgrade --from "$JIG_HOME"
   assert_eq 1 "$RC"
@@ -1804,8 +1807,9 @@ test_upgrade_dry_run_on_a_dirty_tree_only_notes_it() {
   assert_not_contains "$OUT" "note: a real upgrade"
 }
 
-# At agent.git pr the branch is pushed by the steps `task ship` takes; with no
-# forge CLI usable here, the pull request is left to the person, and said so.
+# At upgrade.merge human and agent.git pr the branch is pushed by the steps `task
+# ship` takes, from Jig's own tree; with no forge CLI usable here, the pull
+# request is left to the person, and said so. The checkout is never moved.
 test_upgrade_at_agent_git_pr_pushes_its_branch() {
   _unit_project
   local src remote
@@ -1813,19 +1817,22 @@ test_upgrade_at_agent_git_pr_pushes_its_branch() {
   git init -q --bare "$remote"
   git remote add origin "$remote"
   git push -q origin main
-  jig config set --local agent.git pr >/dev/null
+  jig config set --local agent.git pr upgrade.merge human >/dev/null
   src=$(_unit_source)
+  local before
+  before=$(git rev-parse HEAD)
 
   run jig upgrade --from "$src"
   assert_eq 0 "$RC"
   assert_contains "$OUT" "pushed jig/upgrade-9.9.9"
   git -C "$remote" show-ref --verify --quiet refs/heads/jig/upgrade-9.9.9 \
     || fail "the upgrade branch did not reach origin"
-  # Pushed and not merged by Jig: the checkout goes back, so the branch is
-  # checked out nowhere and housekeeping can delete it once it is merged.
-  assert_contains "$OUT" "upgrade: back on main; the upgrade waits on branch jig/upgrade-9.9.9"
-  assert_contains "$OUT" "git checkout jig/upgrade-9.9.9"
+  # The upgrade waits on its branch, which is checked out nowhere, so
+  # housekeeping can delete it once it is merged.
+  assert_contains "$OUT" "next: this upgrade is on branch jig/upgrade-9.9.9"
+  assert_not_contains "$OUT" "back on"
   assert_eq main "$(git symbolic-ref --short HEAD)"
+  assert_eq "$before" "$(git rev-parse HEAD)"
   git show-ref --verify --quiet refs/heads/jig/upgrade-9.9.9 || fail "the local upgrade branch was deleted"
 
   rm -rf "$src" "$remote"
@@ -1847,7 +1854,7 @@ test_upgrade_records_the_merge_request_it_opened_for_status() {
   git init -q --bare "$remote"
   git remote add origin "$remote"
   git push -q origin main
-  jig config set --local agent.git pr >/dev/null
+  jig config set --local agent.git pr upgrade.merge human >/dev/null
   dir="$PWD"
   mkdir -p stub-bin .ai/runtime
   cat > stub-bin/glab <<STUB
@@ -1888,23 +1895,23 @@ STUB
   rm -rf "$src" "$remote"
 }
 
-# Started on another branch, pushed at agent.git push: the checkout goes back
-# to that branch, not to the base.
-test_upgrade_pushed_goes_back_to_the_branch_it_started_on() {
+# Started on another branch, pushed at agent.git push: the checkout was never
+# moved, so there is nothing to go back to.
+test_upgrade_pushed_leaves_the_branch_it_started_on_alone() {
   _unit_project
   local src remote
   remote=$(mktemp -d "${TMPDIR:-/tmp}/jig-remote.XXXXXX")
   git init -q --bare "$remote"
   git remote add origin "$remote"
   git push -q origin main
-  jig config set --local agent.git push >/dev/null
+  jig config set --local agent.git push upgrade.merge human >/dev/null
   src=$(_unit_source)
   git checkout -q -b task/elsewhere
 
   run jig upgrade --from "$src"
   assert_eq 0 "$RC"
   assert_contains "$OUT" "pushed jig/upgrade-9.9.9"
-  assert_contains "$OUT" "upgrade: back on task/elsewhere"
+  assert_not_contains "$OUT" "back on"
   assert_eq task/elsewhere "$(git symbolic-ref --short HEAD)"
 
   rm -rf "$src" "$remote"
@@ -1926,13 +1933,17 @@ test_upgrade_committed_only_stays_on_its_branch() {
   rm -rf "$src"
 }
 
-# _upgrade_merge_project <remote-var> — _unit_project with an origin, GitHub
-# as the forge (committed, as a project setting is) and agent.git merge, with
-# a fake `gh` in stub-bin/ that opens, checks green and merges whatever is
-# shipped. Prints the bare remote's path; the caller removes it, and puts
-# stub-bin/ on PATH itself, since a `$(...)` would lose the change.
+# _upgrade_merge_project [<level>] — _unit_project with an origin, GitHub as
+# the forge (committed, as a project setting is) and agent.git <level> (default
+# merge), with a fake `gh` in stub-bin/ that opens, checks and merges whatever is
+# shipped: its `pr view` answers with the newest upgrade branch's head (the
+# upgrade is built in Jig's own tree, so the checkout's HEAD is not the shipped
+# commit), its checks with what stub-bin/checks holds (green by default), and
+# its merge moves the bare remote's main to the commit it was asked to merge.
+# Prints the bare remote's path; the caller removes it, and puts stub-bin/ on
+# PATH itself, since a `$(...)` would lose the change.
 _upgrade_merge_project() {
-  local remote dir
+  local remote dir level="${1:-merge}"
   _unit_project
   sed 's|^forge:.*|forge: github|' .ai/config.yaml > .ai/config.yaml.tmp
   mv .ai/config.yaml.tmp .ai/config.yaml
@@ -1942,19 +1953,20 @@ _upgrade_merge_project() {
   git remote add origin "$remote"
   git push -q origin main
   git fetch -q origin
-  jig config set --local agent.git merge agent.ci_timeout 0 >/dev/null
+  jig config set --local agent.git "$level" agent.ci_timeout 0 >/dev/null
   dir="$PWD"
   mkdir -p stub-bin
+  printf 'pass\n' > stub-bin/checks
   cat > stub-bin/gh <<STUB
 #!/usr/bin/env bash
 case "\$1 \$2" in
   "auth status") exit 0 ;;
   "pr list") printf 'null\n' ;;
   "pr create") printf 'https://github.com/example/example/pull/7\n' ;;
-  "pr view") printf 'false %s\n' "\$(git rev-parse HEAD)" ;;
+  "pr view") printf 'false %s\n' "\$(git -C "$dir" for-each-ref --sort=-committerdate --count=1 --format='%(objectname)' 'refs/heads/jig/upgrade-*')" ;;
   "repo view") printf 'true true true\n' ;;
-  "pr checks") printf 'pass\n' ;;
-  "pr merge") printf '%s\n' "\$*" > "$dir/stub-bin/merged" ;;
+  "pr checks") cat "$dir/stub-bin/checks" ;;
+  "pr merge") printf '%s\n' "\$*" > "$dir/stub-bin/merged"; git -C "$remote" update-ref refs/heads/main "\$5" ;;
 esac
 STUB
   chmod +x stub-bin/gh
@@ -1962,9 +1974,10 @@ STUB
   printf '%s\n' "$remote"
 }
 
-# Merged by the upgrade itself: no branch is left behind, here or on origin,
-# and the person is back on main (adr-20261007-a-merged-branch-leaves-with-its-work).
-test_upgrade_merged_leaves_no_branch_and_puts_the_checkout_on_main() {
+# Merged by the upgrade itself: no branch is left behind, here or on origin, and
+# the checkout, standing on main, takes the new Jig by the base's fast-forward
+# (adr-20261007-a-merged-branch-leaves-with-its-work).
+test_upgrade_merged_leaves_no_branch_and_moves_the_base_under_the_checkout() {
   local src remote
   remote=$(_upgrade_merge_project)
   PATH="$PWD/stub-bin:$PATH"
@@ -1973,20 +1986,22 @@ test_upgrade_merged_leaves_no_branch_and_puts_the_checkout_on_main() {
   run jig upgrade --from "$src"
   assert_eq 0 "$RC"
   assert_contains "$OUT" "merged https://github.com/example/example/pull/7"
-  assert_contains "$OUT" "upgrade: back on main"
+  assert_contains "$OUT" "upgrade: main here moved to"
   assert_contains "$OUT" "upgrade: deleted branch jig/upgrade-9.9.9"
   assert_contains "$OUT" "upgrade: deleted branch jig/upgrade-9.9.9 on origin"
   assert_not_contains "$OUT" "once it is merged"
   assert_eq main "$(git symbolic-ref --short HEAD)"
+  assert_file .claude/skills/jig-newthing/SKILL.md
+  assert_file_contains .ai/manifest "jig.version: 9.9.9"
   if git show-ref --verify --quiet refs/heads/jig/upgrade-9.9.9; then fail "the local branch is still here"; fi
   if git -C "$remote" show-ref --verify --quiet refs/heads/jig/upgrade-9.9.9; then fail "the branch is still on origin"; fi
 
   rm -rf "$src" "$remote"
 }
 
-# Started on another branch: back on main after the merge, the run names the
-# way back and the merge that brings the upgrade there.
-test_upgrade_merged_from_another_branch_names_the_way_back() {
+# Started on another branch: the checkout stays there, and the run names what that
+# branch does to take the upgrade.
+test_upgrade_merged_from_another_branch_names_the_way_forward() {
   local src remote
   remote=$(_upgrade_merge_project)
   PATH="$PWD/stub-bin:$PATH"
@@ -1995,9 +2010,10 @@ test_upgrade_merged_from_another_branch_names_the_way_back() {
 
   run jig upgrade --from "$src"
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "upgrade: back on main"
-  assert_contains "$OUT" "git checkout task/elsewhere\`, then \`git merge main\`"
-  assert_eq main "$(git symbolic-ref --short HEAD)"
+  assert_not_contains "$OUT" "back on"
+  assert_contains "$OUT" "next: task/elsewhere is still on Jig"
+  assert_contains "$OUT" "\`git merge main\`"
+  assert_eq task/elsewhere "$(git symbolic-ref --short HEAD)"
   git show-ref --verify --quiet refs/heads/task/elsewhere || fail "a branch that is not Jig's was deleted"
 
   rm -rf "$src" "$remote"
@@ -2014,7 +2030,7 @@ test_upgrade_merged_keeps_its_branch_when_the_key_is_off() {
   assert_eq 0 "$RC"
   assert_contains "$OUT" "merged https://github.com/example/example/pull/7"
   assert_not_contains "$OUT" "deleted branch"
-  assert_eq jig/upgrade-9.9.9 "$(git symbolic-ref --short HEAD)"
+  git show-ref --verify --quiet refs/heads/jig/upgrade-9.9.9 || fail "the local branch was deleted"
   git -C "$remote" show-ref --verify --quiet refs/heads/jig/upgrade-9.9.9 || fail "origin's branch was deleted"
 
   rm -rf "$src" "$remote"
@@ -2364,7 +2380,7 @@ test_upgrade_json_reports_a_committed_upgrade() {
   assert_eq 1 "$(printf '%s\n' "$OUT" | grep -c .)" "stdout held more than one line: $OUT"
   sha=$(git rev-parse HEAD)
   assert_contains "$OUT" '"data":{"mode":"copy","dry_run":false,"from":"'"$from"'","to":"9.9.9","outcome":"upgraded","files":{"placed":'
-  assert_contains "$OUT" '"git":{"level":"commit","branch":"jig/upgrade-9.9.9","commit":"'"$sha"'","pushed":false,"pull_request":null,"merged":false}'
+  assert_contains "$OUT" '"git":{"level":"commit","branch":"jig/upgrade-9.9.9","commit":"'"$sha"'","pushed":false,"pull_request":null,"merged":false,"level_key":"agent.git","path":"checkout","ignored":[],"merge_by":"agent","not_merged":null,"base":null,"superseded":[]}'
   assert_contains "$OUT" '"would_stop":[]}'
   assert_contains "$ERR" "committed "
   assert_contains "$ERR" "handing the upgrade to 9.9.9"
@@ -2572,6 +2588,7 @@ test_upgrade_land_refuses_an_upgrade_not_merged_yet() {
 test_upgrade_refusal_names_the_open_pull_request() {
   _land_project open
   PATH=$LAND_PATH
+  jig config set --local upgrade.merge human >/dev/null
   local src
   src=$(_unit_source)
 
@@ -2594,6 +2611,7 @@ test_upgrade_refusal_names_the_open_pull_request() {
 test_upgrade_refusal_names_the_open_merge_request_on_gitlab() {
   _land_project open "" gitlab
   PATH=$LAND_PATH
+  jig config set --local upgrade.merge human >/dev/null
   local src
   src=$(_unit_source)
 
@@ -2612,6 +2630,7 @@ test_upgrade_refusal_names_the_open_merge_request_on_gitlab() {
 test_upgrade_refusal_names_a_closed_pull_request() {
   _land_project closed
   PATH=$LAND_PATH
+  jig config set --local upgrade.merge human >/dev/null
   local src
   src=$(_unit_source)
 
@@ -2628,6 +2647,7 @@ test_upgrade_refusal_names_a_closed_pull_request() {
 test_upgrade_refusal_stays_when_the_forge_does_not_answer() {
   _land_project open
   PATH=$LAND_PATH
+  jig config set --local upgrade.merge human >/dev/null
   rm -f stub-bin/prs
   local src
   src=$(_unit_source)
@@ -3042,9 +3062,8 @@ STUB
 test_upgrade_land_never_switches_a_linked_worktree_to_the_base() {
   _land_project merged
   PATH=$LAND_PATH
-  local wt main_before here
+  local wt here
   git checkout -q -b elsewhere
-  main_before=$(git rev-parse main)
   wt=$(mktemp -d "${TMPDIR:-/tmp}/jig-land-wt.XXXXXX")
   rmdir "$wt"
   git worktree add -q "$wt" jig/upgrade-9.9.9
@@ -3053,10 +3072,13 @@ test_upgrade_land_never_switches_a_linked_worktree_to_the_base() {
   cd "$wt"
   run jig upgrade --land
   cd "$here"
-  assert_eq 1 "$RC"
-  assert_contains "$OUT" "this is a linked worktree on jig/upgrade-9.9.9, and Jig never switches one to main; run \`jig upgrade --land\` in the main checkout"
+  # No refusal that asks for a switch: the worktree stays on its branch, the
+  # base moves as a ref, and the branch waits for the worktree to leave it.
+  assert_eq 0 "$RC"
+  assert_not_contains "$OUT" "run \`jig upgrade --land\` in the main checkout"
+  assert_contains "$OUT" "this checkout stays on jig/upgrade-9.9.9"
   assert_eq jig/upgrade-9.9.9 "$(git -C "$wt" symbolic-ref --short HEAD)"
-  assert_eq "$main_before" "$(git rev-parse main)"
+  assert_eq "$(git rev-parse origin/main)" "$(git rev-parse main)"
   git show-ref --verify --quiet refs/heads/jig/upgrade-9.9.9 || fail "the branch was deleted"
 
   git worktree remove --force "$wt"
@@ -3346,4 +3368,682 @@ test_upgrade_pending_is_unknown_for_an_unreleased_source() {
   assert_eq "rc=4 out=[]" "$OUT"
 
   rm -rf "$src"
+}
+
+# --- the upgrade in Jig's own tree, merged by Jig (upgrade.merge) ---------------
+
+# _tree_gone — Jig's own tree and its lock are given back.
+_tree_gone() {
+  [ ! -e "$(git rev-parse --git-common-dir)/jig/tree" ] || fail "Jig's tree was left behind"
+  [ ! -e .ai/runtime/writes/lock/busy/run ] || fail "the clone's lock was left behind"
+}
+
+# At agent.git pr and with nothing set, the upgrade merges its own pull request on
+# green CI: built in Jig's tree, branch let go here and on origin, the base moved
+# to origin's. The base is checked out here, so the new Jig arrives in the files.
+test_upgrade_at_agent_git_pr_merges_itself_in_its_own_tree() {
+  local src remote
+  remote=$(_upgrade_merge_project pr)
+  PATH="$PWD/stub-bin:$PATH"
+  src=$(_unit_source)
+  local before
+  before=$(git rev-parse main)
+
+  run jig upgrade --from "$src"
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "upgrade: working on branch jig/upgrade-9.9.9, cut from main"
+  assert_contains "$OUT" "upgrade: shipping at merge (upgrade.merge)"
+  assert_contains "$OUT" "merged https://github.com/example/example/pull/7"
+  assert_contains "$OUT" "upgrade: deleted branch jig/upgrade-9.9.9"
+  assert_contains "$OUT" "upgrade: deleted branch jig/upgrade-9.9.9 on origin"
+  assert_contains "$OUT" "upgrade: main here moved to"
+  assert_not_contains "$OUT" "back on main"
+  assert_eq main "$(git symbolic-ref --short HEAD)"
+  assert_eq "$(git -C "$remote" rev-parse main)" "$(git rev-parse main)"
+  [ "$before" != "$(git rev-parse main)" ] || fail "main did not move"
+  assert_file_contains .ai/manifest "jig.version: 9.9.9"
+  if git show-ref --verify --quiet refs/heads/jig/upgrade-9.9.9; then fail "the local branch is still here"; fi
+  if git -C "$remote" show-ref --verify --quiet refs/heads/jig/upgrade-9.9.9; then fail "the branch is still on origin"; fi
+  _tree_gone
+  # The merge is in the forge cache at once.
+  assert_contains "$(cat .ai/runtime/forge-cache)" "jig/upgrade-9.9.9"
+  assert_contains "$(cat .ai/runtime/forge-cache)" "merged"
+
+  rm -rf "$src" "$remote"
+}
+
+# agent.git left unset: upgrade.merge agent is the upgrade's own right.
+test_upgrade_merges_itself_without_agent_git_set() {
+  local src remote
+  remote=$(_upgrade_merge_project none)
+  PATH="$PWD/stub-bin:$PATH"
+  src=$(_unit_source)
+
+  run jig upgrade --from "$src"
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "merged https://github.com/example/example/pull/7"
+  assert_file_contains .ai/manifest "jig.version: 9.9.9"
+  assert_eq "$(git -C "$remote" rev-parse main)" "$(git rev-parse main)"
+
+  rm -rf "$src" "$remote"
+}
+
+# upgrade.merge human: each step goes by agent.git, and Jig never merges, even at
+# merge. The pull request is open and the checkout is where it was.
+test_upgrade_merge_human_opens_the_pull_request_and_does_not_merge() {
+  local src remote
+  remote=$(_upgrade_merge_project merge)
+  PATH="$PWD/stub-bin:$PATH"
+  jig config set --local upgrade.merge human >/dev/null
+  src=$(_unit_source)
+  local before
+  before=$(git rev-parse main)
+
+  run jig upgrade --from "$src"
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "upgrade: shipping at merge (agent.git)"
+  assert_contains "$OUT" "pr https://github.com/example/example/pull/7"
+  assert_not_contains "$OUT" "merged https://"
+  assert_contains "$OUT" "next: this upgrade is on branch jig/upgrade-9.9.9"
+  assert_no_file stub-bin/merged
+  assert_eq "$before" "$(git rev-parse main)"
+  assert_eq main "$(git symbolic-ref --short HEAD)"
+  git -C "$remote" show-ref --verify --quiet refs/heads/jig/upgrade-9.9.9 || fail "the branch did not reach origin"
+  _tree_gone
+  assert_contains "$(cat .ai/runtime/forge-cache)" "open"
+
+  rm -rf "$src" "$remote"
+}
+
+# upgrade.merge human at pr stops at the pull request; at push, at the push.
+test_upgrade_merge_human_follows_agent_git_push() {
+  local src remote
+  remote=$(_upgrade_merge_project push)
+  PATH="$PWD/stub-bin:$PATH"
+  jig config set --local upgrade.merge human >/dev/null
+  src=$(_unit_source)
+
+  run jig upgrade --from "$src"
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "pushed jig/upgrade-9.9.9"
+  assert_not_contains "$OUT" "pr https://"
+  assert_contains "$OUT" "the pull request is yours"
+  _tree_gone
+
+  rm -rf "$src" "$remote"
+}
+
+# An invalid upgrade.merge reads as human: a mistake never merges.
+test_upgrade_invalid_merge_key_does_not_merge() {
+  local src remote
+  remote=$(_upgrade_merge_project pr)
+  PATH="$PWD/stub-bin:$PATH"
+  printf 'upgrade.merge: sometimes\n' >> .ai/config.local.yaml
+  src=$(_unit_source)
+
+  run jig upgrade --from "$src"
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "pr https://github.com/example/example/pull/7"
+  assert_not_contains "$OUT" "merged https://"
+  assert_no_file stub-bin/merged
+
+  rm -rf "$src" "$remote"
+}
+
+# The reported case (lure): a dirty checkout on a task's branch. The upgrade does
+# not ask about it, changes none of it, and still lands: the base here moves as a
+# ref, and the branch is told it takes the new Jig when it merges the base.
+test_upgrade_leaves_a_dirty_checkout_on_a_task_branch_alone() {
+  local src remote
+  remote=$(_upgrade_merge_project pr)
+  PATH="$PWD/stub-bin:$PATH"
+  src=$(_unit_source)
+  git checkout -q -b task/elsewhere
+  printf 'work in progress\n' >> README.md
+  local readme head
+  readme=$(cat README.md)
+  head=$(git rev-parse HEAD)
+  local before
+  before=$(git rev-parse main)
+
+  run jig upgrade --from "$src"
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "merged https://github.com/example/example/pull/7"
+  assert_eq task/elsewhere "$(git symbolic-ref --short HEAD)"
+  assert_eq "$head" "$(git rev-parse HEAD)"
+  assert_eq "$readme" "$(cat README.md)"
+  assert_file_contains .ai/manifest "jig.version: 0."
+  assert_no_file .ai/skills/jig-newthing
+  [ "$before" != "$(git rev-parse main)" ] || fail "the base did not move"
+  assert_eq "$(git -C "$remote" rev-parse main)" "$(git rev-parse main)"
+  assert_contains "$OUT" "next: task/elsewhere is still on Jig"
+  assert_contains "$OUT" "git merge main"
+  _tree_gone
+
+  # A dry run of the same says nothing would stop it: Jig's tree asks nothing
+  # of the checkout.
+  _up_json upgrade --dry-run --from "$src" --json
+  assert_contains "$OUT" '"would_stop":[]'
+
+  rm -rf "$src" "$remote"
+}
+
+# Without an origin there is no tree: the upgrade works in the checkout as it
+# always did, with its refusals, and a dry run says so.
+test_upgrade_without_origin_still_refuses_a_dirty_checkout() {
+  _unit_project
+  jig config set --local agent.git pr >/dev/null
+  local src
+  src=$(_unit_source)
+  printf '\n# local edit\n' >> README.md
+
+  _up_json upgrade --dry-run --from "$src" --json
+  assert_contains "$OUT" "the working tree has uncommitted changes"
+  run jig upgrade --from "$src"
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "uncommitted changes"
+
+  rm -rf "$src"
+}
+
+# The telescope case: the checkout stands on an older version's upgrade branch.
+# The new upgrade is cut from the base, never staged on that branch; the old one
+# is named as superseded, and neither deleted nor switched away from.
+test_upgrade_does_not_continue_an_older_versions_branch() {
+  local src remote
+  remote=$(_upgrade_merge_project pr)
+  PATH="$PWD/stub-bin:$PATH"
+  src=$(_unit_source)
+  git checkout -q -b jig/upgrade-0.41.0
+  printf 'human commit\n' > human.txt
+  git add human.txt
+  git commit -q -m "a commit of a person on an old upgrade branch"
+  git push -q origin jig/upgrade-0.41.0
+  local old
+  old=$(git rev-parse HEAD)
+
+  run jig upgrade --from "$src"
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "working on branch jig/upgrade-9.9.9, cut from main"
+  assert_contains "$OUT" "merged https://github.com/example/example/pull/7"
+  assert_contains "$OUT" "note: jig/upgrade-0.41.0 (here, origin) is superseded"
+  assert_contains "$OUT" "next: jig/upgrade-0.41.0 is an older upgrade branch and is no longer needed; \`git checkout main\`"
+  assert_eq jig/upgrade-0.41.0 "$(git symbolic-ref --short HEAD)"
+  assert_eq "$old" "$(git rev-parse HEAD)"
+  assert_file human.txt
+  git -C "$remote" show-ref --verify --quiet refs/heads/jig/upgrade-0.41.0 || fail "the old branch was deleted on origin"
+
+  _up_json upgrade --dry-run --from "$src" --json
+  assert_contains "$OUT" '"would_stop":[]'
+
+  rm -rf "$src" "$remote"
+}
+
+# The same rule in the checkout's own path: a repeat stays only on the branch of
+# this very version.
+test_upgrade_in_the_checkout_does_not_stay_on_another_versions_branch() {
+  _unit_project
+  jig config set --local agent.git commit >/dev/null
+  local src
+  src=$(_unit_source)
+  git checkout -q -b jig/upgrade-0.41.0
+
+  run jig upgrade --from "$src"
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "working on branch jig/upgrade-9.9.9, cut from main"
+  assert_eq jig/upgrade-9.9.9 "$(git symbolic-ref --short HEAD)"
+  assert_eq "0" "$(git rev-list --count jig/upgrade-0.41.0..HEAD~1 2>/dev/null || printf 0)"
+
+  rm -rf "$src"
+}
+
+# CI that is red, absent or unfinished leaves the pull request open: `not merged`,
+# its code in --json, the row `open` in the cache, nothing held.
+test_upgrade_not_merged_says_why_and_keeps_the_pull_request_open() {
+  local src remote
+  remote=$(_upgrade_merge_project pr)
+  PATH="$PWD/stub-bin:$PATH"
+  src=$(_unit_source)
+  printf 'fail\n' > stub-bin/checks
+
+  _up_json upgrade --from "$src" --json
+  assert_eq 0 "$RC"
+  assert_contains "$ERR" "not merged: a check failed"
+  assert_contains "$OUT" '"merged":false'
+  assert_contains "$OUT" '"not_merged":{"code":"ci-red","reason":"a check failed"}'
+  assert_contains "$OUT" '"merge_by":"agent"'
+  assert_contains "$OUT" '"level_key":"upgrade.merge"'
+  assert_contains "$OUT" '"base":null'
+  assert_contains "$(cat .ai/runtime/forge-cache)" "open"
+  assert_contains "$ERR" "Run \`jig upgrade\` again to carry it on"
+  git show-ref --verify --quiet refs/heads/jig/upgrade-9.9.9 || fail "the local branch was deleted"
+  _tree_gone
+
+  # No checks at all: CI checked nothing.
+  : > stub-bin/checks
+  git branch -q -D jig/upgrade-9.9.9
+  git push -q origin :refs/heads/jig/upgrade-9.9.9
+  _up_json upgrade --from "$src" --json
+  assert_contains "$OUT" '"code":"ci-none"'
+
+  rm -rf "$src" "$remote"
+}
+
+# A repeat after `not merged` carries the pull request on: the open one is found,
+# CI is waited for again, and it merges.
+test_upgrade_repeat_carries_an_unmerged_upgrade_on() {
+  local src remote
+  remote=$(_upgrade_merge_project pr)
+  PATH="$PWD/stub-bin:$PATH"
+  src=$(_unit_source)
+  printf 'pending\n' > stub-bin/checks
+
+  run jig upgrade --from "$src"
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "not merged: the checks did not finish within 0 minutes"
+  assert_no_file stub-bin/merged
+  local tip
+  tip=$(git rev-parse refs/heads/jig/upgrade-9.9.9)
+
+  printf 'pass\n' > stub-bin/checks
+  run jig upgrade --from "$src"
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "the upgrade to 9.9.9 is already on branch jig/upgrade-9.9.9; carrying it on"
+  assert_contains "$OUT" "merged https://github.com/example/example/pull/7"
+  assert_contains "$(cat stub-bin/merged)" "--match-head-commit $tip"
+  if git show-ref --verify --quiet refs/heads/jig/upgrade-9.9.9; then fail "the local branch is still here"; fi
+  assert_eq "$(git -C "$remote" rev-parse main)" "$(git rev-parse main)"
+  _tree_gone
+
+  rm -rf "$src" "$remote"
+}
+
+# A branch that carries a commit Jig did not write is not pushed or merged for the
+# upgrade's own right: `branch-has-other-commits`, nothing sent. The person's own
+# agent.git merge is the grant that covers it.
+test_upgrade_repeat_does_not_send_what_is_not_jigs() {
+  local src remote
+  remote=$(_upgrade_merge_project pr)
+  PATH="$PWD/stub-bin:$PATH"
+  src=$(_unit_source)
+  git branch jig/upgrade-9.9.9 main
+  git checkout -q jig/upgrade-9.9.9
+  printf 'mine\n' > mine.txt
+  git add mine.txt
+  git commit -q -m "my own work"
+  git checkout -q main
+
+  _up_json upgrade --from "$src" --json
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" '"code":"branch-has-other-commits"'
+  assert_contains "$OUT" "jig/upgrade-9.9.9 carries commits Jig did not write"
+  assert_no_file stub-bin/merged
+  if git -C "$remote" show-ref --verify --quiet refs/heads/jig/upgrade-9.9.9; then fail "a commit that is not Jig's was pushed"; fi
+  _tree_gone
+
+  # At the person's own agent.git merge, the grant is there.
+  jig config set --local agent.git merge >/dev/null
+  run jig upgrade --from "$src"
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "merged https://github.com/example/example/pull/7"
+
+  rm -rf "$src" "$remote"
+}
+
+# A commit that borrows the subject, or touches a file of the person's, is not Jig's;
+# nor is one already on origin: origin holding the tip exempts the push, not the merge.
+test_upgrade_repeat_judges_authorship_not_the_subject_or_origin() {
+  local src remote
+  remote=$(_upgrade_merge_project pr)
+  PATH="$PWD/stub-bin:$PATH"
+  src=$(_unit_source)
+  git branch jig/upgrade-9.9.9 main
+  git checkout -q jig/upgrade-9.9.9
+  printf 'mine\n' > mine.txt
+  git add mine.txt
+  git commit -q -m "Upgrade Jig 0.1.0 -> 9.9.9"
+  git push -q origin jig/upgrade-9.9.9
+  git checkout -q main
+
+  _up_json upgrade --from "$src" --json
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" '"code":"branch-has-other-commits"'
+  assert_no_file stub-bin/merged
+
+  rm -rf "$src" "$remote"
+}
+
+# A second clone upgrading while the first one's pull request waits does not cut the
+# same name: origin's name is read, and the waiting upgrade is carried on from here.
+test_upgrade_reads_origins_branch_names_for_a_second_clone() {
+  local src remote two
+  remote=$(_upgrade_merge_project pr)
+  PATH="$PWD/stub-bin:$PATH"
+  src=$(_unit_source)
+  printf 'pending\n' > stub-bin/checks
+  run jig upgrade --from "$src"
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "not merged: the checks did not finish"
+  git -C "$remote" show-ref --verify --quiet refs/heads/jig/upgrade-9.9.9 || fail "the branch is not on origin"
+
+  two=$(mktemp -d "${TMPDIR:-/tmp}/jig-clone2.XXXXXX")
+  rm -rf "$two"
+  git clone -q -b main "$remote" "$two"
+  printf 'pass\n' > stub-bin/checks
+  cd "$two"
+  run jig upgrade --from "$src"
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "the upgrade to 9.9.9 is already on branch jig/upgrade-9.9.9; carrying it on"
+  assert_contains "$OUT" "merged https://github.com/example/example/pull/7"
+  [ -z "$(git branch --list 'jig/upgrade-9.9.9-*')" ] || fail "a second name was cut"
+
+  rm -rf "$src" "$remote" "$two"
+}
+
+# A framework path the project gitignores could not travel in a commit made in Jig's
+# tree: the run says so and works in the checkout, as an ordinary in-checkout upgrade
+# (commit, the ignored file placed, a second run has nothing to do), and says so in
+# --json. A dry run and `jig status` on such a project change nothing.
+test_upgrade_works_in_the_checkout_when_the_project_ignores_a_framework_path() {
+  local src remote head
+  remote=$(_upgrade_merge_project pr)
+  PATH="$PWD/stub-bin:$PATH"
+  printf '.codex/skills/jig-newthing/\n' >> .gitignore
+  git add .gitignore
+  git commit -q -m "ignore a path"
+  git push -q origin main
+  jig config set --local upgrade.merge human >/dev/null
+  src=$(_unit_source)
+  head=$(git rev-parse HEAD)
+  git checkout -q -b task/x
+  local before_branches
+  before_branches=$(git branch --list | tr -d ' *')
+
+  # Read-only: a dry run and the reads that ask it.
+  _up_json upgrade --dry-run --from "$src" --json
+  assert_eq 0 "$RC" "$ERR"
+  assert_contains "$ERR" "a real upgrade would work in your checkout, not in Jig's tree"
+  assert_eq task/x "$(git symbolic-ref --short HEAD)"
+  run jig status
+  assert_eq task/x "$(git symbolic-ref --short HEAD)"
+  assert_eq "$before_branches" "$(git branch --list | tr -d ' *')"
+  assert_no_file .codex/skills/jig-newthing/SKILL.md
+  _tree_gone
+
+  git checkout -q main
+  run jig upgrade --from "$src"
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "note: this project's .gitignore ignores framework files the upgrade places (.codex/skills/jig-newthing/SKILL.md)"
+  assert_contains "$OUT" "working on branch jig/upgrade-9.9.9, cut from main"
+  assert_not_contains "$OUT" "shipping at merge"
+  assert_not_contains "$OUT" "not committed"
+  # upgrade.merge human: the pull request is opened and never merged here.
+  assert_not_contains "$OUT" "merged https://"
+  assert_no_file stub-bin/merged
+  assert_file .codex/skills/jig-newthing/SKILL.md
+  [ "$head" != "$(git rev-parse jig/upgrade-9.9.9)" ] || fail "nothing was committed"
+  _tree_gone
+
+  # An ordinary in-checkout upgrade waiting for its merge: a rerun is the usual refusal.
+  run jig upgrade --from "$src"
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "has not been merged into main yet"
+  assert_not_contains "$OUT" "not committed"
+
+  rm -rf "$src" "$remote"
+}
+
+# upgrade.merge agent, agent.git merge, same project: the checkout path merges (the
+# person's own grant), and --json says where it worked and why.
+test_upgrade_ignored_path_fallback_reports_itself_in_json() {
+  local src remote
+  remote=$(_upgrade_merge_project merge)
+  PATH="$PWD/stub-bin:$PATH"
+  printf '.codex/skills/jig-newthing/\n' >> .gitignore
+  git add .gitignore
+  git commit -q -m "ignore a path"
+  git push -q origin main
+  src=$(_unit_source)
+
+  _up_json upgrade --from "$src" --json
+  assert_eq 0 "$RC" "$ERR"
+  assert_contains "$OUT" '"level":"merge"'
+  assert_contains "$OUT" '"level_key":"agent.git","path":"checkout","ignored":[".codex/skills/jig-newthing/SKILL.md"]'
+  assert_contains "$OUT" '"merged":true'
+  assert_file .codex/skills/jig-newthing/SKILL.md
+
+  run jig upgrade --from "$src"
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "nothing changed"
+
+  rm -rf "$src" "$remote"
+}
+
+# upgrade.merge human never merges, on the in-checkout path either, even at agent.git merge.
+test_upgrade_merge_human_never_merges_in_the_checkout() {
+  _unit_project
+  local src remote
+  remote=$(mktemp -d "${TMPDIR:-/tmp}/jig-remote.XXXXXX")
+  git init -q --bare "$remote"
+  git remote add origin "$remote"
+  git push -q origin main
+  jig config set --local agent.git merge upgrade.merge human >/dev/null
+  src=$(_unit_source)
+  mkdir -p stub-bin
+  # shellcheck disable=SC2016 # the stub expands its own arguments
+  printf '#!/bin/sh\ncase "$1 $2" in "auth status") exit 0 ;; "pr list") echo null ;; "pr create") echo https://github.com/example/example/pull/7 ;; *) echo "UNEXPECTED $*" >> "%s/stub-bin/calls" ;; esac\n' "$PWD" > stub-bin/gh
+  chmod +x stub-bin/gh
+  printf 'stub-bin/\n' >> .git/info/exclude
+  sed 's|^forge:.*|forge: github|' .ai/config.yaml > c.tmp && mv c.tmp .ai/config.yaml
+  git commit -q -am "github"
+  PATH="$PWD/stub-bin:$PATH"
+
+  run jig upgrade --from "$src"
+  assert_eq 0 "$RC"
+  assert_not_contains "$OUT" "merged https://"
+  assert_no_file stub-bin/calls
+
+  rm -rf "$src" "$remote"
+}
+
+# A branch only origin holds, with commits that are not Jig's, is refused without
+# making a local branch of it.
+test_upgrade_refusal_for_an_origin_only_branch_leaves_no_local_branch() {
+  local src remote
+  remote=$(_upgrade_merge_project pr)
+  PATH="$PWD/stub-bin:$PATH"
+  src=$(_unit_source)
+  git branch jig/upgrade-9.9.9 main
+  git checkout -q jig/upgrade-9.9.9
+  printf 'mine\n' > mine.txt
+  git add mine.txt
+  git commit -q -m "my own work"
+  git push -q origin jig/upgrade-9.9.9
+  git checkout -q main
+  git branch -q -D jig/upgrade-9.9.9
+
+  _up_json upgrade --from "$src" --json
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" '"code":"branch-has-other-commits"'
+  [ -z "$(git branch --list 'jig/upgrade-*')" ] || fail "a local branch was made from origin's"
+  assert_no_file stub-bin/merged
+
+  rm -rf "$src" "$remote"
+}
+
+# Under upgrade.merge human the unmerged branch is the refusal it always was.
+test_upgrade_merge_human_still_refuses_an_unmerged_branch() {
+  local src remote
+  remote=$(_upgrade_merge_project pr)
+  PATH="$PWD/stub-bin:$PATH"
+  jig config set --local upgrade.merge human >/dev/null
+  src=$(_unit_source)
+  git branch jig/upgrade-9.9.9 main
+  git commit -q --allow-empty -m "x"
+  git checkout -q jig/upgrade-9.9.9
+  git commit -q --allow-empty -m "Upgrade Jig 0 -> 9.9.9"
+  git checkout -q main
+
+  run jig upgrade --from "$src"
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "is already on branch jig/upgrade-9.9.9, which has not been merged into main yet"
+
+  rm -rf "$src" "$remote"
+}
+
+# A pre-commit hook that fails in Jig's tree: said by name, and nothing is left —
+# no branch, no tree, no lock, and the checkout was not touched.
+test_upgrade_pre_commit_hook_refusal_leaves_nothing() {
+  local src remote
+  remote=$(_upgrade_merge_project pr)
+  PATH="$PWD/stub-bin:$PATH"
+  src=$(_unit_source)
+  mkdir -p .git/hooks
+  printf '#!/bin/sh\necho "lint needs the project dependencies" >&2\nexit 1\n' > .git/hooks/pre-commit
+  chmod +x .git/hooks/pre-commit
+
+  _up_json upgrade --from "$src" --json
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" '"code":"commit-refused"'
+  assert_contains "$OUT" "not committed: the project's pre-commit hook refused in Jig's tree: "
+  assert_contains "$OUT" "lint needs the project dependencies"
+  [ -z "$(git branch --list 'jig/upgrade-*')" ] || fail "a branch was left behind"
+  _tree_gone
+  if git worktree list | grep -q 'jig/tree'; then fail "git still lists Jig's tree"; fi
+  assert_eq main "$(git symbolic-ref --short HEAD)"
+  assert_eq "" "$(git status --porcelain | grep -v '^??' || true)"
+  assert_no_file stub-bin/merged
+
+  rm -rf "$src" "$remote"
+}
+
+# A write that holds the clone's lock keeps the upgrade out, as it keeps another
+# write: write-busy, and nothing is changed.
+test_upgrade_refuses_while_a_write_holds_the_lock() {
+  local src remote
+  remote=$(_upgrade_merge_project pr)
+  PATH="$PWD/stub-bin:$PATH"
+  src=$(_unit_source)
+  mkdir -p .ai/runtime/writes/lock/busy
+  printf 'checkout: %s\npid: %s\n' "$PWD" "$$" > .ai/runtime/writes/lock/busy/run
+
+  _up_json upgrade --from "$src" --json
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" '"code":"write-busy"'
+  [ -z "$(git branch --list 'jig/upgrade-*')" ] || fail "a branch was cut"
+  assert_file .ai/runtime/writes/lock/busy/run
+
+  rm -rf "$src" "$remote"
+}
+
+# A `jig verify` running in the checkout that stands on the base: the base is not
+# moved under it, and the run says how to move it later. The merge is made.
+test_upgrade_does_not_move_a_base_under_a_running_verify() {
+  local src remote
+  remote=$(_upgrade_merge_project pr)
+  PATH="$PWD/stub-bin:$PATH"
+  src=$(_unit_source)
+  mkdir -p .ai/runtime/verify/busy
+  printf 'checkout: %s\npid: %s\n' "$PWD" "$$" > .ai/runtime/verify/busy/run
+  local before
+  before=$(git rev-parse main)
+
+  _up_json upgrade --from "$src" --json
+  assert_eq 0 "$RC"
+  assert_contains "$ERR" "merged https://github.com/example/example/pull/7"
+  assert_contains "$ERR" "next: main here has not moved, because \`jig verify\` is running in this checkout"
+  assert_contains "$OUT" '"base":"verify-running"'
+  assert_eq "$before" "$(git rev-parse main)"
+  assert_eq "$(git -C "$remote" rev-parse main)" "$(git rev-parse origin/main)"
+
+  rm -rf "$src" "$remote"
+}
+
+# A base checked out in another worktree is not moved from here.
+test_upgrade_does_not_move_a_base_checked_out_in_another_worktree() {
+  local src remote
+  remote=$(_upgrade_merge_project pr)
+  PATH="$PWD/stub-bin:$PATH"
+  src=$(_unit_source)
+  git checkout -q -b task/elsewhere
+  local wt
+  wt=$(mktemp -d "${TMPDIR:-/tmp}/jig-wt.XXXXXX")
+  rm -rf "$wt"
+  git worktree add -q "$wt" main
+
+  _up_json upgrade --from "$src" --json
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" '"base":"checked-out-elsewhere"'
+  assert_contains "$ERR" "next: main here has not moved"
+
+  git worktree remove --force "$wt"
+  rm -rf "$src" "$remote"
+}
+
+# `--land` run by a project's older copy goes to the newer jig on this machine,
+# which brings the upgrade here without asking for a switch (jig-ui, 0.45.0).
+test_upgrade_land_is_handed_to_a_newer_global_jig() {
+  _unit_project
+  local global path
+  global=$(_unit_source)
+  printf '\nprintf "NEW-DISPATCHER\\n" >&2\n' >> "$global/scripts/lib/version.sh"
+  fixture_release_source "$global"
+  global=$(cd "$global" && pwd -P)
+  path=$(_upgrade_global_path "$global")
+
+  run env PATH="$path" bash "$JIG_HOME/scripts/jig" upgrade --land
+  assert_contains "$OUT" "NEW-DISPATCHER"
+  assert_contains "$OUT" "handing --land to 9.9.9 from $global"
+
+  # Not newer: no hand-off.
+  _unbump_source "$global"
+  run env PATH="$path" bash "$JIG_HOME/scripts/jig" upgrade --land
+  assert_not_contains "$OUT" "NEW-DISPATCHER"
+
+  rm -rf "$global"
+}
+
+# Run in the loop the hand-off guards against: a handed-off run goes on where it is.
+test_upgrade_land_handed_off_does_not_loop() {
+  _unit_project
+  local global path
+  global=$(_unit_source)
+  global=$(cd "$global" && pwd -P)
+  path=$(_upgrade_global_path "$global")
+
+  run env PATH="$path" JIG_UPGRADE_HANDED_OFF=0.0.1 bash "$JIG_HOME/scripts/jig" upgrade --land
+  assert_not_contains "$OUT" "handing"
+
+  rm -rf "$global"
+}
+
+# Nothing to change: the tree is given back, no branch is cut anywhere, and the
+# checkout is as it was; from another branch, the way forward is the base.
+test_upgrade_in_its_own_tree_with_nothing_to_change_leaves_nothing() {
+  local remote head
+  remote=$(_upgrade_merge_project pr)
+  PATH="$PWD/stub-bin:$PATH"
+  head=$(git rev-parse HEAD)
+
+  run jig upgrade --from "$JIG_HOME"
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "upgrade: nothing changed"
+  assert_not_contains "$OUT" "shipping at"
+  [ -z "$(git branch --list 'jig/upgrade-*')" ] || fail "a branch was cut here"
+  [ -z "$(git -C "$remote" branch --list 'jig/upgrade-*')" ] || fail "a branch reached origin"
+  _tree_gone
+  assert_eq "$head" "$(git rev-parse HEAD)"
+  assert_eq main "$(git symbolic-ref --short HEAD)"
+  assert_no_file stub-bin/merged
+
+  git checkout -q -b task/behind
+  run jig upgrade --from "$JIG_HOME"
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "upgrade: nothing changed"
+  assert_contains "$OUT" "next: main already has this version"
+  assert_contains "$OUT" "git merge main"
+  assert_eq task/behind "$(git symbolic-ref --short HEAD)"
+  _tree_gone
+
+  rm -rf "$remote"
 }

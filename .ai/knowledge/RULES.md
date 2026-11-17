@@ -78,7 +78,10 @@
   the merged head passed for origin only at `agent.git` `push` or above; `jig upgrade --land` from a
   checkout on a third branch, which moves only the base's ref and calls `jig_branch_leave` itself,
   with the merged head for the local branch at every level and for origin only at `push` or above
-  (adr-20261029-an-upgrade-pull-request-is-landed-by-jig); and housekeeping's `_hk_branch_sweep`, which leaves the
+  (adr-20261029-an-upgrade-pull-request-is-landed-by-jig); `jig upgrade` right after a merge it made from
+  Jig's own tree, which never switches a checkout and calls `jig_branch_leave` itself with the merged
+  head, for origin at its effective level — `merge` under `upgrade.merge: agent`, whatever `agent.git`
+  says (adr-20261117-an-upgrade-is-built-in-jigs-own-tree-and-merges-itself); and housekeeping's `_hk_branch_sweep`, which leaves the
   branch of every workspace it keeps, touches origin only at `agent.git` `push` or above, and
   fetches with `--no-prune` so the upstream `-d` needs is still there.
   (adr-20261007-a-merged-branch-leaves-with-its-work)
@@ -107,7 +110,9 @@
   stopped writer left is never removed by jig — the refusal names it for a person to delete.
   Its tree is the seventh: git deletes it, with `git worktree remove --force`, one of the two `--force`s on a
   removal anywhere in jig, and one function builds the only path it is given,
-  `<git-common-dir>/jig/tree`. `--force` is what a refused write needs, and it is safe there because
+  `<git-common-dir>/jig/tree`; `jig upgrade` takes the same tree under the same lock, through the
+  same steps (`ot_tree_add`, `ot_close`), and removes it before it waits for CI
+  (adr-20261117-an-upgrade-is-built-in-jigs-own-tree-and-merges-itself). `--force` is what a refused write needs, and it is safe there because
   under that lock only Jig writes in the tree, nothing a person wrote is ever in it, and what was
   worth keeping is already a commit; a write removes the tree it made, while it still holds the lock,
   and under the lock, as housekeeping does too, a tree a killed write left; no such write or its sweep runs `git worktree prune`, which would drop any worktree whose

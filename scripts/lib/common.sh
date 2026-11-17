@@ -4641,6 +4641,110 @@ jig_ship_leave() {
   jig_branch_leave "$who" "$b" "$sha"
 }
 
+# --- moving the base branch (jig refresh, jig upgrade) ------------------------
+#
+# One function, so that `jig refresh` and a `jig upgrade` that merged its own pull
+# request never disagree on how the base moves. Results in JIG_BASE_FF_OUTCOME
+# (fast-forwarded, up-to-date, missing, diverged, blocked-by-changes,
+# checked-out-elsewhere), JIG_BASE_FF_FROM, JIG_BASE_FF_TO, JIG_BASE_FF_MSG and
+# JIG_BASE_FF_WHERE; called in the caller's shell, never in `$()`.
+# shellcheck disable=SC2034 # read by refresh.sh and upgrade.sh
+JIG_BASE_FF_OUTCOME=""
+# shellcheck disable=SC2034 # read by refresh.sh and upgrade.sh
+JIG_BASE_FF_FROM=""
+# shellcheck disable=SC2034 # read by refresh.sh and upgrade.sh
+JIG_BASE_FF_TO=""
+# shellcheck disable=SC2034 # read by refresh.sh and upgrade.sh
+JIG_BASE_FF_MSG=""
+# shellcheck disable=SC2034 # read by refresh.sh and upgrade.sh
+JIG_BASE_FF_WHERE=""
+
+# jig_branch_worktree <branch> — the worktree <branch> is checked out in, or nothing.
+# A list git could not give is answered `?`: the base may be checked out, and stays.
+jig_branch_worktree() {
+  local list
+  list=$(git -C "$JIG_PROJECT" worktree list --porcelain 2>/dev/null) || { printf '?\n'; return 0; }
+  printf '%s\n' "$list" | awk -v want="branch refs/heads/$1" '
+    /^worktree / { wt = substr($0, 10) }
+    $0 == want { print wt; exit }'
+}
+
+# jig_base_fast_forward <base> — fast-forward the base to origin's, the only move it ever makes:
+# `merge --ff-only` where it is checked out here (git itself refuses to touch changes a
+# fast-forward would overwrite), `git branch -f` where it is checked out nowhere — git
+# refuses that for a branch any worktree has checked out, or is rebasing or bisecting;
+# elsewhere, ahead, diverged or missing, nothing moves.
+jig_base_fast_forward() {
+  local base="$1" local_sha origin_sha here out
+  JIG_BASE_FF_OUTCOME=""
+  JIG_BASE_FF_MSG=""
+  JIG_BASE_FF_WHERE=""
+  origin_sha=$(git -C "$JIG_PROJECT" rev-parse --verify --quiet "refs/remotes/origin/$base^{commit}" 2>/dev/null) || origin_sha=""
+  local_sha=$(git -C "$JIG_PROJECT" rev-parse --verify --quiet "refs/heads/$base^{commit}" 2>/dev/null) || local_sha=""
+  # shellcheck disable=SC2034 # read by refresh.sh and upgrade.sh
+  JIG_BASE_FF_FROM=$local_sha
+  JIG_BASE_FF_TO=$local_sha
+  if [ -z "$origin_sha" ] || [ -z "$local_sha" ]; then
+    JIG_BASE_FF_OUTCOME=missing
+    if [ -z "$origin_sha" ]; then
+      JIG_BASE_FF_MSG="origin/$base is not known here"
+    else
+      JIG_BASE_FF_MSG="there is no branch $base here"
+    fi
+    return 0
+  fi
+  if [ "$local_sha" = "$origin_sha" ]; then
+    JIG_BASE_FF_OUTCOME=up-to-date
+    return 0
+  fi
+  if ! git -C "$JIG_PROJECT" merge-base --is-ancestor "$local_sha" "$origin_sha" 2>/dev/null; then
+    JIG_BASE_FF_OUTCOME=diverged
+    JIG_BASE_FF_MSG="$base here has commits origin/$base does not have, so it cannot be fast-forwarded"
+    return 0
+  fi
+  here=$(git -C "$JIG_PROJECT" symbolic-ref --quiet HEAD 2>/dev/null) || here=""
+  if [ "$here" = "refs/heads/$base" ]; then
+    # merge.autoStash off: refresh never stashes (a person's config may say otherwise).
+    if out=$(git -C "$JIG_PROJECT" -c merge.autoStash=false merge --ff-only -q "$origin_sha" 2>&1); then
+      JIG_BASE_FF_OUTCOME=fast-forwarded
+      # shellcheck disable=SC2034 # read by refresh.sh and upgrade.sh
+      JIG_BASE_FF_TO=$origin_sha
+    else
+      JIG_BASE_FF_OUTCOME=blocked-by-changes
+      JIG_BASE_FF_MSG=$(printf '%s\n' "$out" | sed '/^[[:space:]]*$/d')
+      [ -n "$JIG_BASE_FF_MSG" ] || JIG_BASE_FF_MSG="git refused to fast-forward $base over the changes in this checkout"
+    fi
+    return 0
+  fi
+  JIG_BASE_FF_WHERE=$(jig_branch_worktree "$base")
+  if [ "$JIG_BASE_FF_WHERE" = "?" ]; then
+    JIG_BASE_FF_WHERE=""
+    # shellcheck disable=SC2034 # read by refresh.sh and upgrade.sh
+    JIG_BASE_FF_OUTCOME=checked-out-elsewhere
+    JIG_BASE_FF_MSG="git could not list this clone's worktrees, so $base may be checked out in one; nothing was changed"
+    return 0
+  fi
+  if [ -n "$JIG_BASE_FF_WHERE" ]; then
+    # shellcheck disable=SC2034 # read by refresh.sh and upgrade.sh
+    JIG_BASE_FF_OUTCOME=checked-out-elsewhere
+    JIG_BASE_FF_MSG="$base is checked out in $JIG_BASE_FF_WHERE; it moves there, with \`jig refresh\` run in it"
+    return 0
+  fi
+  if [ "$(git -C "$JIG_PROJECT" rev-parse --verify --quiet "refs/heads/$base^{commit}" 2>/dev/null)" != "$local_sha" ]; then
+    JIG_BASE_FF_OUTCOME=diverged
+    JIG_BASE_FF_MSG="$base moved while it was being fast-forwarded; nothing was changed"
+  elif out=$(git -C "$JIG_PROJECT" branch -f "$base" "$origin_sha" 2>&1); then
+    JIG_BASE_FF_OUTCOME=fast-forwarded
+    # shellcheck disable=SC2034 # read by refresh.sh and upgrade.sh
+    JIG_BASE_FF_TO=$origin_sha
+  else
+    # shellcheck disable=SC2034 # read by refresh.sh and upgrade.sh
+    JIG_BASE_FF_OUTCOME=checked-out-elsewhere
+    JIG_BASE_FF_MSG=$(printf '%s\n' "$out" | sed '/^[[:space:]]*$/d')
+    [ -n "$JIG_BASE_FF_MSG" ] || JIG_BASE_FF_MSG="git refused to move $base"
+  fi
+}
+
 # --- specification links ------------------------------------------------------
 
 # jig_spec_link <task.md> — the spec id a task links to, or nothing.

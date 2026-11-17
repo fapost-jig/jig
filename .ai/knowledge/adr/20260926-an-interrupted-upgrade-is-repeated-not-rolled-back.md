@@ -171,3 +171,9 @@ Any future reader that compares a file to a manifest hash goes through `jig_hash
 `jig_hash_list`, and a third one would have to repeat both halves of the rule.
 `jig_section_hash` is unaffected: it hashes through stdin, where no path attributes
 apply, and both sides of its comparison are computed in the same process.
+
+> **Amendment (2026-11-17).** An upgrade interrupted in Jig's own tree leaves no partial branch: the tree
+> is swept by the next run or housekeeping and the branch exists only once its commit does. Repeating it
+> starts again from the base. A repeat that finds this version's branch unmerged carries it on only when
+> every commit on it is Jig's; on the in-checkout path the branch a run stays on is only this version's
+> (adr-20261117-an-upgrade-is-built-in-jigs-own-tree-and-merges-itself).
