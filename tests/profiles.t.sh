@@ -165,6 +165,74 @@ test_profiles_active_dedups_and_puts_generic_first() {
   assert_eq "generic php laravel" "$OUT"
 }
 
+# --- profiles_reached / profiles_unreached ---------------------------------
+
+test_profiles_reached_is_the_list_when_nothing_extends() {
+  fixture_repo
+  mkdir -p .ai
+  printf 'profiles: [php, generic, laravel]\n' > .ai/config.yaml
+  profiles_harness 'profiles_reached'
+  assert_eq 0 "$RC"
+  assert_eq "generic php laravel" "$OUT"
+}
+
+# A base reached only through `extends` is reached: it runs, so it is never
+# named unreached.
+test_profiles_reached_includes_a_base_reached_through_extends() {
+  fixture_repo
+  mkdir -p .ai/profiles/generic .ai/profiles/base .ai/profiles/warehouse
+  printf 'name: base\n' > .ai/profiles/base/profile.yaml
+  printf 'name: warehouse\nextends: base\n' > .ai/profiles/warehouse/profile.yaml
+  printf 'profiles: [warehouse]\n' > .ai/config.yaml
+  profiles_harness 'profiles_reached'
+  assert_eq 0 "$RC"
+  assert_eq "generic warehouse base" "$OUT"
+  profiles_harness 'profiles_unreached'
+  assert_eq 0 "$RC"
+  assert_eq "" "$OUT"
+}
+
+# A stack that does not resolve reaches nothing knowable: nothing is named.
+test_profiles_unreached_names_nothing_when_the_stack_does_not_resolve() {
+  fixture_repo
+  mkdir -p .ai/profiles/generic .ai/profiles/warehouse .ai/profiles/stray
+  printf 'name: warehouse\nextends: missing\n' > .ai/profiles/warehouse/profile.yaml
+  printf 'profiles: [warehouse]\n' > .ai/config.yaml
+  profiles_harness 'profiles_reached'
+  assert_eq 1 "$RC"
+  assert_eq "" "$OUT"
+  profiles_harness 'profiles_unreached'
+  assert_eq 1 "$RC"
+  assert_eq "" "$OUT"
+}
+
+test_profiles_unreached_prints_the_unlisted_directory() {
+  fixture_repo
+  mkdir -p .ai/profiles/generic .ai/profiles/php .ai/profiles/warehouse
+  printf 'profiles: [php]\n' > .ai/config.yaml
+  profiles_harness 'profiles_unreached'
+  assert_eq 0 "$RC"
+  assert_eq "warehouse" "$OUT"
+}
+
+test_profiles_unreached_prints_nothing_when_all_are_listed() {
+  fixture_repo
+  mkdir -p .ai/profiles/generic .ai/profiles/php
+  printf 'profiles: [php]\n' > .ai/config.yaml
+  profiles_harness 'profiles_unreached'
+  assert_eq 0 "$RC"
+  assert_eq "" "$OUT"
+}
+
+test_profiles_unreached_prints_nothing_without_a_profiles_dir() {
+  fixture_repo
+  mkdir -p .ai
+  printf 'profiles: [php]\n' > .ai/config.yaml
+  profiles_harness 'profiles_unreached'
+  assert_eq 0 "$RC"
+  assert_eq "" "$OUT"
+}
+
 # --- profiles_detect -------------------------------------------------------
 
 test_profiles_detect_empty_repo_is_generic_only() {

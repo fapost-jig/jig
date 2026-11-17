@@ -61,3 +61,9 @@ jig's own `.ai/scripts/*.sh`: every installed project looked like a shell projec
 > This strengthens the decision rather than changing it: activating what is detected is still
 > how a project gets checks, and the state it rescues people from is now audible instead of
 > silently green.
+
+> **Amendment (2026-11-17).** "`upgrade` never activates a profile" still holds for
+> `profiles:`, which neither `init` nor `upgrade` edits. But listing a layer now activates its
+> stack: `upgrade` installs, updates and keeps every base the listed layers reach through
+> `extends`, and a first `init` writes only the top layers it detected, never a base of another
+> detected profile (adr-20261117-profiles-lists-top-layers-and-jig-resolves-the-stack).

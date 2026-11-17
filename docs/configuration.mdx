@@ -393,7 +393,9 @@ tests (`foo.py` → `test_foo.py`, a Go package and its importers, a Rust crate)
 narrow runs in full, with the reason printed.
 
 Checks of your own belong in the project's installed profile under `.ai/profiles/`; `jig upgrade`
-keeps a profile you edited.
+keeps a profile you edited. A profile of your own runs only when `profiles:` in `.ai/config.yaml`
+lists it; one that sits under `.ai/profiles/` unlisted never runs, and `jig doctor` and
+`jig status` name it (`profiles unreached: myapp`).
 
 A profile of your own can also replace one check of a stock profile, without editing it. Say it
 runs your test suite its own way: declare that in its `profile.yaml`, and the stock profile's

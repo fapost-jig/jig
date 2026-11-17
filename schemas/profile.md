@@ -77,7 +77,9 @@ over `laravel`, `laravel` over `php`. `profiles:` in `.ai/config.yaml` lists the
 the **stack** is that list closed over `extends`. A profile is *reached* when it is in the
 stack. `profiles_stack_v` in `scripts/lib/profiles.sh` is the one function that resolves it;
 `jig verify`, `jig upgrade`, `jig init`, the worktree carry and lock lists and the ship notice
-all read the stack from it and none re-derives it.
+all read the stack from it and none re-derives it. `profiles_reached` answers "reached" from it
+for `jig doctor` and `jig status`, which name an installed profile the stack does not reach; when
+the stack does not resolve, doctor names that reason and nothing is called unreached.
 
 - **Shape.** The value is one profile name, valid as a directory name. A list
   (`extends: [a, b]`), `generic` (always first, never a base) and anything that is not a name are

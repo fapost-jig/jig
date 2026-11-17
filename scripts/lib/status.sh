@@ -541,6 +541,7 @@ EOF
     printf '%s\n' "wrong base: $wrong task(s) (see .ai/runtime/housekeeping.log)"
   fi
 
+  _status_unreached_profiles
   _status_session_hook
   _status_notify_hook
   _status_instructions
@@ -890,6 +891,7 @@ _status_terminal() {
       "modified:" | "missing:") list=${l%:} ;;
       "proposals: none") _STT_KNOW+=("proposals"$'\t'"none"$'\t') ;;
       "proposals: "* | "sources changed: "*) _status_need warn "$l" ;;
+      "profiles unreached: "*) _status_need warn "$l" ;;
       "specs: none") _STT_KNOW+=("specs"$'\t'"none"$'\t') ;;
       "specs: "*" (jig spec list)")
         t=${l#specs: }
@@ -3960,6 +3962,19 @@ _status_autopilot_git() {
   # Nothing when it answers from an invalid agent.git: the agent.git line
   # already names that, and a second failure for one mistake reads as two.
   return 0
+}
+
+# A profile directory that profiles: in .ai/config.yaml does not reach never
+# runs, and nothing else says so. Silent when there is none, and when the
+# config cannot be read (the invalid name is reported where it is used).
+_status_unreached_profiles() {
+  local names
+  # shellcheck source=lib/profiles.sh
+  . "$JIG_LIB/profiles.sh"
+  names=$(profiles_unreached 2>/dev/null) || return 0
+  [ -n "$names" ] || return 0
+  names=$(printf '%s\n' "$names" | paste -sd, - | sed 's/,/, /g')
+  printf 'profiles unreached: %s (not in profiles: in .ai/config.yaml, so never run)\n' "$names"
 }
 
 # Whether the housekeeping trigger is wired up for the installed runtimes.

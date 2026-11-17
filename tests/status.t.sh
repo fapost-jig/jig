@@ -1394,6 +1394,17 @@ test_status_instructions_ok_after_fresh_init() {
   assert_contains "$OUT" "instructions (codex): ok"
 }
 
+test_status_names_an_unreached_profile() {
+  fixture_jig_repo
+  run jig status
+  assert_not_contains "$OUT" "profiles unreached"
+
+  mkdir -p .ai/profiles/warehouse
+  printf 'name: warehouse\n' > .ai/profiles/warehouse/profile.yaml
+  run jig status
+  assert_contains "$OUT" "profiles unreached: warehouse"
+}
+
 test_status_instructions_reports_a_kept_foreign_agents() {
   fixture_repo
   printf '# Our own rules\n' > AGENTS.md
