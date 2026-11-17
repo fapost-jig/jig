@@ -12,14 +12,14 @@ project's `jig verify --explain` plans one PHPUnit pass, and `jig doctor` names 
 `.ai/profiles/` that `profiles:` does not reach.
 
 - [x] `laravel-php-duplicate-suite` — `php` leaves its test check to `laravel` when both are active, and `--explain` says so
-- [ ] Unreached profiles are named — `jig doctor` and `jig status` name a profile under `.ai/profiles/` that no active profile reaches
+- [ ] `unreached-profiles-are-named` — Unreached profiles are named — `jig doctor` and `jig status` name a profile under `.ai/profiles/` that no active profile reaches
 
 ## Phase 2 — Checks have names
 
 Goal: every check is addressable by a stable role name. Done when: `--explain` prints
 `php:tests (phpunit)` style lines for every stock profile, and the names are documented.
 
-- [ ] Check table format — a profile declares its checks by role name, command and full/narrowed arguments in a form the flat reader holds, with an explicit rule for where narrowed test paths go
+- [ ] `check-table-format` — Check table format — a profile declares its checks by role name, command and full/narrowed arguments in a form the flat reader holds, with an explicit rule for where narrowed test paths go
 - [ ] Stock profiles declare their checks — every stock profile's checks carry role names in the table, the tool chosen at run time shown inside the check (after: Check table format — the table must exist to be filled)
 
 ## Phase 3 — Profiles build on profiles
@@ -27,7 +27,7 @@ Goal: every check is addressable by a stable role name. Done when: `--explain` p
 Goal: a profile extends another and changes only what differs. Done when: the warehouse case is a
 project layer of a few lines over stock `laravel`, and `laravel` no longer copies `php`'s narrowing.
 
-- [ ] Layer stacks resolve — `profiles:` lists top layers; Jig resolves the bases through `extends`, installs and upgrades them, runs each once, fails on a missing base and on a project layer taking a stock name
+- [ ] `layer-stacks-resolve` — Layer stacks resolve — `profiles:` lists top layers; Jig resolves the bases through `extends`, installs and upgrades them, runs each once, fails on a missing base and on a project layer taking a stock name
 - [ ] A layer overrides a check — a layer above changes a check's arguments or drops it by role name, and `--explain` names the layer that did (after: Stock profiles declare their checks — overrides need names to aim at; after: Layer stacks resolve — a project layer must sit on its base)
 - [ ] `laravel` builds on `php` — `laravel` extends `php`, overrides `php:tests` with `artisan test`, its copied narrowing removed, and the Phase 1 fix retired (after: A layer overrides a check — this is the first stock use of it)
 - [ ] fog: function overrides — reached only by a real case the check table cannot express; none is known
