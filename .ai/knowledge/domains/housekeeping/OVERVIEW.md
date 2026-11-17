@@ -111,6 +111,13 @@ evidence it inferred itself.
   `ls-remote` and that push) however many branches it deletes: over HTTPS each call may cost the
   person a credential-helper dialog (issue #317). A purged task's branch goes in the run that purged it, as
   its worktree does. Lines `branch=<b> where=local|origin action=delete|keep`, without `task=`.
+  One branch goes without landing: a `jig/upgrade-<v>` branch the base has superseded with a newer
+  Jig and whose every commit is Jig's own upgrade commit (`_hk_superseded_upgrade`, with
+  `jig_upgrade_superseded` and `jig_upgrade_commits_are_jigs` from common.sh), by `update-ref -d` at
+  the checked tip; origin's copy only when the forge, asked about that branch alone
+  (`_hk_open_prs_of`), says which pull requests are open from and onto it, and its own open pull
+  request closed with a comment first at `pr` or above — housekeeping's one write to the forge
+  (`action=close-pr`; adr-20261117-a-superseded-upgrade-branch-leaves-without-landing).
 - Judging each task against **its own base** (`jig_task_base`, ADR-0039): ancestry, the
   "branch is the base" rule, the unknown reason and the reflog of own work all use it, bases
   resolved origin first. Work merged into another branch is flagged `wrong-base` beside

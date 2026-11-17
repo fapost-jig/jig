@@ -135,3 +135,9 @@ On by default; `git.delete_merged_branches: false` (a local key) keeps every bra
 > `jig_branch_leave` with the merged head from any checkout — never `jig_ship_leave`, which switches one
 > — and deletes it on origin at its effective level, which under `upgrade.merge: agent` is `merge`
 > whatever `agent.git` says (adr-20261117-an-upgrade-is-built-in-jigs-own-tree-and-merges-itself).
+
+> **Amendment (2026-11-17).** Landing is no longer the only ground for a `jig/upgrade-*` branch:
+> housekeeping's sweep also deletes one the base has superseded with a newer Jig and whose every
+> commit is Jig's own upgrade commit — here by `git update-ref -d` at the checked tip, on origin in
+> the same lease push — and closes its open pull request first at `pr` or above
+> (adr-20261117-a-superseded-upgrade-branch-leaves-without-landing).

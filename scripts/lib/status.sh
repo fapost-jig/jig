@@ -3614,7 +3614,7 @@ _status_upgrade_prs() {
   while IFS="$(printf '\t')" read -r b st at url; do
     [ -n "$b" ] || continue
     jig_branch_is_jigs "$b" || continue
-    to=$(_status_upgrade_version "$b")
+    to=$(jig_upgrade_branch_version "$b")
     case "$st" in
       open)
         if [ -n "$to" ] && [ -n "$have" ] && ! jig_version_newer "$to" "$have" \
@@ -3644,24 +3644,12 @@ CACHE
 _status_upgrade_rebuilds() {
   local ref label
   for ref in "refs/heads/$1" "refs/remotes/origin/$1"; do
-    label=$(_upgrade_land_version "$ref")
+    label=$(jig_upgrade_version_at "$ref")
     [ -n "$label" ] || continue
     _upgrade_rebuilds "$label" "$2"
     return
   done
   return 1
-}
-
-# _status_upgrade_version <branch> — the version `jig/upgrade-<to>[-<n>]` is
-# named for; nothing when the name holds no release version.
-_status_upgrade_version() {
-  local v="${1#jig/upgrade-}"
-  if jig_release_version "v$v" >/dev/null 2>&1; then
-    printf '%s\n' "$v"
-    return 0
-  fi
-  v=${v%-*}
-  jig_release_version "v$v" 2>/dev/null || true
 }
 
 # _status_upgrade_pr_lines — the text report's line per upgrade pull request
