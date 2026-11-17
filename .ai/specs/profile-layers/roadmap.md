@@ -3,6 +3,8 @@
 Destination: a project changes one stock check in a few lines of its own layer, lower layers keep
 receiving upgrades, no suite runs twice, and a profile that never runs is named rather than silent.
 
+Epic: epic/profile-layers
+
 ## Phase 1 — Stop paying for what exists today
 
 Goal: the two failures of the motivating case stop without the layer model. Done when: a Laravel
