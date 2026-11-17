@@ -165,6 +165,44 @@ test_profiles_active_dedups_and_puts_generic_first() {
   assert_eq "generic php laravel" "$OUT"
 }
 
+# --- profiles_reached / profiles_unreached ---------------------------------
+
+test_profiles_reached_equals_active_today() {
+  fixture_repo
+  mkdir -p .ai
+  printf 'profiles: [php, generic, laravel]\n' > .ai/config.yaml
+  profiles_harness 'profiles_reached'
+  assert_eq 0 "$RC"
+  assert_eq "generic php laravel" "$OUT"
+}
+
+test_profiles_unreached_prints_the_unlisted_directory() {
+  fixture_repo
+  mkdir -p .ai/profiles/generic .ai/profiles/php .ai/profiles/warehouse
+  printf 'profiles: [php]\n' > .ai/config.yaml
+  profiles_harness 'profiles_unreached'
+  assert_eq 0 "$RC"
+  assert_eq "warehouse" "$OUT"
+}
+
+test_profiles_unreached_prints_nothing_when_all_are_listed() {
+  fixture_repo
+  mkdir -p .ai/profiles/generic .ai/profiles/php
+  printf 'profiles: [php]\n' > .ai/config.yaml
+  profiles_harness 'profiles_unreached'
+  assert_eq 0 "$RC"
+  assert_eq "" "$OUT"
+}
+
+test_profiles_unreached_prints_nothing_without_a_profiles_dir() {
+  fixture_repo
+  mkdir -p .ai
+  printf 'profiles: [php]\n' > .ai/config.yaml
+  profiles_harness 'profiles_unreached'
+  assert_eq 0 "$RC"
+  assert_eq "" "$OUT"
+}
+
 # --- profiles_detect -------------------------------------------------------
 
 test_profiles_detect_empty_repo_is_generic_only() {

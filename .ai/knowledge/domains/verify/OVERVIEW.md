@@ -17,7 +17,7 @@ paths:
   - schemas/profile.md
   - scripts/lib/runenv.sh
   - scripts/lib/hostruntime.sh
-reviewed_at: 2026-11-11
+reviewed_at: 2026-11-17
 ---
 # Verify
 
@@ -36,7 +36,9 @@ it actually did.
 - Which profiles are active: explicit activation in `.ai/config.yaml`, and detection from
   root manifests (`profiles_detect`), which a first `jig init` turns into activation
   (adr-20260918-init-activates-detected-profiles). Detection skips dependency directories
-  and `.ai/`.
+  and `.ai/`. What the active set reaches is decided in one place, `profiles_reached`;
+  `jig doctor` and `jig status` name an installed profile it does not reach
+  (`profiles_unreached`), since such a profile never runs.
 - The profile library `scripts/lib/profile.sh` and the thirteen shipped profiles: where each
   finds its tools and how it narrows each check
   (adr-20260918-profiles-narrow-per-check-with-project-tools).
@@ -105,7 +107,7 @@ contract. A change to how profiles are *copied* still belongs to `install`.
   comment states where its tools come from and how it narrows.
 - `profiles/shell/verify.sh` — `_shell_builtin_filters`, the reference for what a shipped
   profile may know about a project (nothing beyond its stack's conventions).
-- `scripts/lib/profiles.sh` — `profiles_active`, `profiles_detect`, `profiles_supports`,
-  `profiles_check_requires`.
+- `scripts/lib/profiles.sh` — `profiles_active`, `profiles_reached`, `profiles_unreached`,
+  `profiles_detect`, `profiles_supports`, `profiles_check_requires`.
 - `profiles/<stack>/profile.yaml` — the one place the mapping "root manifest → stack" is
   written down; its keys are described in `schemas/profile.md`.

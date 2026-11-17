@@ -417,6 +417,38 @@ profiles_active() {
   _profiles_dedup "generic $configured"
 }
 
+# profiles_reached — the names of the profiles the active set reaches,
+# space-separated like profiles_active. This is the single place that decides
+# "reached": today it is exactly the active set, but a later task (layer
+# stacks, `extends`) widens it with the bases each listed layer extends, so
+# callers must ask this function and not profiles_active.
+profiles_reached() {
+  profiles_active
+}
+
+# profiles_unreached — one name per line, sorted, of each directory directly
+# under the installed profiles dir that profiles_reached does not name: a
+# profile that is installed but never runs. Prints nothing when the dir is
+# missing. A report must not die on a bad entry, so non-directories and names
+# that are not shaped like a profile name are skipped, and an invalid
+# configured name (profiles_active dies on it) makes this return non-zero
+# quietly: the die happens in a subshell, so the caller survives.
+profiles_unreached() {
+  local dir reached entry name out=""
+  dir=$(profiles_installed_dir)
+  [ -d "$dir" ] || return 0
+  reached=$( (profiles_reached) 2>/dev/null) || return 1
+  for entry in "$dir"/*; do
+    [ -d "$entry" ] || continue
+    name=${entry##*/}
+    _profiles_valid_name "$name" || continue
+    case " $reached " in *" $name "*) continue ;; esac
+    out="$out$name"$'\n'
+  done
+  [ -n "$out" ] || return 0
+  printf '%s' "$out" | LC_ALL=C sort
+}
+
 # --- detection -------------------------------------------------------------
 
 # profiles_detect [<profiles-root>] — names of every profile under
