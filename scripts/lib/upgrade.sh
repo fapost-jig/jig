@@ -1700,6 +1700,9 @@ EOF
 _upgrade_unmerged() {
   local to="$1" label="$2" name="$3" base="$4" based="$5" ref="$6" tip msg pr url=""
   [ "$_UPGRADE_MERGE_BY" = agent ] || _upgrade_refuse_unmerged "$to" "$name" "$base"
+  # The carry-on works on the waiting branch and touches nothing in the checkout.
+  _UPGRADE_PATH=tree
+  _UPGRADE_IGNORED=""
   _UPGRADE_DONE=1
   _UPGRADE_J_MODE=copy
   _UPGRADE_J_DRY=0
@@ -2261,7 +2264,7 @@ _upgrade_run() {
       in_tree=0
       _UPGRADE_J_STOPS=""
       _upgrade_out "note: a real upgrade would work in your checkout, not in Jig's tree: this project's .gitignore ignores framework files it places"
-      _upgrade_preflight "$source" 1 checkout
+      [ "${_upgrade_skip_preflight:-0}" = 1 ] || _upgrade_preflight "$source" 1 checkout
     elif [ -n "$ignored" ]; then
       _upgrade_tree_fall_back "$source" "$to_version" "$to_label" "$ignored"
       in_tree=0
