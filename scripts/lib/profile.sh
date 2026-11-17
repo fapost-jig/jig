@@ -120,6 +120,111 @@ jp_covered() {
   return 0
 }
 
+# jp_check_cmd <role> <label> full|narrowed <default-cmd>... [-- <selection>...]
+# — the command line of check <role> in JP_CMD, from the check table of the
+# profile's profile.yaml (`checks.<role>.command|full|narrowed`,
+# schemas/profile.md): the table's `command` words, or <default-cmd> when the
+# table has none (the profile chooses its tool on the fly: phpunit or pest, a
+# wrapper or mvn), then the mode's argument words. In `narrowed` mode the one
+# `{selection}` word of the arguments becomes the <selection> words after `--`,
+# one argument each, so an item with a blank in it stays one argument. `full`
+# is also the mode of a narrowed run that falls back to the full set. An
+# absent `full` is no arguments; `[]` is no words. Words are split on blanks
+# and never globbed. Use it as
+#
+#   jp_check_cmd tests "$label" narrowed "$test_bin" -- "$@" || continue
+#   jp_run "$label" "$note" "${JP_CMD[@]}"
+#
+# Returns 1, after printing the check's fail line under <label> — or a PLAN
+# skip line under `--explain`, which is no verdict — when the table cannot
+# answer: `jig verify` hands it down as JIG_VERIFY_CHECKS, a file of
+# `<role> <field> <value>` rows, and the role is not in it, or `narrowed` mode
+# finds no `narrowed` field. A fail, not a skip: a skip beside another check
+# that passed leaves the profile `pass` with this check unrun. It means a
+# profile.yaml kept by `upgrade` beside a newer verify.sh; the profile does not
+# fall back to a command of its own, because a silently different command is
+# the worse answer (adr-20261117-a-profile-declares-its-checks-in-a-table).
+# Called as a command, never inside `$( )`: it sets JP_CMD, which is never
+# empty after a return 0.
+# shellcheck disable=SC2034  # JP_CMD is read by the profile that sourced this
+jp_check_cmd() {
+  local role="$1" label="$2" mode="$3" r f v w reason=""
+  local known=0 have_cmd=0 have_full=0 have_narrowed=0 cmd_v="" full_v="" narrowed_v=""
+  local -a cmdw=() argw=() sel=() defw=()
+  shift 3
+  while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do
+    defw+=("$1")
+    shift
+  done
+  [ "$#" -eq 0 ] || shift
+  sel=("$@")
+  case "$mode" in
+    full|narrowed) ;;
+    *) printf 'jp_check_cmd: mode must be full or narrowed, not %s\n' "$mode" >&2; return 2 ;;
+  esac
+  if [ -n "${JIG_VERIFY_CHECKS:-}" ] && [ -f "$JIG_VERIFY_CHECKS" ]; then
+    while IFS=$'\t' read -r r f v || [ -n "$r" ]; do
+      [ "$r" = "$role" ] || continue
+      known=1
+      case "$f" in
+        command) [ "$have_cmd" = 1 ] || { have_cmd=1; cmd_v=$v; } ;;
+        full) [ "$have_full" = 1 ] || { have_full=1; full_v=$v; } ;;
+        narrowed) [ "$have_narrowed" = 1 ] || { have_narrowed=1; narrowed_v=$v; } ;;
+      esac
+    done < "$JIG_VERIFY_CHECKS"
+  fi
+  if [ "$known" = 0 ]; then
+    reason="profile.yaml names no check '$role'; jig upgrade restores it"
+  elif [ "$mode" = narrowed ] && [ "$have_narrowed" = 0 ]; then
+    reason="profile.yaml has no checks.$role.narrowed; jig upgrade restores it"
+  fi
+  if [ -n "$reason" ]; then
+    if [ "${JIG_VERIFY_EXPLAIN:-}" = 1 ]; then
+      jp_plan "$label" skip "$reason"
+    else
+      jp_fail "$label" "$reason"
+    fi
+    return 1
+  fi
+  # `read -a` splits on the IFS blanks and never globs; `[]` is no words.
+  if [ "$have_cmd" = 1 ] && [ "$cmd_v" != "[]" ]; then
+    IFS=$' \t' read -r -a cmdw <<EOF
+$cmd_v
+EOF
+  else
+    cmdw=(${defw[@]+"${defw[@]}"})
+  fi
+  if [ "$mode" = narrowed ]; then
+    v=$narrowed_v
+  elif [ "$have_full" = 1 ]; then
+    v=$full_v
+  else
+    v="[]"
+  fi
+  if [ "$v" != "[]" ]; then
+    IFS=$' \t' read -r -a argw <<EOF
+$v
+EOF
+  fi
+  JP_CMD=(${cmdw[@]+"${cmdw[@]}"})
+  for w in ${argw[@]+"${argw[@]}"}; do
+    if [ "$mode" = narrowed ] && [ "$w" = "{selection}" ]; then
+      JP_CMD+=(${sel[@]+"${sel[@]}"})
+    else
+      JP_CMD+=("$w")
+    fi
+  done
+  if [ "${#JP_CMD[@]}" -eq 0 ]; then
+    if [ "${JIG_VERIFY_EXPLAIN:-}" = 1 ]; then
+      jp_plan "$label" skip "profile.yaml gives no command for '$role'; jig upgrade restores it"
+    else
+      jp_fail "$label" "profile.yaml gives no command for '$role'; jig upgrade restores it"
+    fi
+    return 1
+  fi
+  return 0
+}
+
 # jp_has_line <line> <text> — exit 0 when <line> is a whole line of <text>,
 # compared as a string: common.sh's jig_has_line for profiles, which source
 # this file alone. A `case`, never `printf | grep -q`: bash writes a pipe line

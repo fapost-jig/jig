@@ -79,10 +79,22 @@ the global `RULES.md` (ADR-0013). What follows binds changes inside this domain.
 
 - A new capability gets a name in `profile.yaml`'s `scope` list and is passed only to
   profiles that name it. Adding a capability that older profiles could observe by default
-  would break profiles written before it existed. One capability is declared per check
-  instead: `JIG_VERIFY_COVERED` reaches a profile only for a check it lists under `checks`,
+  would break profiles written before it existed. Two capabilities are declared per check
+  instead — `JIG_VERIFY_CHECKS` by the check table's rows (below), and this one: `JIG_VERIFY_COVERED` reaches a profile only for a check it lists under `checks`,
   because what it honours is a named check, not the whole protocol, and the name is what a
   cover is validated against (adr-20261107-a-profile-covers-a-check-of-another).
+- **A profile's check table is handed down, and its rows are the declaration.** `jig verify`
+  lints the `checks.<role>.<field>` lines of a profile's installed `profile.yaml`, and a table
+  with a problem is `RESULT <p>: fail (profile.yaml:<line>: <reason>)` (`PLAN <p>: error (…)`
+  under `--explain`) without the profile running: an unknown key is otherwise ignored in
+  silence. It writes the rows to a file and hands its path as `JIG_VERIFY_CHECKS` only to a
+  profile that has rows; every other profile runs with it unset, so a caller's own value never
+  reaches one, and `scope` has no word for it. A profile's `verify.sh` reads the table through
+  `jp_check_cmd`, never `profile.yaml` itself, so a merged table of a later layer changes what
+  `jig verify` writes and no profile; a role or field the table lacks fails the check (a PLAN skip
+  under `--explain`), never a skip a passing sibling check would hide and never a quiet command
+  of the profile's own
+  (adr-20261117-a-profile-declares-its-checks-in-a-table).
 - `jig verify --explain` asks a profile for a plan only when it declares `scope: [..., explain]`.
   A profile in this mode MUST name every check as full, filtered, skipped or conditional;
   a conditional answer MUST name a possible full run. It MUST NOT run a project tool,
@@ -195,7 +207,7 @@ the global `RULES.md` (ADR-0013). What follows binds changes inside this domain.
   tools are fine and the work is someone else's, so a run where everything else narrowed
   away is not read as a gap in coverage.
 - **A test suite run by a narrowed profile must not pass the scope on.** `tests/run.sh`
-  unsets `JIG_VERIFY_SCOPE`, `JIG_VERIFY_FILES`, `JIG_VERIFY_MAPPED`, `JIG_VERIFY_EXPLAIN`, `JIG_VERIFY_COVERED`, `JIG_VERIFY_BUSY_HELD`
+  unsets `JIG_VERIFY_SCOPE`, `JIG_VERIFY_FILES`, `JIG_VERIFY_MAPPED`, `JIG_VERIFY_EXPLAIN`, `JIG_VERIFY_COVERED`, `JIG_VERIFY_CHECKS`, `JIG_VERIFY_BUSY_HELD`
   and `CI` for every test:
   a test that runs a profile directly otherwise takes the scope of the run that started the
   suite.

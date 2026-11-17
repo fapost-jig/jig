@@ -14,7 +14,8 @@ absent key means is decided by its reader, not by this file.
 | `requires` | inline list of profile names | profiles this one builds on. Detection closes over it, and `profiles_check_requires` warns when an active profile's requirement is not active — see **Requires** |
 | `scope` | inline list of capabilities | which parts of the verify scope protocol this profile's `verify.sh` understands: `changed` (ADR-0013), `map` (ADR-0041), `explain`, `environment` — see **Scope** |
 | `covers` | inline list of `<profile>:<check>` | checks of other profiles this profile's own checks replace: `laravel` declares `covers: [php:tests]`, because `php artisan test` runs the suite php's PHPUnit or Pest would — see **Covers** |
-| `checks` | inline list of check names | the checks of this profile another can take over by name. Today one name exists, `tests`, and `php`, `laravel`, `node` and `python` declare it — see **Covers** |
+| `checks` | inline list of check names | the checks of this profile another can take over by name, and the index of its check table. Today one name is declared by stock profiles, `tests`, in `php`, `laravel`, `node` and `python` — see **Covers** and **Check table** |
+| `checks.<role>.<field>` | words | the command and arguments of the check `<role>`, which `checks` must list; fields `command`, `full`, `narrowed` — see **Check table** |
 
 ## Grammar
 
@@ -148,8 +149,92 @@ upper profile accepts the lower profile's filter vocabulary — `php` and `larav
 file path. The lower profile still receives its own map for the checks it keeps.
 
 `covers` and `checks` are the first step of profile layers (`.ai/specs/profile-layers/`): one
-name, one way to drop a check. A check table, overrides of a check's arguments and `extends` are
-later work, and other stock profiles name their checks as that work reaches them.
+name, one way to drop a check. `covers` stays beside the check table below: it is a relation between
+profiles with no stack between them, and the table does not replace it. Overrides of a check's
+arguments across layers and `extends` are later work, and other stock profiles name their checks as
+that work reaches them.
+
+## Check table
+
+A profile can declare what a check runs as data, one line per field, beside the `checks` list that
+names its roles (adr-20261117-a-profile-declares-its-checks-in-a-table):
+
+```yaml
+checks: [tests, static, lint, manifest]
+checks.static.full: analyse --no-progress
+checks.static.narrowed: analyse --no-progress {selection}
+checks.lint.narrowed: clippy --all-targets {selection} -- -D warnings
+checks.manifest.command: composer
+checks.manifest.full: validate --no-check-publish
+```
+
+The flat reader cannot list keys, so the roles are the `checks` list: a `checks.<role>.*` line whose
+role it does not list is an error, and `checks: [tests]` with no table line stays valid, exactly as
+the releases before the table wrote it. A role is `[a-z0-9_-]+`, the alphabet `covers` already
+checks.
+
+| Field | Meaning |
+|---|---|
+| `command` | the check's command. Absent: the profile's own `verify.sh` chooses it on the fly (phpunit or pest, a wrapper or `mvn`, `pnpm` or `npm`). A stock profile writes it only where the tool is a literal |
+| `full` | the arguments of a full run — and of a narrowed run that falls back to the full set (an `ALL` decision, a filter that selects nothing, a config change). Absent: no arguments |
+| `narrowed` | the arguments of a narrowed run, with exactly one `{selection}` word. Absent: the check does not narrow by selection |
+| `drop` | reserved for a layer that removes a check; the linter refuses it until it is implemented |
+
+**Values.** Plain words, split on blanks and never globbed — the grammar of `run.exec`. No quotes
+(`"` `'`), no `$`, backtick or backslash. `#` starts a comment, as everywhere in this file. `[]` is
+an explicit empty list of words and differs from an absent key: a later layer can erase the base's
+arguments with it. `command: []` is an error, and an empty value (`checks.x.full:` with nothing
+after it) is an error too: write `[]`. An inline list with items (`[a, b]`) is not a value. **The
+limit of this grammar:** an argument that contains a space or a quote cannot be written in the table.
+The profile's `verify.sh`, which builds the selection in code, is where such an argument goes.
+
+**`{selection}`.** It stands for the words the profile's own narrowing logic chose, one argument
+each, in exactly that place. It is a whole word, appears exactly once in `narrowed`, and never in
+`full` or `command`; `--x={selection}` is refused. The selection is not always paths: it is packages
+for `go`, `-p <crate>` for clippy, `-pl a,b -am` for maven, tasks for gradle. What to select stays
+code (`jp_select`, `_php_builtin` and the like); the table says only where it goes. An item with a
+blank in it stays one argument. Every form a stock profile needs is written the same way:
+
+```yaml
+checks.tests.narrowed: {selection}                                      # at the end, after the command
+checks.lint.narrowed: clippy --all-targets {selection} -- -D warnings   # in the middle
+checks.tests.narrowed: {selection} test                                 # before the goal (maven)
+checks.static.full: vet ./...                                           # go vet: the full target
+checks.static.narrowed: vet {selection}                                 # ... replaced by the packages
+checks.style.narrowed: format --verify-no-changes --include {selection} # after a flag
+```
+
+**Where a mistake shows.** The reader ignores an unknown key in silence, which for a table would be
+an override that does nothing, so `jig verify` lints the profile's installed `profile.yaml` before it
+runs the profile (`profiles_check_table`). The first problem fails that profile —
+`RESULT <profile>: fail (profile.yaml:<line>: <reason>)`, and `PLAN <profile>: error (…)` under
+`--explain` — and the profile does not run. It refuses: a role not in `checks`, a bad role, an unknown
+field (`drop` included), a key set twice, an indented `checks.` key (the reader cannot see it), a
+forbidden character, a `narrowed` without exactly one `{selection}`, a `{selection}` anywhere else, an
+empty value, `command: []`.
+
+**Handed down.** `jig verify` writes the table's rows, `<role>`, `<field>`, `<value>` separated by
+tabs, with one `<role> listed` row for every role in `checks`, to a temporary file and hands its path
+to the profile as `JIG_VERIFY_CHECKS`. The rows are the declaration: a profile with no `checks.`
+lines — `checks: [tests]` alone, as released before the table — runs with the variable unset — a caller's own value never reaches it — and `scope` has no new
+word for it. The decision is `jig verify`'s and the profile only reads it, so a later layer that
+merges tables changes what `jig verify` writes and nothing in a profile.
+
+**Reading it, from a `verify.sh`.** `jp_check_cmd <role> <label> full|narrowed <default-cmd>... [--
+<selection>...]` sets `JP_CMD` to the table's `command` words (or `<default-cmd>`) and the mode's
+argument words, with `{selection}` replaced:
+
+```sh
+jp_check_cmd tests "$label" narrowed "$test_bin" -- "$@" || continue
+jp_run "$label" "$note" "${JP_CMD[@]}"
+```
+
+It returns 1, after printing the check's fail line (under `--explain`, a PLAN skip line), when the
+table cannot answer — the role is not in it, or `narrowed` mode finds no `narrowed` field. A fail,
+not a skip: a skip beside another check that passed would leave the profile `pass` with this check
+unrun. The profile does not fall back to a command of its own:
+that is the profile.yaml kept by `upgrade` beside a newer `verify.sh`, and a quiet different command is
+the worse answer. The function sets a global, so call it as a command, never inside `$( )`.
 
 ## The reader is tolerant, and that is the design
 

@@ -141,6 +141,138 @@ profiles_names_check() {
   return 1
 }
 
+# --- the check table ---------------------------------------------------------
+#
+# `checks.<role>.<field>: <value>` lines of profile.yaml declare a check's
+# command and arguments as data (schemas/profile.md, **Check table**;
+# adr-20261117-a-profile-declares-its-checks-in-a-table). The flat reader
+# cannot enumerate keys, so the roles are the existing `checks: [..]` list and
+# the table is read line by line here, never through profile_get.
+
+# _profiles_check_err <line> <reason> — `<line>: <reason>` on stdout, exit 1.
+_profiles_check_err() {
+  printf '%d: %s\n' "$1" "$2"
+  return 1
+}
+
+# profiles_check_table <profile-dir> — lint the check table of
+# <profile-dir>/profile.yaml. Prints `<line>: <reason>` for the first bad line
+# and exits 1; exits 0 when the table is fine, and for a profile with no table
+# at all (`checks: [tests]` alone is what the releases before the table wrote).
+# The reader ignores an unknown key in silence, so without this a typo is an
+# override that does nothing; `jig verify` runs it and fails the profile.
+#
+# Checked: a role that `checks:` does not list, a role outside `[a-z0-9_-]`, an
+# unknown field (`drop` is reserved and refused until it is implemented), a key
+# set twice (the reader would take the first and drop the rest), an indented
+# `checks.` key (invisible to the reader), a character the word grammar forbids
+# (`"` `'` `$` backtick backslash), an empty value (`[]` is the explicit empty),
+# `command: []`, and `{selection}` — exactly once, as a whole word, in
+# `narrowed` and nowhere else.
+profiles_check_table() {
+  local file="$1/profile.yaml" line n=0 key after role field value roles
+  local seen="" sub whole tmp w
+  local -a ws
+  local indented_re='^[[:space:]]+checks\.' role_re='^[a-z0-9_-]+$'
+  local tok='{selection}'
+  [ -f "$file" ] || return 0
+  roles=$'\n'"$(_profiles_list_lines "$1" checks)"$'\n'
+  while IFS= read -r line || [ -n "$line" ]; do
+    n=$((n + 1))
+    line=${line%$'\r'}
+    if [[ $line =~ $indented_re ]]; then
+      _profiles_check_err "$n" "an indented checks.* key is invisible to the reader; write it at column 0" || return 1
+    fi
+    case $line in
+      checks.*) ;;
+      *) continue ;;
+    esac
+    key=${line%%:*}
+    [ "$key" != "$line" ] || _profiles_check_err "$n" "no ':' after the key" || return 1
+    after=${key#checks.}
+    case $after in
+      *.*) ;;
+      *) _profiles_check_err "$n" "the key must be checks.<role>.<field>" || return 1 ;;
+    esac
+    role=${after%%.*}
+    field=${after#*.}
+    [[ $role =~ $role_re ]] \
+      || _profiles_check_err "$n" "role '$role' must be lowercase letters, digits, '_' and '-'" || return 1
+    case $field in
+      command|full|narrowed) ;;
+      drop) _profiles_check_err "$n" "field 'drop' is reserved and not implemented yet" || return 1 ;;
+      *) _profiles_check_err "$n" "unknown field '$field' (command, full, narrowed)" || return 1 ;;
+    esac
+    case $roles in
+      *$'\n'"$role"$'\n'*) ;;
+      *) _profiles_check_err "$n" "role '$role' is not listed in checks:" || return 1 ;;
+    esac
+    case $seen in
+      *$'\n'"$role.$field"$'\n'*) _profiles_check_err "$n" "checks.$role.$field is set twice" || return 1 ;;
+    esac
+    seen="$seen"$'\n'"$role.$field"$'\n'
+    value=${line#*:}
+    value=${value%%#*}
+    value=${value#"${value%%[![:space:]]*}"}
+    value=${value%"${value##*[![:space:]]}"}
+    case $value in
+      *\"*|*\'*|*\$*|*\`*|*\\*)
+        _profiles_check_err "$n" "a value cannot contain quotes, \$, backtick or backslash" || return 1 ;;
+    esac
+    [ -n "$value" ] || _profiles_check_err "$n" "empty value; write [] for no words" || return 1
+    if [ "$value" = "[]" ]; then
+      [ "$field" != command ] || _profiles_check_err "$n" "command cannot be []" || return 1
+    else
+      case $value in
+        \[*\]) _profiles_check_err "$n" "inline lists are not supported; write plain words separated by blanks" || return 1 ;;
+      esac
+    fi
+    # {selection}: occurrences anywhere, and occurrences that are a whole word.
+    sub=0
+    tmp=$value
+    while [[ $tmp == *"$tok"* ]]; do
+      sub=$((sub + 1))
+      tmp=${tmp#*"$tok"}
+    done
+    whole=0
+    IFS=$' \t' read -r -a ws <<EOF
+$value
+EOF
+    for w in ${ws[@]+"${ws[@]}"}; do
+      [ "$w" != "$tok" ] || whole=$((whole + 1))
+    done
+    if [ "$field" = narrowed ]; then
+      [ "$sub" -ge 1 ] || _profiles_check_err "$n" "narrowed needs exactly one $tok, found none" || return 1
+      [ "$sub" -le 1 ] || _profiles_check_err "$n" "narrowed has more than one $tok" || return 1
+      [ "$whole" -eq 1 ] || _profiles_check_err "$n" "$tok must be a whole word, not part of one" || return 1
+    else
+      [ "$sub" -eq 0 ] || _profiles_check_err "$n" "$tok is only for narrowed, not $field" || return 1
+    fi
+  done < "$file"
+  return 0
+}
+
+# profiles_check_rows <profile-dir> — the check table as `<role><TAB><field>
+# <TAB><value>` lines, the value as written (comment and outer blanks off, `[]`
+# kept), in file order. Prints nothing for a profile without a table. Call
+# profiles_check_table first: a line it would refuse is not filtered here.
+profiles_check_rows() {
+  local file="$1/profile.yaml" line after role field value
+  local row_re='^checks\.([a-z0-9_-]+)\.([a-z]+):'
+  [ -f "$file" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line%$'\r'}
+    [[ $line =~ $row_re ]] || continue
+    role=${BASH_REMATCH[1]}
+    field=${BASH_REMATCH[2]}
+    value=${line#"${BASH_REMATCH[0]}"}
+    value=${value%%#*}
+    value=${value#"${value%%[![:space:]]*}"}
+    value=${value%"${value##*[![:space:]]}"}
+    printf '%s\t%s\t%s\n' "$role" "$field" "$value"
+  done < "$file"
+}
+
 # profiles_applies <profile-dir> — true when the profile's own stack is in
 # the project: `detect` is `always`, absent (a project's profile, activated
 # by name), or one of its globs matches. A profile covers another's check only

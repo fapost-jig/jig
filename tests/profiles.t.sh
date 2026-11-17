@@ -373,3 +373,148 @@ test_profiles_installed_dir_points_under_dot_ai() {
   assert_eq 0 "$RC"
   assert_eq "$(pwd)/.ai/profiles" "$OUT"
 }
+
+# --- the check table (profiles_check_table, profiles_check_rows) ----------------
+
+# _table_lint <profile.yaml line>... — lint a fixture profile.yaml made of the
+# lines, the first `checks: [tests, static]`-style line included by the caller.
+_table_lint() {
+  local l
+  mkdir -p fx
+  : > fx/profile.yaml
+  for l in "$@"; do printf '%s\n' "$l" >> fx/profile.yaml; done
+  profiles_harness 'profiles_check_table "$PWD/fx"'
+}
+
+# _table_rejects <expected reason> <profile.yaml line>... — the lint fails and
+# names the reason; the line number is asserted by the callers that care.
+_table_rejects() {
+  local want="$1"
+  shift
+  _table_lint "$@"
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "$want"
+}
+
+test_profiles_check_table_accepts_a_good_table() {
+  fixture_repo
+  _table_lint 'checks: [tests, static, manifest]' \
+    'checks.tests.narrowed: {selection}' \
+    'checks.static.full: analyse --no-progress   # whole project' \
+    'checks.static.narrowed: analyse --no-progress {selection}' \
+    'checks.manifest.command: composer' \
+    'checks.manifest.full: []'
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "" "$OUT"
+}
+
+test_profiles_check_table_accepts_checks_list_alone_and_no_file() {
+  fixture_repo
+  _table_lint 'checks: [tests]'
+  assert_eq 0 "$RC" "$OUT"
+  rm -rf fx
+  mkdir fx
+  profiles_harness 'profiles_check_table "$PWD/fx"'
+  assert_eq 0 "$RC" "$OUT"
+}
+
+test_profiles_check_table_rejects_a_role_that_checks_does_not_list() {
+  fixture_repo
+  _table_rejects "2: role 'lint' is not listed in checks:" \
+    'checks: [tests]' 'checks.lint.full: x'
+}
+
+test_profiles_check_table_rejects_a_bad_role() {
+  fixture_repo
+  _table_rejects "role 'Tests' must be" 'checks: [Tests]' 'checks.Tests.full: x'
+  _table_rejects "role '' must be" 'checks: [tests]' 'checks..full: x'
+}
+
+test_profiles_check_table_rejects_an_unknown_field_and_reserves_drop() {
+  fixture_repo
+  _table_rejects "unknown field 'ful'" 'checks: [tests]' 'checks.tests.ful: x'
+  _table_rejects "field 'drop' is reserved" 'checks: [tests]' 'checks.tests.drop: true'
+  _table_rejects "the key must be checks.<role>.<field>" 'checks: [tests]' 'checks.tests: x'
+}
+
+test_profiles_check_table_rejects_a_key_set_twice() {
+  fixture_repo
+  _table_rejects "3: checks.tests.full is set twice" \
+    'checks: [tests]' 'checks.tests.full: a' 'checks.tests.full: b'
+}
+
+test_profiles_check_table_rejects_an_indented_key() {
+  fixture_repo
+  _table_rejects "2: an indented checks.* key is invisible" \
+    'checks: [tests]' '  checks.tests.full: a'
+}
+
+test_profiles_check_table_rejects_forbidden_characters() {
+  fixture_repo
+  _table_rejects "cannot contain quotes" 'checks: [tests]' 'checks.tests.full: "a b"'
+  _table_rejects "cannot contain quotes" 'checks: [tests]' "checks.tests.full: 'a'"
+  _table_rejects "cannot contain quotes" 'checks: [tests]' 'checks.tests.full: $HOME'
+  _table_rejects "cannot contain quotes" 'checks: [tests]' 'checks.tests.full: `id`'
+  _table_rejects "cannot contain quotes" 'checks: [tests]' 'checks.tests.full: a\b'
+}
+
+test_profiles_check_table_a_hash_is_a_comment_not_a_character() {
+  fixture_repo
+  _table_lint 'checks: [tests]' 'checks.tests.full: a # "quoted" comment'
+  assert_eq 0 "$RC" "$OUT"
+}
+
+test_profiles_check_table_rejects_selection_misuse() {
+  fixture_repo
+  _table_rejects "narrowed needs exactly one {selection}, found none" \
+    'checks: [tests]' 'checks.tests.narrowed: run'
+  _table_rejects "narrowed has more than one {selection}" \
+    'checks: [tests]' 'checks.tests.narrowed: {selection} {selection}'
+  _table_rejects "{selection} must be a whole word" \
+    'checks: [tests]' 'checks.tests.narrowed: --x={selection}'
+  _table_rejects "{selection} is only for narrowed, not full" \
+    'checks: [tests]' 'checks.tests.full: {selection}'
+  _table_rejects "{selection} is only for narrowed, not full" \
+    'checks: [tests]' 'checks.tests.full: --x={selection}'
+  _table_rejects "{selection} is only for narrowed, not command" \
+    'checks: [tests]' 'checks.tests.command: {selection}'
+}
+
+test_profiles_check_table_rejects_empty_values() {
+  fixture_repo
+  _table_rejects "empty value; write [] for no words" 'checks: [tests]' 'checks.tests.full:'
+  _table_rejects "empty value; write [] for no words" 'checks: [tests]' 'checks.tests.full:   # nothing'
+  _table_rejects "command cannot be []" 'checks: [tests]' 'checks.tests.command: []'
+  _table_rejects "narrowed needs exactly one" 'checks: [tests]' 'checks.tests.narrowed: []'
+  _table_rejects "inline lists are not supported" 'checks: [tests]' 'checks.tests.full: [a, b]'
+}
+
+test_profiles_check_table_reports_the_first_problem_only() {
+  fixture_repo
+  _table_lint 'checks: [tests]' 'checks.tests.ful: x' 'checks.nope.full: y'
+  assert_eq 1 "$RC"
+  assert_eq "2: unknown field 'ful' (command, full, narrowed)" "$OUT"
+}
+
+test_profiles_check_rows_prints_role_field_value() {
+  fixture_repo
+  _table_lint 'checks: [tests, lint]' \
+    'name: x' \
+    'checks.tests.narrowed: {selection}  # tail' \
+    'checks.lint.full: []' \
+    'checks.lint.command:   clippy  '
+  assert_eq 0 "$RC" "$OUT"
+  profiles_harness 'profiles_check_rows "$PWD/fx"'
+  assert_eq 0 "$RC"
+  assert_eq "tests	narrowed	{selection}
+lint	full	[]
+lint	command	clippy" "$OUT"
+}
+
+test_profiles_check_rows_is_empty_without_a_table() {
+  fixture_repo
+  _table_lint 'checks: [tests]'
+  profiles_harness 'profiles_check_rows "$PWD/fx"'
+  assert_eq 0 "$RC"
+  assert_eq "" "$OUT"
+}
