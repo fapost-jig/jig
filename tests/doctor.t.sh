@@ -564,6 +564,26 @@ test_doctor_config_local_warns_when_not_gitignored() {
   assert_contains "$OUT" "fix: jig init"
 }
 
+# --- profiles (a directory profiles: does not reach) ---------------------------
+
+test_doctor_profiles_ok_after_fresh_init() {
+  fixture_jig_repo
+  run jig doctor
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "ok    profiles: every profile under .ai/profiles is active"
+}
+
+test_doctor_profiles_warns_on_an_unreached_directory() {
+  fixture_jig_repo
+  mkdir -p .ai/profiles/warehouse
+  printf 'name: warehouse\n' > .ai/profiles/warehouse/profile.yaml
+
+  run jig doctor
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "warn  profiles: warehouse under .ai/profiles not reached by profiles:, never run"
+  assert_contains "$OUT" "fix: add it to profiles: in .ai/config.yaml, or remove .ai/profiles/<name>"
+}
+
 # --- config keys (the drift report) -------------------------------------------
 
 test_doctor_config_keys_silent_when_the_template_mentions_everything() {
