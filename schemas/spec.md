@@ -26,7 +26,14 @@ or `incomplete (no spec.md, roadmap.md)` — not an error.
 ## `spec.md`
 
 The first line starting with `# ` is the spec's title in `jig spec list`; `-` when there is
-none. The sections are the template's (`templates/spec/spec.md`); only closing a spec reads them, by
+none.
+
+The spec's short description is the paragraph that opens with a `Summary:` line in its head, before
+the first `## ` heading: the text after `Summary:` and the non-blank lines that follow it, up to a
+blank line or a heading, each trimmed and joined by one space. The template puts it right under the
+title. `jig spec list --json` gives it as `summary` (schemas/json.md), for a reader such as Jig UI to
+show beside the title; it is `null` without the line, when the line is empty, and when it is still the
+template's `<…>` placeholder. A `Summary:` further down — quoted in the Idea, say — is not read. The sections are the template's (`templates/spec/spec.md`); only closing a spec reads them, by
 heading (below).
 
 ## `roadmap.md`

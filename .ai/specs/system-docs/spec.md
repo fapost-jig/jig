@@ -1,5 +1,8 @@
 # System docs — documentation for people, not only context for agents
 
+Summary: A project keeps documentation for people on two levels, both current with the code: a business
+level a non-developer can read, and a developer level that explains fields, flows and triggers.
+
 Depth: normal — a product direction with one irreversible choice (where the documents live and
 what Jig commits to supporting); the rest can be decided one question at a time.
 

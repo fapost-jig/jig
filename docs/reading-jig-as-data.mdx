@@ -5,7 +5,7 @@ description: "Read your project's tasks, specs and what needs you from a script,
 
 Jig's commands print text for a person. A program — a CI step, a chat bot, a dashboard such as
 [Jig UI](https://jig-ui.fapost.in) — can ask for the same answer as JSON instead, by adding
-`--json`. Today `jig task list`, `jig task artifacts`, `jig task artifact read`, `jig spec list`, `jig status`,
+`--json`. Today `jig task list`, `jig task artifacts`, `jig task artifact read`, `jig spec list`, `jig spec read`, `jig status`,
 `jig queue list`, `jig queue next`, `jig config keys`, `jig knowledge proposed`, `jig knowledge sources`, `jig knowledge read`,
 `jig pr reviewers`, `jig task pr-status` and `jig writes` offer it, and `jig queue`, `jig task new`, `jig upgrade`, `jig config set|unset`, `jig spec item`
 and `jig knowledge decide|accept|reject|reviewed` answer in it when they write, as do `jig task request-review|land|promote|merge-pr` with `--by human`; more commands will, in the
@@ -17,6 +17,7 @@ jig task list --json --all
 jig task artifacts <id> --json
 jig task artifact read <id> plan --json
 jig spec list --json
+jig spec read <id> spec --json
 jig status --json
 jig queue list --json
 jig knowledge proposed --json
@@ -77,7 +78,7 @@ be reworded.
 | `not-a-repository` | it ran outside a Git repository |
 | `not-initialised` | the repository has no Jig yet; `jig init` sets it up |
 | `stale-revision` | a write carried a `revision` that is no longer current: something changed since your program read it. Nothing was written — read again, and show the person the conflict |
-| `not-found` | the task or epic named does not exist, is not in the queue where the command needs it, the task has no such document yet (`jig task artifact read`), or the knowledge document named does not exist (`jig knowledge read`) or links no source (`jig knowledge sources --diff`). For a roadmap edit: the spec it names is neither on its branch nor on the base, the phase or item is not in the roadmap on that branch, or the task it would file does not exist. Also `jig writes ship` with nothing waiting, and the task a `jig task gate`, `abandon`, `archive`, `unarchive` or `jig spec drop` names; for `jig spec drop` also a task linked to no spec, a spec with no roadmap on its branch, and a roadmap with no item that names the task |
+| `not-found` | the task or epic named does not exist, is not in the queue where the command needs it, the task has no such document yet (`jig task artifact read`), or the knowledge document named does not exist (`jig knowledge read`) or links no source (`jig knowledge sources --diff`), or the spec or its document `jig spec read` asks for is not there. For a roadmap edit: the spec it names is neither on its branch nor on the base, the phase or item is not in the roadmap on that branch, or the task it would file does not exist. Also `jig writes ship` with nothing waiting, and the task a `jig task gate`, `abandon`, `archive`, `unarchive` or `jig spec drop` names; for `jig spec drop` also a task linked to no spec, a spec with no roadmap on its branch, and a roadmap with no item that names the task |
 | `already-exists` | what the command would create is already there: a task with that id, a roadmap item with that text. Nothing was written — for a task id, choose another |
 | `already-filed` | the roadmap item you asked to file already names a task, filed earlier here or in another clone; the message names it. Nothing was written — another id does not help, read the roadmap again |
 | `git-not-allowed` | [a write on a branch of its own](#writes-on-a-branch-of-their-own) was asked for at `agent.git: none`, where Jig commits nothing. Nothing was written; the message names the setting |
@@ -90,7 +91,7 @@ be reworded.
 | `write-still-waits` | an earlier edit of the same spec, or of knowledge, still waits where this one cannot go: into another base, because an epic opened or finished since, or as edits that never reached the remote above ones whose pull request was closed or whose branch was deleted there. Nothing was written; the message names the branch and what to do |
 | `tree-in-the-way` | an unfinished write or `jig upgrade` left files at Jig's tree that git will not remove (links and empty directories Jig clears itself). Nothing was written, and trying again does not help: delete the path the message names |
 | `commit-refused` | Git refused the commit; the message says what it said. (A pre-commit hook of the project that refuses an upgrade in Jig's tree is not this: the upgrade goes on in your checkout.) This edit was not committed (for `jig upgrade`: nothing was left, no branch and no tree); an earlier one already waiting on the branch still waits |
-| `epic-missing` | the spec is built on an epic branch that is neither here nor on the remote. Nothing was written |
+| `epic-missing` | the spec is built on an epic branch that is neither here nor on the remote. Nothing was written (for `jig spec read`: there is no current roadmap to read) |
 | `not-linkable` | the task cannot be linked to the roadmap item, or the item is done. Nothing was written |
 | `not-proposed` | the knowledge document is not a proposal, nor, for `reject`, a stub whose linked file changed since it was approved: it was decided already, perhaps on a branch that still waits. Nothing was written |
 | `not-on-base` | the knowledge document, or the change to the file a stub links, is in your checkout but not on the base the decision is judged on: not committed, or not pushed. Nothing was written — push it first |
@@ -303,6 +304,7 @@ phases, the items of each phase, and how far it has come.
 {
   "id": "booking",
   "title": "Booking flow",
+  "summary": "A guest books a table online and gets a confirmation they can trust.",
   "missing_files": [],
   "release": "minor",
   "epic": {"branch": "epic/booking", "state": "open", "checked_out": false, "missing": false, "ref": "refs/remotes/origin/epic/booking"},
@@ -323,7 +325,9 @@ phases, the items of each phase, and how far it has come.
 }
 ```
 
-`progress` is the same count `jig spec list` prints, and the sum of the phases. Each item has an `id`,
+`summary` is the spec's short description, the `Summary:` line under the title of its `spec.md`
+(a spec written before the template had the line may have none, and a new one may still hold the template's placeholder:
+both read as `null`). `progress` is the same count `jig spec list` prints, and the sum of the phases. Each item has an `id`,
 which a [roadmap write](#changing-a-roadmap) names it by, and says whether it is checked, whether it
 counts as done, which task it names, if any, and whether it is
 still fog. An item counts as done when it is checked, or when the task it names is known on this
@@ -339,6 +343,28 @@ A spec built on an epic branch keeps its roadmap there. When you read it from an
 phases come from the epic's branch as your repository last fetched it — `epic.ref` names it — and
 when that branch is nowhere on your disk, `epic.missing` is `true` and `progress` is `null`.
 `release` is the version level the epic will be released at, or `null` when none was recorded.
+
+### A spec's documents
+
+A page that shows what a spec is about asks Jig for its text rather than opening `.ai/specs/`:
+
+```bash
+jig spec read booking spec --json
+jig spec read booking roadmap --json
+```
+
+```json
+{"schema":1,"revision":1792405174,"generated_at":"2026-11-18T10:00:00Z","data":{"spec":"booking","kind":"roadmap","path":".ai/specs/booking/roadmap.md","ref":null,"bytes":1314,"content":"# Roadmap — Booking flow\n\n...","lossy":false}}
+```
+
+`content` is the Markdown exactly as it is written; rendering it is the reader's choice. Bytes that
+are not UTF-8 would make the line invalid JSON, so they are dropped and `lossy` is `true`. The roadmap is
+read where `jig spec list --json` reads it — from the epic's branch when the spec is built on an open
+epic you are not on, and then `ref` names that branch's ref — so the text and the phases beside it agree.
+An edit that has not landed yet is not in it; its phases are the spec's `waiting`. A spec or document
+that is not there is refused as `not-found`, and a roadmap on an epic branch your repository does not
+have as `epic-missing`. The read changes nothing, so the `revision` stays where it was. Without
+`--json`, `jig spec read` prints the document itself.
 
 ## What needs you
 

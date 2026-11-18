@@ -113,6 +113,8 @@ Usage: jig <command> [args]
   knowledge read <id> --json     one document's text, and a stub's linked file as it is now
   spec new <id>                  create .ai/specs/<id>/ from the specification templates
   spec list                      specifications under .ai/specs/ and their roadmap progress
+  spec read <id> spec|roadmap [--json]
+                                 one document of a spec as written; --json as data
   spec done <task-id>            check the roadmap items that name a spec-linked task
   spec drop <task-id>            close the roadmap items of an abandoned or moved task, with why
   spec link <spec-id> <task-id>  link a filed, not-started task to the spec phase naming it

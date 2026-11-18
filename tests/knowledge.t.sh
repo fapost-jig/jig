@@ -4616,6 +4616,7 @@ test_utf8_clean_without_iconv_keeps_ascii_and_drops_the_rest() {
   local out
   out=$(bash -c '
     set -eu
+    . "$1/scripts/lib/json.sh"
     . "$1/scripts/lib/knowledge.sh"
     command() { if [ "$1" = -v ] && [ "$2" = iconv ]; then return 1; fi; builtin command "$@"; }
     _km_utf8_clean "$(printf "a\tb \303\251 \377 z")"
@@ -4662,6 +4663,7 @@ test_utf8_clean_keeps_the_top_plane_and_drops_only_what_is_above_it() {
   local out
   out=$(bash -c '
     set -eu
+    . "$1/scripts/lib/json.sh"
     . "$1/scripts/lib/knowledge.sh"
     _km_utf8_clean "$(printf "\320\237\321\200\320\270 \364\217\277\275 ok")"
     printf "%s|%s" "$_KM_LOSSY" "$_KM_CLEAN"
@@ -4682,6 +4684,7 @@ test_drop_above_unicode_takes_a_long_text_with_many_pairs_in_one_pass() {
   # the pairs, and at the very end.
   out=$(bash -c '
     set -eu
+    . "$1/scripts/lib/json.sh"
     . "$1/scripts/lib/knowledge.sh"
     printf -v unit "lorem ipsum *dolor\r\n sit amet, consectetur adipiscing elit \364\220"
     big=$unit; n=1

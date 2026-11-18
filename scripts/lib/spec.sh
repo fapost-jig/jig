@@ -15,11 +15,11 @@
 # finishes and reopens a spec's epic branch (ADR-0035, ADR-0040 as amended),
 # and `ship` carries a declaration, an epic or an epic's final pull request as
 # far as `agent.git` allows (adr-20260922-spec-work-ships-by-the-agent-git-level);
-# `list` only reads. `draft` keeps a `jig-idea` conversation on disk before
+# `list` and `read` only read. `draft` keeps a `jig-idea` conversation on disk before
 # there is a spec, in the gitignored workspace ("idea drafts", at the end).
 # shellcheck shell=bash
 
-SPEC_USAGE="usage: jig spec new <id> | jig spec resume <id> | jig spec list [--json] | jig spec draft write <id> --from <file>|- | jig spec draft rename <id> <new-id> | jig spec draft list | jig spec draft drop <id> | jig spec plan <id> --phase <n> [--format text|tsv] | jig spec stop <id> --phase <n> --reason <text> | jig spec done <task-id> | jig spec drop <task-id> [--revision <n>] [--json] | jig spec link <spec-id> <task-id> | jig spec item add <id> --phase <n> --text <t> [--after <item> | --top | --bottom] | jig spec item move <id> <item> [--phase <n>] [--after <item> | --top | --bottom] | jig spec item file <id> <item> --task <task-id> | --new <task-id> [--goal <text>] (each [--revision <n>] [--json]) | jig spec close <id> [--leftovers-handled] | jig spec remove <id> [--dry-run] [--abandon-unstarted] | jig spec epic <id> [--release patch|minor|major | --finish [--leftovers-handled] | --reopen] | jig spec ship <id> [--message-file <file>] [--title <t>] [--body-file <file>]"
+SPEC_USAGE="usage: jig spec new <id> | jig spec resume <id> | jig spec list [--json] | jig spec read <id> spec|roadmap [--json] | jig spec draft write <id> --from <file>|- | jig spec draft rename <id> <new-id> | jig spec draft list | jig spec draft drop <id> | jig spec plan <id> --phase <n> [--format text|tsv] | jig spec stop <id> --phase <n> --reason <text> | jig spec done <task-id> | jig spec drop <task-id> [--revision <n>] [--json] | jig spec link <spec-id> <task-id> | jig spec item add <id> --phase <n> --text <t> [--after <item> | --top | --bottom] | jig spec item move <id> <item> [--phase <n>] [--after <item> | --top | --bottom] | jig spec item file <id> <item> --task <task-id> | --new <task-id> [--goal <text>] (each [--revision <n>] [--json]) | jig spec close <id> [--leftovers-handled] | jig spec remove <id> [--dry-run] [--abandon-unstarted] | jig spec epic <id> [--release patch|minor|major | --finish [--leftovers-handled] | --reopen] | jig spec ship <id> [--message-file <file>] [--title <t>] [--body-file <file>]"
 
 cmd_spec() {
   local sub="${1:-}"
@@ -30,6 +30,7 @@ cmd_spec() {
     new) spec_new "$@"; jig_status_page_touch ;;
     resume) spec_resume "$@"; jig_status_page_touch ;;
     list) spec_list "$@" ;;
+    read) spec_read "$@" ;;
     # Redrawn only when the command wrote (jig_record_changed marks it):
     # `draft list` reads, and the page shows the count of drafts.
     draft) spec_draft "$@"; jig_status_page_flush ;;
@@ -381,6 +382,50 @@ spec_title() {
   [ -z "$t" ] || printf '%s\n' "$t"
 }
 
+# spec_summary_v <var> <spec.md> — the spec's short description into <var>, empty
+# when there is none; the parse starts no process (the caller cleans the text for JSON). It is the
+# paragraph that opens with a `Summary:` line in the head of spec.md, before the
+# first `## ` heading (schemas/spec.md): the line's text and the non-blank lines
+# after it, up to a blank line or a heading, each trimmed and joined by one space.
+# A `Summary:` further down — quoted in the Idea, say — is never read. An empty
+# value, or the template's `<…>` placeholder left as it is, reads as none.
+spec_summary_v() {
+  local __ssv_line __ssv_out="" __ssv_in=0 __ssv_inner
+  printf -v "$1" '%s' ""
+  if [ ! -r "$2" ] || [ ! -f "$2" ]; then return 0; fi
+  # Glob patterns and expansions, never `=~`: under a UTF-8 locale a regex does not
+  # match across a byte that is not UTF-8, and the summary would vanish unseen;
+  # the caller drops such bytes (json_utf8_clean) instead.
+  while IFS= read -r __ssv_line || [ -n "$__ssv_line" ]; do
+    __ssv_line=${__ssv_line%$'\r'}
+    case "$__ssv_line" in '##'*) break ;; esac
+    if [ "$__ssv_in" -eq 0 ]; then
+      case "$__ssv_line" in Summary:*) ;; *) continue ;; esac
+      __ssv_line=${__ssv_line#Summary:}
+      __ssv_in=1
+    else
+      case "$__ssv_line" in '#'*) break ;; esac
+      __ssv_in=2
+    fi
+    __ssv_line=${__ssv_line#"${__ssv_line%%[![:space:]]*}"}
+    __ssv_line=${__ssv_line%"${__ssv_line##*[![:space:]]}"}
+    if [ -z "$__ssv_line" ]; then
+      # A blank line ends the paragraph; an empty `Summary:` line itself does not.
+      [ "$__ssv_in" -eq 1 ] || break
+      continue
+    fi
+    __ssv_out="${__ssv_out:+$__ssv_out }$__ssv_line"
+  done < "$2"
+  case "$__ssv_out" in
+    '<'*'>')
+      __ssv_inner=${__ssv_out#<}
+      __ssv_inner=${__ssv_inner%>}
+      case "$__ssv_inner" in *'<'* | *'>'*) ;; *) __ssv_out="" ;; esac
+      ;;
+  esac
+  printf -v "$1" '%s' "$__ssv_out"
+}
+
 # spec_progress <roadmap.md> — "roadmap D/T done, F filed, fog G": the sum of
 # spec_phase_counts, so the whole and its phases cannot disagree.
 spec_progress() {
@@ -624,12 +669,12 @@ spec_list() {
 
 # _spec_list_json [--json] — the producer of `jig spec list --json`
 # (schemas/json.md): `{"specs":[...]}`, one object per spec in spec_ids order.
-# Every value is read from what already answers it — spec_title, jig_spec_epic,
+# Every value is read from what already answers it — spec_title, spec_summary_v, jig_spec_epic,
 # jig_spec_roadmap_ref (where the current roadmap is, as the status page reads it),
 # spec_phase_items (the counts of spec_phase_counts with their items) and
 # spec_release_check. Local refs only: no fetch, no forge.
 _spec_list_json() {
-  local arg root id dir title missing line branch state here checked_out
+  local arg root id dir title summary missing line branch state here checked_out
   local loc rc ref src content release epic phases progress waiting
   local _SPEC_MERGED_MEMO _SPEC_MERGED
   for arg in "$@"; do
@@ -646,9 +691,14 @@ _spec_list_json() {
   while IFS= read -r id; do
     [ -n "$id" ] || continue
     dir="$root/$id"
-    title="" missing=""
+    title="" summary="" missing=""
     if [ -f "$dir/spec.md" ]; then
       title=$(spec_title "$dir/spec.md")
+      spec_summary_v summary "$dir/spec.md"
+      if [ -n "$summary" ]; then
+        json_utf8_clean "$summary"
+        summary=$_JSON_CLEAN
+      fi
     else
       missing='"spec.md"'
     fi
@@ -691,7 +741,9 @@ _spec_list_json() {
     json_quote "$id"
     printf '%s{"id":%s' "$sep" "$_JSON"
     json_str_or_null "$title"
-    printf ',"title":%s,"missing_files":[%s]' "$_JSON" "$missing"
+    printf ',"title":%s' "$_JSON"
+    json_str_or_null "$summary"
+    printf ',"summary":%s,"missing_files":[%s]' "$_JSON" "$missing"
     json_str_or_null "$release"
     printf ',"release":%s,"epic":%s' "$_JSON" "$epic"
     _spec_json_waiting "$id"
@@ -700,6 +752,92 @@ _spec_list_json() {
     sep=","
   done < <(spec_ids)
   printf ']}\n'
+}
+
+# spec_read <id> spec|roadmap [--json] — `jig spec read`: one document of a spec as
+# it is written, for a reader that must not open `.ai/specs/` itself (Jig UI). Text:
+# the file's bytes as they are; `--json`: an object holding them as a string
+# (schemas/json.md). Only reads: no revision, no status page.
+spec_read() {
+  local arg
+  for arg in "$@"; do
+    if [ "$arg" = --json ]; then
+      # shellcheck source=lib/json.sh
+      . "$JIG_LIB/json.sh"
+      json_run _spec_read_json "$@"
+      return
+    fi
+  done
+  _spec_read 0 "$@"
+}
+
+# _spec_read_json <args...> — the producer json_run runs: `--json` may stand
+# anywhere among the arguments.
+_spec_read_json() {
+  local arg args=()
+  for arg in "$@"; do
+    [ "$arg" = --json ] || args+=("$arg")
+  done
+  _spec_read 1 ${args[@]+"${args[@]}"}
+}
+
+# _spec_read <as_json> <id> <kind> — the document read where `spec list --json`
+# reads it, so the text and the phases beside it cannot disagree: spec.md from
+# the checkout, as the title and summary are; roadmap.md from the ref of an open
+# epic checked out elsewhere (jig_spec_roadmap_ref_v, ADR-0040), else from the
+# checkout. An edit still waiting on `spec/<id>` is not shown here: `spec list
+# --json` gives its phases as `waiting`.
+_spec_read() {
+  local as_json="$1" id kind root rel loc="" rc=0 ref="" content out
+  shift
+  local usage="usage: jig spec read <id> spec|roadmap [--json]"
+  [ $# -eq 2 ] || jig_fail usage "spec read: $usage"
+  id=$1 kind=$2
+  case "$id" in -*) jig_fail usage "spec read: unexpected argument: $id ($usage)" ;; esac
+  case "$kind" in
+    spec | roadmap) ;;
+    -*) jig_fail usage "spec read: unexpected argument: $kind ($usage)" ;;
+    *) jig_fail usage "spec read: unknown document: $kind (one of: spec, roadmap)" ;;
+  esac
+  jig_require_repo
+  spec_valid_id "$id" || jig_fail usage "spec read: invalid spec id: $id"
+  root=$(spec_dir)
+  [ -d "$root/$id" ] || jig_fail not-found "spec read: no spec $id"
+  rel="$JIG_AI_DIR/specs/$id/$kind.md"
+  if [ "$kind" = roadmap ]; then
+    jig_spec_roadmap_ref_v loc "$id" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+      jig_fail epic-missing "spec read: the roadmap of $id is on its epic, and the epic's branch is neither here nor fetched from the remote"
+    fi
+    [ -z "$loc" ] || ref=${loc%%$'\t'*}
+  fi
+  # The sentinel keeps the trailing newlines $(...) would strip.
+  if [ -n "$ref" ]; then
+    content=$(jig_git_show_path "$ref" "$rel" 2>/dev/null && printf x) \
+      || jig_fail not-found "spec read: $id has no $kind.md on $ref"
+  else
+    [ -f "$root/$id/$kind.md" ] || jig_fail not-found "spec read: $id has no $kind.md"
+    if [ "$as_json" != 1 ]; then
+      cat "$root/$id/$kind.md"
+      return 0
+    fi
+    content=$(cat "$root/$id/$kind.md" && printf x) || jig_die "spec read: cannot read $rel"
+  fi
+  content=${content%x}
+  if [ "$as_json" != 1 ]; then
+    printf '%s' "$content"
+    return 0
+  fi
+  json_quote "$id"; out="{\"spec\":$_JSON,\"kind\":\"$kind\","
+  json_quote "$rel"; out="$out\"path\":$_JSON,"
+  json_str_or_null "$ref"; out="$out\"ref\":$_JSON,"
+  out="$out\"bytes\":$(printf '%s' "$content" | wc -c | tr -d ' '),"
+  # A committed file may hold bytes that are not UTF-8, and one of them would make
+  # the whole line invalid JSON: they are dropped, and `lossy` says so, as
+  # `knowledge read` does (conventions/json-output.md).
+  json_utf8_clean "$content"
+  json_quote "$_JSON_CLEAN"
+  printf '%s"content":%s,"lossy":%s}\n' "$out" "$_JSON" "$_JSON_LOSSY"
 }
 
 # _spec_json_waiting <id> — _SPEC_JSON_WAITING <- the edit of this spec that has not

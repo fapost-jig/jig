@@ -47,7 +47,7 @@ need to tell it apart (`already-filed`, out of `already-exists`); the release no
 | `not-a-repository` | it ran outside a git repository |
 | `not-initialised` | the repository has no Jig: no `.ai/config.yaml`; `jig init` installs it |
 | `stale-revision` | a write was sent with a revision that is no longer the clone's: Jig wrote something after the caller read it (`jig queue … --revision <n>`, `jig task resume … --revision <n>`, `jig task pause … --revision <n>`, `jig task set … status consolidated --revision <n>`, `jig task gate … --revision <n>`, `jig task abandon … --revision <n>`, `jig task archive … --revision <n>`, `jig task unarchive … --revision <n>`, `jig spec item … --revision <n>`, `jig spec drop … --revision <n>`, `jig knowledge accept … --revision <n>`). Read again and decide again; nothing was written |
-| `not-found` | a reference names no task or epic of this clone, an item, dependency or request that is not in the queue where the command needs it, a task document the task does not have (`jig task artifact read`), a knowledge document that does not exist (`jig knowledge read`) or links no source (`jig knowledge sources --diff`), or a spec, phase or item a roadmap write names that the roadmap on the write branch does not have, or a task it would file. Also `jig writes ship` with nothing waiting, and the task a `jig task gate`, `abandon`, `archive`, `unarchive` or `jig spec drop` names; for `jig spec drop` also a task linked to no spec, a spec with no roadmap on the write branch, and a roadmap with no item that names the task |
+| `not-found` | a reference names no task or epic of this clone, an item, dependency or request that is not in the queue where the command needs it, a task document the task does not have (`jig task artifact read`), a knowledge document that does not exist (`jig knowledge read`) or links no source (`jig knowledge sources --diff`), a spec or a spec's document `jig spec read` does not find, or a spec, phase or item a roadmap write names that the roadmap on the write branch does not have, or a task it would file. Also `jig writes ship` with nothing waiting, and the task a `jig task gate`, `abandon`, `archive`, `unarchive` or `jig spec drop` names; for `jig spec drop` also a task linked to no spec, a spec with no roadmap on the write branch, and a roadmap with no item that names the task |
 | `not-paused` | `jig task resume` was asked for a task that is neither paused nor parked at the staging branch: somebody resumed it first. Nothing was written |
 | `already-paused` | `jig task pause` was asked for a task that is paused already: somebody paused it first. Nothing was written |
 | `wrong-checkout` | `jig task resume` has a stash to apply, or `jig task pause --stash` has one to make, and this checkout is not on the task's branch; `message` names the worktree that has it checked out, or says to switch to it. Nothing was written |
@@ -64,7 +64,7 @@ need to tell it apart (`already-filed`, out of `already-exists`); the release no
 | `write-still-waits` | an earlier write of the same target still waits where this one cannot follow: for another base than this edit's (an epic opened or finished since), or as edits that never reached origin above a write whose pull request was closed unmerged or whose branch origin deleted. `message` names the branch, and what to do. Nothing was written |
 | `tree-in-the-way` | an unfinished write or `jig upgrade` left something at Jig's tree that git will not remove. `message` names the path for a person to delete; a retry does not clear it. Nothing was written |
 | `commit-refused` | git refused the commit in Jig's own tree; `message` holds what it said. A project's pre-commit hook that refuses an upgrade's commit there is no such failure: the upgrade goes on in the checkout (`fell_back`). This edit was not committed (for `jig upgrade`: nothing was left, no branch and no tree); an earlier one that already waits on the branch still waits |
-| `epic-missing` | a roadmap write found its spec on an open epic that is neither here nor on origin. Nothing was written |
+| `epic-missing` | a roadmap write found its spec on an open epic that is neither here nor on origin. Nothing was written. `jig spec read` of such a roadmap refuses with it too: there is nothing current to read |
 | `not-linkable` | `jig spec item file` cannot link this task or file this item: the task is finished, started or linked to another spec, or the item is checked. Nothing was written |
 | `not-proposed` | `jig knowledge accept` or `reject` named a document that is not a proposal — for `reject`, nor an accepted stub whose source is `changed`, `unrecorded` or `missing`: decided already, on the branch if that decision still waits. Nothing was written |
 | `not-on-base` | `jig knowledge accept`, `reject` or `reviewed` with `--json` or `--revision` named a document this checkout has and the base the decision is judged on does not — for `reject` of a stub, also a change to its source the base does not carry: not committed, or not on origin's base. Nothing was written |
@@ -300,6 +300,7 @@ A spec:
 |---|---|---|
 | `id` | string | the spec id, its directory under `.ai/specs/` |
 | `title` | string or null | the first `# ` heading of `spec.md`; `null` without one |
+| `summary` | string or null | the spec's short description: the `Summary:` paragraph in the head of `spec.md` (schemas/spec.md), its lines joined by one space; `null` without one, when it is empty, or when it is still the template's `<…>` placeholder. Bytes that are not UTF-8 are dropped from it |
 | `missing_files` | array of strings | which of `spec.md` and `roadmap.md` are missing — what the text form calls `incomplete`; `[]` for none |
 | `release` | string or null | `patch`, `minor` or `major` from the roadmap's `Release:` line (schemas/spec.md); `null` when it has none, or one `spec epic` and `spec ship` would refuse |
 | `epic` | object or null | the roadmap's `Epic:` line, below; `null` when it has none |
@@ -340,6 +341,39 @@ An item — the counts above are the sum of its fields, read in the same pass:
 `done` counts the items whose `done` is `true`, `filed` the other unchecked ones with a `task`,
 `fog` the unchecked ones with `fog`. The roadmap is read where `jig status` reads it: an open epic's from its ref with no
 fetch, every other one from this checkout.
+
+## `jig spec read --json`
+
+`jig spec read <id> spec|roadmap --json` answers with the text of one of a spec's two documents as
+it is written, so a page can show what a spec is about without reading `.ai/specs/` itself. `--json`
+may stand anywhere among the arguments; without it the command prints the document's bytes as they
+are.
+
+```json
+{"spec": "booking", "kind": "roadmap", "path": ".ai/specs/booking/roadmap.md", "ref": null, "bytes": 1314, "content": "# Roadmap — Booking flow\n...", "lossy": false}
+```
+
+| Field | Type | Value |
+|---|---|---|
+| `spec` | string | the spec id |
+| `kind` | string | `spec` or `roadmap`, as asked |
+| `path` | string | the document's file, relative to the repository |
+| `ref` | string or null | where the text was read when it is not this checkout: the ref of the spec's open epic (`epic.ref` in `jig spec list --json`). `null` for the checkout's file |
+| `bytes` | integer | the document's size in bytes, as it is written (the dropped bytes of a `lossy` text included) |
+| `content` | string | the whole file, trailing newlines included; `""` for an empty file |
+| `lossy` | boolean | `true` when the file held bytes that are not UTF-8 and they were dropped from `content`, as `jig knowledge read --json` drops them |
+
+The document is read where `jig spec list --json` reads it, so the text and the phases beside it
+agree: `spec.md` from the checkout, as `title` and `summary` are; `roadmap.md` from the epic's ref when
+the spec is built on an open epic checked out elsewhere (ADR-0040), otherwise from the checkout. An
+edit of the roadmap that waits on `spec/<id>` is not in `content`: its phases are the spec's `waiting`
+in `jig spec list --json`. The read writes nothing and raises no revision; its text form prints the
+bytes as they are, the ones `lossy` drops included.
+
+Refusals: `usage` for a missing or extra argument, an id outside the grammar and a document other
+than `spec` or `roadmap`; `not-found` for a spec this checkout does not have, a document missing from
+it, and a roadmap missing from the epic's ref; `epic-missing` for an open epic whose branch is neither
+here nor fetched; `not-a-repository` as everywhere.
 
 ## `jig spec item` writes
 

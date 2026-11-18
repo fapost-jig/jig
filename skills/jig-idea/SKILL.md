@@ -177,10 +177,13 @@ is an answer to that question, not the yes to write.
 
   It refuses an invalid or taken id and a dirty tree, writes `spec.md` and `roadmap.md`
   from the templates, and switches to a branch of its own, `spec/<id>`. Fill the files in,
-  starting with the heading of `spec.md`, which names the spec in `jig spec list`. Write
+  starting with the heading of `spec.md`, which names the spec in `jig spec list`, and the
+  `Summary:` line under it — one or two sentences on what the spec makes true, for someone
+  who has not read it; Jig UI shows it beside the title. Write
   the idea in the human's own words, not a retelling. Other files (`architecture.md`,
   `stack.md`, `research.md`) are added when the conversation needed them.
-- **Existing spec.** Edit its files on the branch §1 switched to.
+- **Existing spec.** Edit its files on the branch §1 switched to; one without a `Summary:` line
+  gets one.
 
 Write everything the summary held. A rejected option is recorded with its reason: the next
 session must not reopen the argument. What is unresolved goes to "Open questions", an
