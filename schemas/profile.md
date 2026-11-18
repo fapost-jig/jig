@@ -11,10 +11,10 @@ absent key means is decided by its reader, not by this file.
 | `name` | scalar | the profile's own name. Read by no script: the directory under `profiles/` is the identity everything resolves (`profiles_dir`), so a `name` that disagrees with its directory changes no behaviour. It is here for the person reading the file |
 | `description` | scalar | one line on what the profile checks and which tools it reaches for. Read by no script either |
 | `detect` | `always`, or an inline list of globs | how `profiles_detect` recognises a project of this stack — see **Detection** |
-| `requires` | inline list of profile names | profiles this one builds on. Detection closes over it, and `profiles_check_requires` warns when an active profile's requirement is not active — see **Requires** |
+| `requires` | inline list of profile names | profiles this one needs beside it. Detection closes over it, and `profiles_check_requires` warns when an active profile's requirement is not active. A profile built on another says `extends`, and no stock profile uses `requires` — see **Requires** |
 | `extends` | one profile name | the profile this one builds on: a layer over a base. Listing the layer in `profiles:` brings its base with it — see **Stacks**. A scalar, never a list |
 | `scope` | inline list of capabilities | which parts of the verify scope protocol this profile's `verify.sh` understands: `changed` (ADR-0013), `map` (ADR-0041), `explain`, `environment` — see **Scope** |
-| `covers` | inline list of `<profile>:<check>` | checks of other profiles this profile's own checks replace: `laravel` declares `covers: [php:tests]`, because `php artisan test` runs the suite php's PHPUnit or Pest would — see **Covers** |
+| `covers` | inline list of `<profile>:<check>` | checks of other profiles this profile's own checks replace: a project's `myapp`, which runs its own suite, declares `covers: [laravel:tests]` — see **Covers** |
 | `checks` | inline list of check names | the checks of this profile by role, which another profile can take over by name, and the index of its check table. Every stock profile that runs checks lists its roles — see **Covers**, **Check table** and **Stock checks** |
 | `checks.<role>.<field>` | words | the command and arguments of the check `<role>`, which `checks` must list; fields `command`, `full`, `narrowed` — see **Check table** |
 
@@ -56,8 +56,8 @@ reads it from every profile directory and returns the names that matched, which 
 ## Requires
 
 A profile pulled in by detection pulls in everything it requires, even when that
-profile's own globs matched nothing — `laravel` matches `artisan` and brings in `php`,
-whose `composer.json` may be absent. The closure runs until a full pass adds nothing new.
+profile's own globs matched nothing: a project's `shop` that requires `php` brings it in where
+no `composer.json` matched. The closure runs until a full pass adds nothing new.
 
 Activation of `requires` is separate and is not closed over: `.ai/config.yaml` lists exactly
 the profiles the project activates, and a profile that is only required is not run. (`extends` is
@@ -67,9 +67,10 @@ two read different trees: detection reads the profiles shipped with the framewor
 warning reads the copies installed under `.ai/profiles/`, so a manifest the project
 edited can make them disagree.
 
-`requires` is the older key and stays as it is for now: it closes detection and warns. A profile
-that is built on another says `extends` (below); which of the two a stock profile such as
-`laravel` uses is decided when it is converted.
+`requires` is the older key and stays as it is: it closes detection and warns, and a project's
+profile may use it. A profile that is built on another says `extends` (below), and does more: it
+brings the base into the stack and lets the layer's rows reach the base's checks. No stock profile
+uses `requires`; `laravel` is a layer over `php` (`extends: php`).
 
 ## Stacks
 
@@ -152,13 +153,13 @@ existed.
 
 ## Covers
 
-Two profiles can run the same work: a Laravel project activates `laravel` and the `php` it
-requires, and `php artisan test` runs the PHPUnit or Pest suite `php` would run itself. The
-profile **above** says so; the profile below only names its check (adr-20261107-a-profile-covers-a-check-of-another):
+Two profiles can run the same work: a project's `myapp` runs the project's own test suite, and
+the stack's profile would run the same tests itself. The profile **above** says so; the profile
+below only names its check (adr-20261107-a-profile-covers-a-check-of-another):
 
 ```yaml
-# profiles/laravel/profile.yaml
-covers: [php:tests]
+# .ai/profiles/myapp/profile.yaml — a project's profile with its own verify.sh
+covers: [laravel:tests]
 # profiles/php/profile.yaml
 checks: [tests]
 ```
@@ -170,8 +171,8 @@ run. `<upper> covers <lower>:<check>` holds when:
 - both profiles start in this run — the gates the run itself applies: a `verify.sh`, `explain`
   in a preview, `environment` under one. A profile that never starts covers nothing;
 - the upper profile applies to the project: its `detect` is `always`, absent (a project's own
-  profile, activated by name), or matches. `laravel` without an `artisan` covers nothing, and
-  php keeps its tests;
+  profile, activated by name), or matches. A profile whose glob matches nothing here covers
+  nothing, and the lower profile keeps its tests;
 - the lower profile lists the check under `checks`. Otherwise `jig verify` warns —
   `profile 'upper' covers 'lower:tests', but 'lower' names no check 'tests' (checks:), so it still runs` —
   and the check runs: support is declared, never inferred, as for `scope`;
@@ -179,15 +180,24 @@ run. `<upper> covers <lower>:<check>` holds when:
   check declares `map` too, so the map can follow the tests (below). If it does not, it warns and the lower profile
   keeps its tests.
 
+**A cover resolves a role down the chain.** `<lower>` may be a layer or a profile over one: the
+check is found as a layer's row is (**Layer overrides**, *Whose role it is*), the first profile of
+`<lower>`'s `extends` chain that is not a pure layer and lists `<check>`. `myapp` with
+`covers: [laravel:tests]` covers `php:tests`, because `laravel` is a pure layer over `php` and
+`tests` is php's role. The skip names the profile that really runs it — `php: tests (phpunit): skip
+(scope: covered by myapp, php:tests)`. A pure layer whose chain lists no such check is warned
+about — `profile 'myapp' covers 'laravel:nothing', but no profile of laravel's chain names a check
+'nothing' (checks:), so nothing is covered` — and covers nothing.
+
 When several profiles cover the same check, the first in run order takes it. Covers chain: with
-`myapp` declaring `covers: [laravel:tests]` over `laravel`'s `covers: [php:tests]`, php's tests
-are myapp's, and php's skip names myapp. A chain that comes back to where it started runs
+`shop` declaring `covers: [myapp:tests]` over `myapp`'s `covers: [laravel:tests]`, php's tests
+are shop's, and php's skip names shop. A chain that comes back to where it started runs
 the check nowhere, so its covers are dropped with a warning and every profile in it keeps its
 check.
 
 The lower profile receives `JIG_VERIFY_COVERED`, `<check>=<profile>` words, and asks it with
 `jp_covered <check> <label>`, which prints the check's skip — `php: tests (phpunit): skip (scope: covered by
-laravel, php:tests)`, or the `PLAN` line in a preview — and returns 0. Every other profile runs
+myapp, php:tests)`, or the `PLAN` line in a preview — and returns 0. Every other profile runs
 with the variable unset. The reason starts `scope:`: the tools are fine and the work is another
 profile's, so a run where everything else narrowed away is not read as a gap in coverage. A
 `verify.sh` that never calls `jp_covered` — a profile a project edited before the key existed —
@@ -197,8 +207,10 @@ runs its check anyway: twice, the safe direction.
 (`schemas/verify-map.md`), so when `<lower>:tests` is covered, `.ai/verify/<lower>.map` is read
 for the profile that runs the tests after that profile's own map — along a chain, the nearest
 profile's map first — first match wins across all of them, and the result line names every map. A
-map is handed on only from a profile that declares `map`: one its profile never read is no decision. By covering `<lower>:tests` the
-upper profile accepts the lower profile's filter vocabulary — `php` and `laravel` both take a test
+map is handed on only from a profile that declares `map`: one its profile never read is no decision.
+The map of a pure layer over `<lower>` whose tests are `<lower>`'s (`laravel.map`, with `laravel`
+over `php`) goes with `<lower>.map`, ahead of it. By covering `<lower>:tests` the
+upper profile accepts the lower profile's filter vocabulary — `php` takes a test
 file path. The lower profile still receives its own map for the checks it keeps.
 
 `covers` and `checks` are the first step of profile layers (`.ai/specs/profile-layers/`): one
@@ -294,7 +306,9 @@ the worse answer. The function sets a global, so call it as a command, never ins
 ## Layer overrides
 
 A layer changes a check of its base with the same lines the base's table uses, without naming the
-base (adr-20261118-a-layer-overrides-its-bases-checks-by-role). A project's `warehouse` over `laravel`:
+base (adr-20261118-a-layer-overrides-its-bases-checks-by-role). Stock `laravel` is such a layer over
+`php`: its one row, `checks.tests.command: php artisan test`, replaces php's command for `tests`.
+A project's `warehouse` over `laravel` writes more rows over the same role:
 
 ```yaml
 # .ai/profiles/warehouse/profile.yaml — a pure layer: no verify.sh
@@ -306,14 +320,17 @@ checks.tests.narrowed: --compact {selection}
 
 ```
 $ jig verify --explain
-verify: laravel:tests: full, narrowed from warehouse
 verify: warehouse is a layer over laravel; its checks run in its bases
-PLAN laravel: tests (artisan test): full (…)
+verify: laravel is a layer over php; its checks run in its bases
+verify: php:tests: command from laravel; full, narrowed from warehouse
+PLAN php: tests (phpunit): full (…)
 ```
 
-A full run is `php artisan test --parallel --functional`, a narrowed one `php artisan test --compact
-<files>`. Which files to select stays the code of `laravel/verify.sh`; the layer changes only the words
-around them, and no stock `verify.sh` is edited for it.
+The chain is `warehouse`, `laravel`, `php`; `tests` is php's role, `command` comes from `laravel` and
+`full`, `narrowed` from `warehouse`. A full run is `php artisan test --parallel --functional`, a narrowed
+one `php artisan test --compact <files>`. Which files to select stays the code of `php/verify.sh`; the
+layers change only the words around them, and no stock `verify.sh` is edited for it. The label stays
+`tests (phpunit)`: `artisan test` is a wrapper over that runner.
 
 - **Whose role it is.** The chain of a layer is the layer, then its base, then that one's base. A row
   `checks.<role>.<field>` belongs to the **first** profile of the chain whose `checks:` lists
@@ -356,11 +373,13 @@ around them, and no stock `verify.sh` is edited for it.
   the overrides of both layers.
 - **Covers.** A drop lifts a cover: if the profile that `covers: [<lower>:<role>]` has its own
   `<role>` dropped in this run, nothing would run those tests, so the cover does not hold and the lower
-  profile runs them. `jig verify` says so — `verify: laravel:tests is dropped by warehouse, so laravel
+  profile runs them. `jig verify` says so — `verify: myapp:tests is dropped by warehouse, so myapp
   no longer covers php:tests; php runs it` — in a run and under `--explain`. An override of a check
   that another profile covers in this run has no effect, and `jig verify` warns:
   `verify: warning: <layer> overrides <base>:<role>, but <runner> runs it in this run (covers), so the
-  override has no effect`.
+  override has no effect`. Not for a layer on the chain from the profile the cover names down to the
+  base: `myapp` with `covers: [laravel:tests]` replaces laravel's tests, laravel's own command
+  included, and nobody could act on the warning.
 - **When every check is dropped.** A profile all of whose listed roles a layer dropped runs nothing.
   `jig verify` knows it from the merged table, not from the profile's output. Exit codes are as
   they were for any run where nothing passed: a run that ended in "install the project's tools"
@@ -384,7 +403,7 @@ the table holds the words every variant shares. `generic` runs no check of its o
 |---|---|
 | `shell` | `lint` (shellcheck), `tests` (tests/run.sh) |
 | `php` | `tests` (phpunit or pest), `static` (phpstan), `style` (pint), `manifest` (composer validate) |
-| `laravel` | `tests` (artisan test) |
+| `laravel` | none of its own: a layer over `php` that overrides `php:tests`' command (`php artisan test`) |
 | `node` | `tests`, `lint`, `typecheck` (your scripts, run by npm, pnpm, yarn or bun; jest, vitest or eslint for a narrowed run) |
 | `go` | `static` (go vet), `tests` (go test) |
 | `python` | `lint` (ruff), `typecheck` (mypy), `tests` (pytest) |

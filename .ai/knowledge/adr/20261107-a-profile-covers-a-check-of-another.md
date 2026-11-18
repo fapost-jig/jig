@@ -12,6 +12,7 @@ paths:
   - "profiles/**"
   - schemas/profile.md
 summary: "Why the profile above declares the check of the profile below its own replaces (covers: [php:tests]) and the one below only names it (checks: [tests]), why jig verify decides the cover once per run and hands down the decision, why the covered map follows the tests, and why the unreleased scope: profiles capability was removed rather than kept beside it."
+reviewed_at: 2026-11-18
 ---
 # The profile above declares the check its own replaces (`covers: [php:tests]`), the profile below only names it (`checks: [tests]`), and `jig verify` decides the cover
 
@@ -37,10 +38,13 @@ check by its role name. That is several phases away. This decision is its first 
 ## Decision
 
 - **The profile above declares the cover.** `covers: [<profile>:<check>]` in its `profile.yaml`;
-  `laravel` declares `covers: [php:tests]`.
+  `laravel` declares `covers: [php:tests]`. (Retired by adr-20261118-laravel-builds-on-php: stock
+  `laravel` is a pure layer over `php` and overrides `php:tests`; the mechanism stays, and a cover
+  now reaches a role down the `extends` chain.)
 - **The profile below names the check, by role, and nothing else.** `checks: [tests]` in its
   `profile.yaml`, and its `verify.sh` asks `jp_covered tests <label>` before running the check.
-  `php`, `laravel`, `node` and `python` name `tests`. `profiles/php/verify.sh` mentions neither
+  `php`, `laravel`, `node` and `python` name `tests` (since adr-20261118-laravel-builds-on-php, `laravel` names none:
+  it is a layer over `php`). `profiles/php/verify.sh` mentions neither
   laravel nor artisan.
 - **`jig verify` decides, once per run** (`_verify_covers`). A cover holds when both profiles start
   (the gates the loop applies: a `verify.sh`, `explain` in a preview, `environment` under one), the
@@ -61,7 +65,8 @@ check by its role name. That is several phases away. This decision is its first 
   read. Only a profile that declares `map` hands its map on. A covering profile that
   narrows but cannot read maps does not take tests whose map would be dropped: a warning, and the
   lower profile keeps them. Covering `<lower>:tests` accepts the lower profile's filter vocabulary;
-  `php` and `laravel` share it (a test file path).
+  `php` and `laravel` share it (a test file path). (Since adr-20261118-laravel-builds-on-php, a cover names a profile
+  but reaches the role down its `extends` chain, and a pure layer's map follows the tests too.)
 - **`scope: profiles`, `JIG_VERIFY_PROFILES` and `jp_in_run` are removed.** `git tag --contains` of
   #411's merge commit is empty: no project has them, so this is not a breaking change, and two
   mechanisms for one question would be kept forever (`profile.sh` never renames a released

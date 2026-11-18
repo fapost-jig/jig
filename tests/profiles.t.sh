@@ -261,7 +261,7 @@ test_profiles_detect_composer_json_is_php() {
   assert_not_contains "$OUT" "node"
 }
 
-test_profiles_detect_artisan_pulls_in_php_via_requires() {
+test_profiles_detect_artisan_with_composer_json_is_laravel_and_php() {
   fixture_repo
   printf '{}\n' > composer.json
   : > artisan
@@ -272,13 +272,15 @@ test_profiles_detect_artisan_pulls_in_php_via_requires() {
   assert_contains "$OUT" "php"
 }
 
-test_profiles_detect_artisan_alone_pulls_in_php_by_closure() {
+# laravel is a layer over php, and detection names only what matched: php comes
+# in when the stack is resolved (profiles_stack_v), not here.
+test_profiles_detect_artisan_alone_is_laravel_and_php_comes_by_extends() {
   fixture_repo
   : > artisan
   profiles_harness 'profiles_detect "$JIG_HOME/profiles"'
   assert_eq 0 "$RC"
   assert_contains "$OUT" "laravel"
-  assert_contains "$OUT" "php"
+  assert_not_contains "$OUT" "php"
 }
 
 test_profiles_detect_go_mod_is_go() {
@@ -820,6 +822,19 @@ test_profiles_check_merged_prints_nothing_for_a_profile_without_rows() {
   _lp bare verify 'checks: [tests]'
   profiles_harness 'profiles_check_merged "$PWD/root/bare" ""'
   assert_eq "" "$OUT"
+}
+
+# profiles_layer_maps_v: the pure layers whose tests run in a profile, topmost
+# first. A layer with a verify.sh of its own reads its own map and is not one.
+test_profiles_layer_maps_names_the_pure_layers_whose_tests_run_in_a_profile() {
+  _layers_fixture
+  _lp shop pure 'extends: warehouse'
+  profiles_harness 'e=$(printf "shop\twarehouse\nwarehouse\tlaravel\nlaravel\tphp\n"); profiles_layer_maps_v v "$PWD/root" php "$e"; printf "[%s]" "$v"'
+  assert_eq "[shop warehouse]" "$OUT"
+  profiles_harness 'e=$(printf "shop\twarehouse\nwarehouse\tlaravel\nlaravel\tphp\n"); profiles_layer_maps_v v "$PWD/root" laravel "$e"; printf "[%s]" "$v"'
+  assert_eq "[]" "$OUT"
+  profiles_harness 'profiles_layer_maps_v v "$PWD/root" php ""; printf "[%s]" "$v"'
+  assert_eq "[]" "$OUT"
 }
 
 # --- stacks: profiles_stack_v --------------------------------------------------

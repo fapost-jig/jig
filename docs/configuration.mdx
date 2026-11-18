@@ -128,12 +128,12 @@ The full set still runs whenever it should:
 - **on request** — `jig verify --full`.
 
 A narrowed run never starts the full set on its own. When a change touches something that can
-affect any test — `routes/` or `composer.json` in Laravel, a lock file, a test helper — or a file no
+affect any test — `routes/` or `composer.json` in a PHP project, a lock file, a test helper — or a file no
 test is named after, the profile runs the tests it can name and leaves the full set to CI, and the
 check's line says so:
 
 ```text
-laravel: tests (artisan test): skip (scope: routes/web.php can affect any test, full set left to CI)
+php: tests (phpunit): skip (scope: routes/web.php can affect any test, full set left to CI)
 verify: 1 check(s) left their full set to CI (verify.full_run: ci); jig verify --full runs it here
 ```
 
@@ -376,7 +376,7 @@ skip is never a pass.
 | `generic` | always | Nothing: it checks no code. It fails when the folder is not a Git repository and otherwise reports a skip, so a project it is alone in hears that nothing verifies it. |
 | `shell` | `*.sh` | ShellCheck, and an executable `tests/run.sh`. |
 | `php` | `composer.json` | PHPUnit or Pest, PHPStan, Pint, `composer validate`. |
-| `laravel` | `artisan` | The PHP checks, with the tests run once through `php artisan test` instead of PHPUnit or Pest directly. |
+| `laravel` | `artisan` | A layer over `php`: the PHP checks, with the tests run once through `php artisan test` instead of PHPUnit or Pest directly. |
 | `node` | `package.json` | Your `test`, `lint` and `typecheck` scripts, run by your package manager (npm, pnpm, yarn or bun). |
 | `go` | `go.mod` | `go vet`, `go test`. |
 | `python` | `pyproject.toml`, `requirements.txt`, `setup.py`, `setup.cfg`, `Pipfile` | ruff, mypy (when configured), pytest. |
@@ -395,7 +395,7 @@ profile aims at, and it stays the same whichever tool runs it:
 |---|---|
 | `shell` | `lint` (shellcheck), `tests` (tests/run.sh) |
 | `php` | `tests` (phpunit or pest), `static` (phpstan), `style` (pint), `manifest` (composer validate) |
-| `laravel` | `tests` (artisan test) |
+| `laravel` | none of its own: it runs `php:tests` through `php artisan test` |
 | `node` | `tests`, `lint`, `typecheck` (your scripts, run by npm, pnpm, yarn or bun; jest, vitest or eslint for a narrowed run) |
 | `go` | `static` (go vet), `tests` (go test) |
 | `python` | `lint` (ruff), `typecheck` (mypy), `tests` (pytest) |
@@ -427,18 +427,18 @@ covers: [laravel:tests]
 ```
 
 ```text
-laravel: tests (artisan test): skip (scope: covered by myapp, laravel:tests)
+php: tests (phpunit): skip (scope: covered by myapp, php:tests)
 ```
 
-`laravel` does the same for `php` (`covers: [php:tests]`), so a Laravel project runs its suite
-once, in `php artisan test`. The check is named by its role, `tests` (the roles of every stock profile
-are in the table above), and a cover of a check a profile does not name prints a warning and
-leaves the check running. A cover holds only where the covering profile applies — its `detect`
-matches, is `always`, or is absent. In a run narrowed to changed files, the covered profile's
-`.ai/verify/<profile>.map` goes with its tests, read after the covering profile's own map, so the
-covering profile declares `scope: [changed, map]` (as the example's would). One that narrows
-without reading maps does not take tests whose map would be dropped: Jig warns, and the stock
-profile keeps them.
+`laravel` is a layer over `php`, so its tests are php's: the cover reaches `php:tests` through
+`laravel`, and php's line names the profile that really runs them. The check is named by its role,
+`tests` (the roles of every stock profile are in the table above), and a cover of a check no
+profile of the chain names prints a warning and leaves the check running. A cover holds only where
+the covering profile applies — its `detect` matches, is `always`, or is absent. In a run narrowed
+to changed files, the maps of the covered tests go with them, read after the covering profile's own
+map: `.ai/verify/laravel.map`, then `.ai/verify/php.map`, so the covering profile declares
+`scope: [changed, map]` (as the example's would). One that narrows without reading maps does not
+take tests whose map would be dropped: Jig warns, and the stock profile keeps them.
 
 A profile of your own can also build on one other, with `extends: <name>` in its `profile.yaml`.
 List only the top layer in `.ai/config.yaml`; the profiles it extends come with it, and
@@ -466,8 +466,8 @@ checks.tests.full: --parallel --functional
 checks.tests.narrowed: --compact {selection}
 ```
 
-`jig verify` names the layer before the base's own lines (`verify: laravel:tests: full, narrowed
-from warehouse`), and a mistake in a layer's lines refuses the whole run before anything runs.
+`jig verify` names the layer before the base's own lines (`verify: php:tests: command from laravel;
+full, narrowed from warehouse`: the stock `laravel` is such a layer, and `tests` is php's check), and a mistake in a layer's lines refuses the whole run before anything runs.
 The rules are in `schemas/profile.md`, **Layer overrides**.
 
 ### Where checks run

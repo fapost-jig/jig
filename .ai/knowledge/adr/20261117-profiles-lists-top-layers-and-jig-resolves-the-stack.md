@@ -58,7 +58,8 @@ that a layer works without its base.
 - **A pure layer is not a broken install.** A profile with `extends` and no `verify.sh` is not
   run, not counted and not skipped as `no verify.sh`; `jig verify` says
   `<layer> is a layer over <base>; its checks run in its bases`. A profile with neither stays a
-  broken install.
+  broken install. (Since adr-20261118-laravel-builds-on-php, one the manifest tracks, or whose stock copy now extends a
+  base, fails the run: a kept hand-edited `profile.yaml` of a stock profile turned layer.)
 - **Upgrade installs the bases.** This refines adr-20260918: `upgrade` still never edits
   `profiles:`, but turning a layer on turns its stack on, so a base is installed, kept current
   and never deleted while a layer reaches it. A first `jig init` writes only the top layers of
@@ -67,7 +68,8 @@ that a layer works without its base.
   verify`, so an override is not silently ignored. (Lifted by
   adr-20261118-a-layer-overrides-its-bases-checks-by-role: a layer's rows now override its bases.)
 - **`requires` is unchanged.** It keeps closing detection and warning; its fate is decided by
-  the task that makes `laravel` build on `php`. For `extends` the §Requires statement that
+  the task that makes `laravel` build on `php`. (Decided by adr-20261118-laravel-builds-on-php:
+  it stays as it is, and no stock profile uses it any more.) For `extends` the §Requires statement that
   activation is not closed over no longer holds; for `requires` it does.
 
 ## Alternatives

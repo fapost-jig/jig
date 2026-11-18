@@ -55,8 +55,17 @@ RESULT shell: pass (scope: changed, 7 files, map .ai/verify/shell.map)
 
 A profile that covers another's tests (`covers: [<profile>:tests]`, `schemas/profile.md`)
 also reads that profile's map, after its own: the decisions follow the tests, and the result
-line names every map read — `map .ai/verify/laravel.map, .ai/verify/php.map`. A broken line in
-either fails the profile reading it.
+line names every map read. A broken line in either fails the profile reading it.
+
+A pure layer has no `verify.sh` and reads no map of its own, so its map follows the tests the
+same way: `.ai/verify/<layer>.map` is read by the profile that runs the layer's `tests` — the
+first profile down its `extends` chain that is no pure layer and lists `tests` — ahead of that
+profile's own map, the topmost layer first. With `laravel` over `php`, `php` reads
+`.ai/verify/laravel.map` and then `.ai/verify/php.map`, and a project with a `warehouse` layer
+over `laravel` adds `warehouse.map` first: `map .ai/verify/warehouse.map, .ai/verify/laravel.map,
+.ai/verify/php.map`. The map is read for `tests` only, so a layer's map never narrows phpstan or
+pint. A profile that runs the tests and takes them over from another by `covers` also reads the
+maps of the layers over the covered profile, each ahead of the covered profile's own.
 
 ## What a filter means, per profile
 
@@ -67,7 +76,7 @@ crate) runs that profile's tests in full and says so.
 | Profile | Filter |
 |---|---|
 | `shell` | a `tests/run.sh` name filter (`<file>::`, `<file>::<test>`) |
-| `php`, `laravel`, `python`, `ruby`, `dart`, `node` | a test file path |
+| `php` (so `laravel` and its layers), `python`, `ruby`, `dart`, `node` | a test file path |
 | `go` | a package path, `./internal/foo` |
 | `rust` | a crate name |
 | `dotnet` | a test project file path |

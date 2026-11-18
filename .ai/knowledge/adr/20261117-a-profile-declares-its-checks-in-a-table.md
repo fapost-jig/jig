@@ -88,7 +88,8 @@ and returns 1. A fail, not a skip: a skip beside another check that passed would
 profile.yaml kept by `upgrade` (keep-modified) beside a newer `verify.sh`: a different command in
 silence is the worse answer. `covers` stays (a relation between profiles with no stack between them);
 whether `laravel` built on `php` with an override retires it is Phase 3's decision, in an ADR that
-supersedes adr-20261107.
+supersedes adr-20261107. (Decided by adr-20261118-laravel-builds-on-php, which refines rather than
+supersedes it: the stock use is retired, the mechanism stays.)
 
 ## Alternatives
 

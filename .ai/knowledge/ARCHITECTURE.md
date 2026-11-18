@@ -212,13 +212,16 @@ never assumed" rule the profile contract below states.
 - `name`, `description`;
 - `detect` — globs whose presence means this stack is here, or `always`. This is the one
   place the mapping "manifest → stack" is written down; no command re-derives it.
-- `requires` — another profile this one implies;
+- `requires` — another profile this one implies (no stock profile uses it; a profile built on
+  another uses `extends`, as `laravel` over `php`);
 - `scope` — capabilities the profile understands: `changed` (ADR-0013), `map` (ADR-0041),
   `explain`, `environment`.
 - `covers` / `checks` — a profile above names a check of a profile below that its own
-  replaces (`laravel`: `covers: [php:tests]`); the profile below names the check by role
-  (`checks: [tests]`) and nothing about who covers it. `jig verify` decides which covers
-  hold in a run and hands them down (adr-20261107-a-profile-covers-a-check-of-another).
+  replaces (a project's `myapp`: `covers: [laravel:tests]`); the profile below names the check
+  by role (`checks: [tests]`) and nothing about who covers it. A cover reaches the role down the
+  named profile's `extends` chain, as a layer's row does. `jig verify` decides which covers
+  hold in a run and hands them down (adr-20261107-a-profile-covers-a-check-of-another,
+  adr-20261118-laravel-builds-on-php).
 - `checks.<role>.command|full|narrowed` — the check table: a check's command and its
   arguments for a full and a narrowed run, with a whole-word `{selection}` where the narrowed
   selection goes. `jig verify` lints it and hands the rows down as `JIG_VERIFY_CHECKS`; a

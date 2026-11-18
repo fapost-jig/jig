@@ -377,6 +377,31 @@ _profiles_role_owner_v() {
   return 0
 }
 
+# profiles_layer_maps_v <var> <root> <name> <edges> — the pure layers of <edges>
+# whose `tests` run in <name>: a layer whose chain finds <name> as the owner of
+# the role `tests`, space-separated, topmost layer first (the order of <edges>).
+# A pure layer has no verify.sh and reads no map of its own, so its project map
+# `.ai/verify/<layer>.map` follows the tests to whoever runs them
+# (schemas/verify-map.md). Empty when there is none.
+profiles_layer_maps_v() {
+  local __pl_l __pl_b __pl_chain __pl_owner __pl_out=""
+  printf -v "$1" '%s' ""
+  [ -n "$4" ] || return 0
+  while IFS=$'\t' read -r __pl_l __pl_b; do
+    [ -n "$__pl_l" ] || continue
+    [ -d "$2/$__pl_l" ] || continue
+    _profiles_is_pure "$2/$__pl_l" || continue
+    case " $__pl_out " in *" $__pl_l "*) continue ;; esac
+    _profiles_chain_v __pl_chain "$__pl_l" "$4"
+    _profiles_role_owner_v __pl_owner tests "$__pl_chain" "$2"
+    [ "$__pl_owner" = "$3" ] || continue
+    __pl_out="${__pl_out:+$__pl_out }$__pl_l"
+  done <<EOF
+$4
+EOF
+  printf -v "$1" '%s' "$__pl_out"
+}
+
 # _profiles_base_roles_v <var> <name> <root> <edges> — the role words the bases
 # in <name>'s chain list and <name> itself does not: what a layer may write
 # beside its own roles.
@@ -670,8 +695,8 @@ profiles_check_handdown() { profiles_check_merged "$1" ""; }
 # profiles_applies <profile-dir> — true when the profile's own stack is in
 # the project: `detect` is `always`, absent (a project's profile, activated
 # by name), or one of its globs matches. A profile covers another's check only
-# where it applies — laravel's `artisan test` without an `artisan` runs
-# nothing, and the check it would have taken over must stay where it was.
+# where it applies — a profile whose command needs a file the project lacks
+# runs nothing, and the check it would have taken over must stay where it was.
 profiles_applies() {
   local glob raw
   profile_get_v raw "$1" detect || true
@@ -854,7 +879,7 @@ profiles_unreached() {
 # <profiles-root> to profiles_source_dir; prints just `generic` when no
 # root can be determined. Applies the `requires` closure: a matched profile
 # pulls in every profile it requires, even one whose own detect globs did
-# not match (e.g. laravel's artisan match pulls in php).
+# not match (a profile that requires php pulls it in).
 profiles_detect() {
   local root="${1:-}" p name matched glob result="generic" req changed detect
   [ -n "$root" ] || root=$(profiles_source_dir)

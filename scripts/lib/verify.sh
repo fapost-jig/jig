@@ -388,9 +388,9 @@ _verify_cleanup() {
 
 # --- a profile covers a check of another ------------------------------------
 #
-# A profile above another can run the same work one of its checks does —
-# laravel's `php artisan test` is php's PHPUnit/Pest suite — and a run with
-# both paid for it twice. The profile above says so, `covers: [php:tests]`;
+# A profile above another can run the same work one of its checks does — a
+# project's own test runner is a stack's suite — and a run with both paid for
+# it twice. The profile above says so, `covers: [php:tests]`;
 # the profile below names the check it can hand over, `checks: [tests]`, and
 # nothing about who takes it. Which covers hold in a run is decided here,
 # once, and handed down as JIG_VERIFY_COVERED; the profile's jp_covered prints
@@ -403,11 +403,16 @@ _verify_cleanup() {
 # and a check of a profile that never starts needs no cover. A cover holds
 # only where the covering profile applies (profiles_applies), only for a
 # check the covered profile names (else a warning: the check still runs), and
+# the check is addressed as a layer's row is (adr-20261118-a-layer-overrides-its-bases-checks-by-role):
+# `covers: [laravel:tests]` over a pure layer laravel is the check of the first
+# profile of laravel's chain that is no pure layer and lists `tests`; a pure
+# layer whose chain lists none is warned about, nothing is covered. And
 # not when the covering profile's own check of that name is dropped by a layer
 # above it in <edges>: nothing would run it, so the covered profile does (said
 # on stderr, with the other notes of this function).
 _verify_covers() {
   local dir="$1" run=" $2 " narrowed="$3" edges="${4:-}" u udir item b check bdir seen="" raw=""
+  local named chain owner
   # shellcheck disable=SC2034 # dv takes the value _profiles_tab_find_v is not asked for
   local ovr dropper dv
   for u in $2; do
@@ -426,6 +431,21 @@ _verify_covers() {
       case "$check" in
         *[!abcdefghijklmnopqrstuvwxyz0123456789_-]*) jig_warn "profile '$u' covers '$item', which is not <profile>:<check>; ignored"; continue ;;
       esac
+      # The profile the cover names may be a layer, or a profile over one: the
+      # check is the one its chain runs.
+      named=$b
+      if [ -n "$edges" ]; then
+        _profiles_chain_v chain "$b" "$edges"
+        _profiles_role_owner_v owner "$check" "$chain" "$dir"
+        if [ -n "$owner" ]; then
+          b=$owner
+        elif [ "$chain" != "$b" ] && _profiles_is_pure "$(profiles_dir "$dir" "$b")"; then
+          # A pure layer of this run's stack (it has a base in <edges>); one
+          # outside the stack covers nothing, as a profile that never starts.
+          jig_warn "profile '$u' covers '$item', but no profile of $b's chain names a check '$check' (checks:), so nothing is covered"
+          continue
+        fi
+      fi
       [ "$b" != "$u" ] || continue
       case "$run" in
         *" $b "*) ;;
@@ -446,27 +466,31 @@ _verify_covers() {
         continue
       fi
       seen="$seen $b:$check "
-      raw="${raw}$b	$check	$u
+      raw="${raw}$b	$check	$u	$named
 "
     done < <(_profiles_list_lines "$udir" covers)
   done
-  _verify_covers_resolve "$dir" "$raw" "$narrowed"
+  _verify_covers_resolve "$dir" "$raw" "$narrowed" "$edges"
 }
 
-# _verify_covers_resolve <installed-dir> <covers> <narrowed> — the covers of
+# _verify_covers_resolve <installed-dir> <covers> <narrowed> [<edges>] — the covers of
 # _verify_covers, each followed to the profile that finally runs the check:
-# `myapp covers laravel:tests` and `laravel covers php:tests` make php's
-# tests myapp's, so php's skip names myapp and php.map reaches the
-# profile that runs them. Prints `<profile><TAB><check><TAB><runner><TAB><depth>`,
-# <depth> the number of covers between them. A chain that comes back to where
+# `shop covers myapp:tests` and `myapp covers laravel:tests` (laravel's tests being
+# php's) make php's tests shop's, so php's skip names shop and php.map reaches the
+# profile that runs them. Prints
+# `<profile><TAB><check><TAB><runner><TAB><depth><TAB><named>`, <depth> the number
+# of covers between them and <named> the profile the cover was written against
+# (`laravel` for `covers: [laravel:tests]`, where <profile> is php). A chain that comes back to where
 # it started runs the check nowhere: those covers are dropped with a warning,
 # and every profile in it keeps its check. A cover whose map would be dropped
 # — a narrowed run, the covered profile reads a map of its own, the profile
 # that runs the check narrows without reading maps — is dropped with a warning
-# too, and the covered profile keeps its tests.
+# too, and the covered profile keeps its tests; the maps of a pure layer that
+# runs its tests in the covered profile count as the covered profile's own.
 _verify_covers_resolve() {
-  local dir="$1" all="$2" narrowed="$3" b check u final depth seen cycle nb nc nu found wdir bdir
-  while IFS=$'\t' read -r b check u; do
+  local dir="$1" all="$2" narrowed="$3" edges="${4:-}"
+  local b check u named final depth seen cycle nb nc nu found wdir bdir lyrs lyr mapfile
+  while IFS=$'\t' read -r b check u named; do
     [ -n "$b" ] || continue
     final="$u"
     depth=1
@@ -474,7 +498,7 @@ _verify_covers_resolve() {
     cycle=0
     while :; do
       found=""
-      while IFS=$'\t' read -r nb nc nu; do
+      while IFS=$'\t' read -r nb nc nu _; do
         if [ "$nb" = "$final" ] && [ "$nc" = "$check" ]; then found="$nu"; break; fi
       done <<EOF
 $all
@@ -491,17 +515,26 @@ EOF
       jig_warn "profile '$u' covers '$b:$check' in a circle of covers that runs it nowhere; ignored, so it still runs"
       continue
     fi
-    if [ "$narrowed" = 1 ] && [ "$check" = tests ] \
-       && [ -f "$JIG_PROJECT/$JIG_AI_DIR/verify/$b.map" ]; then
-      bdir=$(profiles_dir "$dir" "$b")
-      wdir=$(profiles_dir "$dir" "$final")
-      if profiles_supports "$bdir" map && profiles_supports "$wdir" changed \
-         && ! profiles_supports "$wdir" map; then
-        jig_warn "profile '$final' runs '$b:$check' but reads no map, so $JIG_AI_DIR/verify/$b.map keeps '$b' running it"
-        continue
+    if [ "$narrowed" = 1 ] && [ "$check" = tests ]; then
+      mapfile=""
+      profiles_layer_maps_v lyrs "$dir" "$b" "$edges"
+      for lyr in $lyrs $b; do
+        if [ -f "$JIG_PROJECT/$JIG_AI_DIR/verify/$lyr.map" ]; then
+          mapfile="$JIG_AI_DIR/verify/$lyr.map"
+          break
+        fi
+      done
+      if [ -n "$mapfile" ]; then
+        bdir=$(profiles_dir "$dir" "$b")
+        wdir=$(profiles_dir "$dir" "$final")
+        if profiles_supports "$bdir" map && profiles_supports "$wdir" changed \
+           && ! profiles_supports "$wdir" map; then
+          jig_warn "profile '$final' runs '$b:$check' but reads no map, so $mapfile keeps '$b' running it"
+          continue
+        fi
       fi
     fi
-    printf '%s\t%s\t%s\t%s\n' "$b" "$check" "$final" "$depth"
+    printf '%s\t%s\t%s\t%s\t%s\n' "$b" "$check" "$final" "$depth" "$named"
   done <<EOF
 $all
 EOF
@@ -511,8 +544,8 @@ EOF
 # _verify_covered_words <covers> <profile> — the JIG_VERIFY_COVERED words for
 # <profile>: `<check>=<covering profile>`, space-separated.
 _verify_covered_words() {
-  local b check u depth words=""
-  while IFS=$'\t' read -r b check u depth; do
+  local b check u depth named words=""
+  while IFS=$'\t' read -r b check u depth named; do
     [ "$b" = "$2" ] || continue
     words="${words:+$words }$check=$u"
   done <<EOF
@@ -522,15 +555,16 @@ EOF
 }
 
 # _verify_handed_maps <installed-dir> <covers> <profile> — the covered profiles whose map
-# follows their tests to <profile>, one `<depth><TAB><name>` line each. A map's decisions
+# (and the maps of the pure layers over them) follows their tests to <profile>, one
+# `<depth><TAB><name>` line each; whether a map file exists is for the caller. A map's decisions
 # narrow its profile's tests (schemas/verify-map.md), so the profile that
 # took the tests over reads them: without this, a project's php.map either
-# kept php running the suite beside laravel or was dropped in silence.
+# kept php running the suite beside the profile that took it or was dropped
+# in silence.
 _verify_handed_maps() {
-  local b check u depth
-  while IFS=$'\t' read -r b check u depth; do
+  local b check u depth named
+  while IFS=$'\t' read -r b check u depth named; do
     [ "$u" = "$3" ] && [ "$check" = tests ] || continue
-    [ -f "$JIG_PROJECT/$JIG_AI_DIR/verify/$b.map" ] || continue
     # A map its own profile never reads is not a decision anyone made for it.
     profiles_supports "$(profiles_dir "$1" "$b")" map || continue
     printf '%s\t%s\n' "$depth" "$b"
@@ -540,15 +574,20 @@ EOF
   return 0
 }
 
-# _verify_override_lines <base> <overrides> <covers> — what `jig verify` says
+# _verify_override_lines <base> <overrides> <covers> [<edges>] — what `jig verify` says
 # before a base runs about the layers that changed its checks: one line per
 # overridden role, `verify: <base>:<role>: <field>[, <field>] from <layer>` (several
 # layers: `full from a; narrowed from b`), so a failure names whose argument it
 # ran with; a drop says nothing here, the check's own skip names the layer. A role
 # another profile covers in this run is also warned about: the override has no
 # effect where the check does not run (adr-20261118-a-layer-overrides-its-bases-checks-by-role).
+# Not warned about: a layer on the chain from the profile the cover names down to
+# <base> (the profile itself included) — `covers: [laravel:tests]` replaces what
+# laravel's tests were, its own override of them too, and nobody can act on a
+# warning about that.
 _verify_override_lines() {
-  local base="$1" roles="" role field lyr c text lyrs="" runner cb cc cu depth warned=" "
+  local base="$1" roles="" role field lyr c text lyrs="" runner cb cc cu depth cn warned=" "
+  local named="" nchain nl inchain
   local r f l
   while IFS=$'\t' read -r role _ _ _; do
     [ -n "$role" ] || continue
@@ -587,12 +626,22 @@ EOF
   while IFS=$'\t' read -r role _ _ lyr; do
     [ -n "$role" ] || continue
     runner=""
-    while IFS=$'\t' read -r cb cc cu depth; do
-      if [ "$cb" = "$base" ] && [ "$cc" = "$role" ]; then runner=$cu; break; fi
+    named=""
+    while IFS=$'\t' read -r cb cc cu depth cn; do
+      if [ "$cb" = "$base" ] && [ "$cc" = "$role" ]; then runner=$cu; named=$cn; break; fi
     done <<EOF
 $3
 EOF
     [ -n "$runner" ] || continue
+    if [ -n "$named" ] && [ -n "${4:-}" ]; then
+      _profiles_chain_v nchain "$named" "$4"
+      inchain=0
+      for nl in $nchain; do
+        [ "$nl" != "$lyr" ] || inchain=1
+        [ "$nl" != "$base" ] || break
+      done
+      [ "$inchain" = 0 ] || continue
+    fi
     case "$warned" in *" $lyr:$role "*) continue ;; esac
     warned="$warned$lyr:$role "
     printf 'verify: warning: %s overrides %s:%s, but %s runs it in this run (covers), so the override has no effect\n' \
@@ -641,7 +690,7 @@ cmd_verify() {
   # one empty line, and would otherwise be dropped rather than rejected.
   local list_only=0 explain=0 profile_given=0 profiles_words="" p pdir raw tok
   local scope=0 base="" nfiles=0 scope_ok note full=0 explicit=0 full_run
-  local header="" base_branch base_ref mb map map_ok map_err maps maps_listed map_bad b
+  local header="" base_branch base_ref mb map map_ok map_err maps maps_listed map_bad b layer_names lyr stale_base stock_src stale_why tracked_profiles=""
   local incomplete=0 covered=0 explained=0 unknown=0 plan_output plan_bad hr_state hr_rt hr_text
   local table_err table_rows table_overrides="" base_roles="" p_dropped="" dropped_msg="" dropped_needs=0 covered_needs_install=0 is_fallback=0 run_output ci_left=0 task_base="" task_which="" task_note=""
   JIG_VERIFY_TMP=""
@@ -961,6 +1010,39 @@ EOF
     fi
 
     if [ ! -f "$pdir/verify.sh" ]; then
+      # A stock profile that became a layer while the installed profile.yaml was
+      # kept (hand-edited, so upgrade left it and deleted the verify.sh): without
+      # `extends` it is not a layer, and its base would run the checks its own
+      # way, silently. With the source at hand the stock copy names the base;
+      # without it (a copy-mode project running its own jig) a profile the
+      # manifest tracks — one jig placed — with neither a verify.sh nor an
+      # `extends` fails the same way: its checks run nowhere.
+      stale_base=""
+      stale_why=""
+      ext=""
+      [ ! -f "$pdir/profile.yaml" ] || profile_get_v ext "$pdir" extends || true
+      if [ -f "$pdir/profile.yaml" ] && [ -z "$ext" ]; then
+        stock_src=$(profiles_source_dir)
+        if [ -n "$stock_src" ] && [ -f "$stock_src/$p/profile.yaml" ]; then
+          profile_get_v stale_base "$stock_src/$p" extends || stale_base=""
+          [ -z "$stale_base" ] || stale_why="profile.yaml has no extends, but the stock $p now extends $stale_base and ships no verify.sh; jig upgrade kept your edited profile.yaml — carry your edits onto the new one"
+        fi
+        if [ -z "$stale_why" ] && [ -z "$stock_src" ]; then
+          [ -n "$tracked_profiles" ] || _profiles_tracked_v tracked_profiles
+          case "$tracked_profiles" in
+            *" $p "*) stale_why="a profile jig installed, with neither a verify.sh nor an extends, so its checks run nowhere; if jig upgrade kept your edited profile.yaml, the stock $p may now be a layer over another profile — carry your edits onto the new one, else run jig upgrade" ;;
+          esac
+        fi
+      fi
+      if [ -n "$stale_why" ]; then
+        failn=$((failn + 1))
+        if [ "$explain" = 1 ]; then
+          printf 'PLAN %s: error (%s)\n' "$p" "$stale_why"
+        else
+          printf 'FAIL %s: %s\n' "$p" "$stale_why"
+        fi
+        continue
+      fi
       if [ "$explain" = 1 ]; then
         printf 'PLAN %s: unknown (no verify.sh)\n' "$p"
         unknown=$((unknown + 1))
@@ -1068,14 +1150,25 @@ EOF
     # — a line silently skipped would narrow the checks the wrong way.
     map_ok=0
     if [ "$scope_ok" = 1 ] && [ "$nfiles" -gt 0 ] && profiles_supports "$pdir" map; then
-      # The profile's own map first, then the map of every profile whose
-      # tests it covers: the decisions follow the tests (_verify_handed_maps),
-      # and with the own map's lines first, first match wins across both.
+      # The maps of the pure layers whose tests this profile runs, topmost
+      # first (warehouse.map before laravel.map), then the profile's own map,
+      # then the map of every profile whose tests it covers, each behind the
+      # maps of its own layers: the decisions follow the tests
+      # (_verify_handed_maps, profiles_layer_maps_v), and with the nearest
+      # lines first, first match wins across all of them.
       maps=""
-      [ ! -f "$JIG_PROJECT/$JIG_AI_DIR/verify/$p.map" ] || maps="$JIG_AI_DIR/verify/$p.map"
-      # Nearest first: laravel.map before php.map for a profile over both.
+      profiles_layer_maps_v layer_names "$installed_dir" "$p" "$stack_edges"
+      for b in $layer_names; do
+        [ ! -f "$JIG_PROJECT/$JIG_AI_DIR/verify/$b.map" ] || maps="${maps:+$maps }$JIG_AI_DIR/verify/$b.map"
+      done
+      [ ! -f "$JIG_PROJECT/$JIG_AI_DIR/verify/$p.map" ] || maps="${maps:+$maps }$JIG_AI_DIR/verify/$p.map"
+      # Nearest first.
       for b in $(_verify_handed_maps "$installed_dir" "$covers" "$p" | LC_ALL=C sort -n -k1,1 | cut -f2); do
-        maps="${maps:+$maps }$JIG_AI_DIR/verify/$b.map"
+        profiles_layer_maps_v layer_names "$installed_dir" "$b" "$stack_edges"
+        for lyr in $layer_names; do
+          [ ! -f "$JIG_PROJECT/$JIG_AI_DIR/verify/$lyr.map" ] || maps="${maps:+$maps }$JIG_AI_DIR/verify/$lyr.map"
+        done
+        [ ! -f "$JIG_PROJECT/$JIG_AI_DIR/verify/$b.map" ] || maps="${maps:+$maps }$JIG_AI_DIR/verify/$b.map"
       done
       map_bad=0
       for map in $maps; do
@@ -1120,7 +1213,7 @@ EOF
 
     # Whose argument a check runs with: said before the base's own lines, in a
     # preview and in a run alike.
-    [ -z "$table_overrides" ] || _verify_override_lines "$p" "$table_overrides" "$covers"
+    [ -z "$table_overrides" ] || _verify_override_lines "$p" "$table_overrides" "$covers" "$stack_edges"
 
     # A profile without declared support is run with the scope variables
     # cleared, never merely unset by the caller's environment: an installed
