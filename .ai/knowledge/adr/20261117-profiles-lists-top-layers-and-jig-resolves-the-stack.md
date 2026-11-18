@@ -64,7 +64,8 @@ that a layer works without its base.
   and never deleted while a layer reaches it. A first `jig init` writes only the top layers of
   what it detects.
 - **Until "A layer overrides a check" lands, a layer's `checks.*` rows are refused** by `jig
-  verify`, so an override is not silently ignored.
+  verify`, so an override is not silently ignored. (Lifted by
+  adr-20261118-a-layer-overrides-its-bases-checks-by-role: a layer's rows now override its bases.)
 - **`requires` is unchanged.** It keeps closing detection and warning; its fate is decided by
   the task that makes `laravel` build on `php`. For `extends` the §Requires statement that
   activation is not closed over no longer holds; for `requires` it does.

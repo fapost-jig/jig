@@ -154,6 +154,22 @@ test_profile_rust_skips_every_check_without_cargo() {
   assert_contains "$OUT" "rust: tests (cargo test): skip (cargo not found on PATH)"
 }
 
+# A check a layer dropped, or another profile covers, says so without cargo too.
+test_profile_rust_dropped_and_covered_checks_say_so_without_cargo() {
+  _rust_workspace
+  profile_checks_env "$JIG_HOME/profiles/rust"
+  printf 'style\tdrop\twarehouse\nlint\tdrop\twarehouse\n' >> "$JIG_VERIFY_CHECKS"
+  JIG_VERIFY_COVERED="tests=upper"
+  export JIG_VERIFY_COVERED
+  run_no_tools bash "$JIG_HOME/profiles/rust/verify.sh"
+  unset JIG_VERIFY_COVERED
+  assert_eq 2 "$RC" "$OUT"
+  assert_contains "$OUT" "rust: style (cargo fmt): skip (scope: dropped by warehouse, rust:style)"
+  assert_contains "$OUT" "rust: lint (cargo clippy): skip (scope: dropped by warehouse, rust:lint)"
+  assert_contains "$OUT" "rust: tests (cargo test): skip (scope: covered by upper, rust:tests)"
+  assert_not_contains "$OUT" "cargo not found"
+}
+
 # --- unscoped: pass, fail, version, missing components (AC-05) --------------
 
 test_profile_rust_unscoped_pass_with_version_in_verdict() {

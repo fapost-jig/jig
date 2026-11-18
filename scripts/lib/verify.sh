@@ -396,17 +396,23 @@ _verify_cleanup() {
 # once, and handed down as JIG_VERIFY_COVERED; the profile's jp_covered prints
 # the skip (adr-20261107-a-profile-covers-a-check-of-another).
 
-# _verify_covers <installed-dir> <run-profiles> <narrowed> — the covers that
-# hold in this run, one line each as _verify_covers_resolve prints them, first
-# covering profile in run order kept. <run-profiles> are the
+# _verify_covers <installed-dir> <run-profiles> <narrowed> [<edges>] — the covers
+# that hold in this run, one line each as _verify_covers_resolve prints them,
+# first covering profile in run order kept. <run-profiles> are the
 # profiles the run will start: a profile that never starts covers nothing,
 # and a check of a profile that never starts needs no cover. A cover holds
 # only where the covering profile applies (profiles_applies), only for a
-# check the covered profile names (else a warning: the check still runs).
+# check the covered profile names (else a warning: the check still runs), and
+# not when the covering profile's own check of that name is dropped by a layer
+# above it in <edges>: nothing would run it, so the covered profile does (said
+# on stderr, with the other notes of this function).
 _verify_covers() {
-  local dir="$1" run=" $2 " narrowed="$3" u udir item b check bdir seen="" raw=""
+  local dir="$1" run=" $2 " narrowed="$3" edges="${4:-}" u udir item b check bdir seen="" raw=""
+  # shellcheck disable=SC2034 # dv takes the value _profiles_tab_find_v is not asked for
+  local ovr dropper dv
   for u in $2; do
     udir=$(profiles_dir "$dir" "$u")
+    profiles_check_overrides_v ovr "$udir" "$edges"
     while IFS= read -r item; do
       [ -n "$item" ] || continue
       b=${item%%:*}
@@ -432,6 +438,11 @@ _verify_covers() {
       bdir=$(profiles_dir "$dir" "$b")
       if ! profiles_names_check "$bdir" "$check"; then
         jig_warn "profile '$u' covers '$b:$check', but '$b' names no check '$check' (checks:), so it still runs"
+        continue
+      fi
+      if [ -n "$ovr" ] && _profiles_tab_find_v dv "$ovr" "$check" drop dropper; then
+        printf 'verify: %s:%s is dropped by %s, so %s no longer covers %s:%s; %s runs it\n' \
+          "$u" "$check" "$dropper" "$u" "$b" "$check" "$b" >&2
         continue
       fi
       seen="$seen $b:$check "
@@ -529,6 +540,92 @@ EOF
   return 0
 }
 
+# _verify_override_lines <base> <overrides> <covers> — what `jig verify` says
+# before a base runs about the layers that changed its checks: one line per
+# overridden role, `verify: <base>:<role>: <field>[, <field>] from <layer>` (several
+# layers: `full from a; narrowed from b`), so a failure names whose argument it
+# ran with; a drop says nothing here, the check's own skip names the layer. A role
+# another profile covers in this run is also warned about: the override has no
+# effect where the check does not run (adr-20261118-a-layer-overrides-its-bases-checks-by-role).
+_verify_override_lines() {
+  local base="$1" roles="" role field lyr c text lyrs="" runner cb cc cu depth warned=" "
+  local r f l
+  while IFS=$'\t' read -r role _ _ _; do
+    [ -n "$role" ] || continue
+    case " $roles " in *" $role "*) ;; *) roles="$roles $role" ;; esac
+  done <<EOF
+$2
+EOF
+  for role in $roles; do
+    text=""
+    lyrs=""
+    # Layers in the order of the fields they won: command, full, narrowed.
+    for field in command full narrowed; do
+      while IFS=$'\t' read -r r f _ l; do
+        [ "$r" = "$role" ] && [ "$f" = "$field" ] || continue
+        case " $lyrs " in *" $l "*) ;; *) lyrs="$lyrs $l" ;; esac
+      done <<EOF
+$2
+EOF
+    done
+    for lyr in $lyrs; do
+      c=""
+      for field in command full narrowed; do
+        while IFS=$'\t' read -r r f _ l; do
+          if [ "$r" = "$role" ] && [ "$f" = "$field" ] && [ "$l" = "$lyr" ]; then
+            c="${c:+$c, }$field"
+          fi
+        done <<EOF
+$2
+EOF
+      done
+      text="${text:+$text; }$c from $lyr"
+    done
+    [ -z "$text" ] || printf 'verify: %s:%s: %s\n' "$base" "$role" "$text"
+  done
+  # Every layer that wrote a field of a role, drops included, for the warning.
+  while IFS=$'\t' read -r role _ _ lyr; do
+    [ -n "$role" ] || continue
+    runner=""
+    while IFS=$'\t' read -r cb cc cu depth; do
+      if [ "$cb" = "$base" ] && [ "$cc" = "$role" ]; then runner=$cu; break; fi
+    done <<EOF
+$3
+EOF
+    [ -n "$runner" ] || continue
+    case "$warned" in *" $lyr:$role "*) continue ;; esac
+    warned="$warned$lyr:$role "
+    printf 'verify: warning: %s overrides %s:%s, but %s runs it in this run (covers), so the override has no effect\n' \
+      "$lyr" "$base" "$role" "$runner"
+  done <<EOF
+$2
+EOF
+}
+
+# _verify_all_dropped_v <var> <rows> — when every role the table <rows>
+# (profiles_check_merged) lists is dropped by a layer, those layers, comma
+# separated, into <var>; empty otherwise. Decided from the rows `jig verify`
+# wrote, never from what the profile printed.
+_verify_all_dropped_v() {
+  local __ad_r __ad_f __ad_v __ad_listed=0 __ad_dropped=0 __ad_layers=""
+  printf -v "$1" '%s' ""
+  while IFS=$'\t' read -r __ad_r __ad_f __ad_v; do
+    case "$__ad_f" in
+      listed) __ad_listed=$((__ad_listed + 1)) ;;
+      drop)
+        __ad_dropped=$((__ad_dropped + 1))
+        case ", $__ad_layers," in *", $__ad_v,"*) ;; *) __ad_layers="${__ad_layers:+$__ad_layers, }$__ad_v" ;; esac
+        ;;
+    esac
+  done <<EOF
+$2
+EOF
+  if [ "$__ad_listed" -gt 0 ] && [ "$__ad_dropped" -ge "$__ad_listed" ]; then
+    printf -v "$1" '%s' "$__ad_layers"
+  fi
+  return 0
+}
+
 cmd_verify() {
   jig_require_init
   # shellcheck source=lib/profiles.sh
@@ -546,7 +643,7 @@ cmd_verify() {
   local scope=0 base="" nfiles=0 scope_ok note full=0 explicit=0 full_run
   local header="" base_branch base_ref mb map map_ok map_err maps maps_listed map_bad b
   local incomplete=0 covered=0 explained=0 unknown=0 plan_output plan_bad hr_state hr_rt hr_text
-  local table_err table_rows covered_needs_install=0 is_fallback=0 run_output ci_left=0 task_base="" task_which="" task_note=""
+  local table_err table_rows table_overrides="" base_roles="" p_dropped="" dropped_msg="" dropped_needs=0 covered_needs_install=0 is_fallback=0 run_output ci_left=0 task_base="" task_which="" task_note=""
   JIG_VERIFY_TMP=""
   JIG_VERIFY_MAP_TMP=""
   JIG_VERIFY_MAP_ALL_TMP=""
@@ -722,10 +819,10 @@ EOF
   # fw_pending_rc != 0: pending state unknown (e.g. no source checkout on
   # this machine, domains/install) — proceed and verify the profiles normally.
 
-  # A stack that does not resolve, or a layer with check overrides this version
-  # cannot honour yet, is refused before any profile starts: a layer that runs
-  # without its base, or whose override is ignored, passes for something it did
-  # not check. After the gate above, which catches a missing stock base first.
+  # A stack that does not resolve, or a layer whose check table is wrong, is
+  # refused before any profile starts: a layer that runs without its base, or
+  # whose override is ignored, passes for something it did not check. After the
+  # gate above, which catches a missing stock base first.
   if [ -n "$stack_err" ]; then
     if [ "$explain" = 1 ]; then
       printf 'PLAN %s: error (%s)\n' "$stack_layer" "${stack_err#"$stack_layer: "}"
@@ -734,31 +831,19 @@ EOF
     fi
     return 1
   fi
-  local layer_refused=0 ext chk_line chk_n chk_text
-  for p in $profiles_words; do
-    pdir=$(profiles_dir "$installed_dir" "$p")
-    profile_get_v ext "$pdir" extends || continue
-    [ -n "$ext" ] || continue
-    # The check-table rows `checks.<name>.*` belong to "A layer overrides a
-    # check": until it lands they would be read by nobody and a layer's override
-    # would silently do nothing.
-    chk_line=""
-    chk_n=0
-    while IFS= read -r chk_text || [ -n "$chk_text" ]; do
-      chk_n=$((chk_n + 1))
-      chk_text=${chk_text#"${chk_text%%[![:space:]]*}"}
-      case "$chk_text" in
-        checks.*) chk_line=$chk_n; break ;;
-      esac
-    done < "$pdir/profile.yaml"
-    [ -n "$chk_line" ] || continue
+  local layer_refused=0 lint_layer lint_n lint_reason
+  while IFS=$'\t' read -r lint_layer lint_n lint_reason; do
+    [ -n "$lint_layer" ] || continue
     layer_refused=1
     if [ "$explain" = 1 ]; then
-      printf 'PLAN %s: error (profile.yaml:%s: a layer'"'"'s check overrides arrive with a later task (A layer overrides a check); remove the checks.* lines)\n' "$p" "$chk_line"
+      printf 'PLAN %s: error (profile.yaml:%s: %s)\n' "$lint_layer" "$lint_n" "$lint_reason"
     else
-      printf 'FAIL %s: profile.yaml:%s: a layer'"'"'s check overrides arrive with a later task (A layer overrides a check); remove the checks.* lines\n' "$p" "$chk_line"
+      printf 'FAIL %s: profile.yaml:%s: %s\n' "$lint_layer" "$lint_n" "$lint_reason"
     fi
-  done
+  done < <(
+    # shellcheck disable=SC2086
+    profiles_check_layers "$installed_dir" "$stack_edges" $profiles_words || true
+  )
   [ "$layer_refused" = 0 ] || return 1
 
   # One trap for both the temporary files and the run record: the record has to
@@ -831,7 +916,7 @@ EOF
     if [ -n "$RUNENV_EXEC" ] && ! profiles_supports "$pdir" environment; then continue; fi
     run_profiles="${run_profiles:+$run_profiles }$p"
   done
-  covers=$(_verify_covers "$installed_dir" "$run_profiles" "$scope")
+  covers=$(_verify_covers "$installed_dir" "$run_profiles" "$scope" "$stack_edges")
 
   local total=0 pass=0 failn=0 skip=0 rc
   for p in $profiles_words; do
@@ -933,7 +1018,13 @@ EOF
     # arguments from a role the profile.yaml does not know.
     rm -f "$JIG_VERIFY_CHECKS_TMP" 2>/dev/null || true
     JIG_VERIFY_CHECKS_TMP=""
-    if ! table_err=$(profiles_check_table "$pdir"); then
+    # A profile over a base may write the base's roles too; the layer lint above
+    # has already judged those rows, so here they are only let through.
+    base_roles=""
+    if [ -n "$stack_edges" ]; then
+      _profiles_base_roles_v base_roles "$p" "$installed_dir" "$stack_edges"
+    fi
+    if ! table_err=$(profiles_check_table "$pdir" "$base_roles"); then
       failn=$((failn + 1))
       if [ "$explain" = 1 ]; then
         printf 'PLAN %s: error (profile.yaml:%s)\n' "$p" "$table_err"
@@ -942,7 +1033,9 @@ EOF
       fi
       continue
     fi
-    table_rows=$(profiles_check_handdown "$pdir")
+    profiles_check_overrides_v table_overrides "$pdir" "$stack_edges"
+    table_rows=$(profiles_check_merged "$pdir" "$stack_edges")
+    _verify_all_dropped_v p_dropped "$table_rows"
     if [ -n "$table_rows" ]; then
       JIG_VERIFY_CHECKS_TMP=$(mktemp "${TMPDIR:-/tmp}/jig-verify-checks.XXXXXX") \
         || jig_die "verify: cannot create temporary file"
@@ -1024,6 +1117,10 @@ EOF
         note=" (scope: changed, $nfiles files, map $maps_listed)"
       fi
     fi
+
+    # Whose argument a check runs with: said before the base's own lines, in a
+    # preview and in a run alike.
+    [ -z "$table_overrides" ] || _verify_override_lines "$p" "$table_overrides" "$covers"
 
     # A profile without declared support is run with the scope variables
     # cleared, never merely unset by the caller's environment: an installed
@@ -1119,8 +1216,16 @@ EOF
         # own wording) or hit a real gap (a missing tool, a broken check) — and
         # only the second is a person's to fix. Absence of any skip line at all
         # is read as the cautious default, same as an undeclared capability.
+        # The count is what it always was; a profile whose every check a layer
+        # dropped is also remembered (known from the table, never from the
+        # profile's output), so the ending can say what happened. A streamed
+        # `--full` run leaves no output to read, and counts as a gap.
         if [ "$is_fallback" != 1 ] && ! _verify_skip_lines_all_scoped "$run_output"; then
           covered_needs_install=$((covered_needs_install + 1))
+          [ -z "$p_dropped" ] || dropped_needs=$((dropped_needs + 1))
+        fi
+        if [ -n "$p_dropped" ]; then
+          dropped_msg="${dropped_msg:+$dropped_msg; }every check of $p was dropped by $p_dropped"
         fi
         printf 'RESULT %s: skip%s\n' "$p" "$note"
         ;;
@@ -1197,6 +1302,13 @@ EOF
   # counts covered profiles whose skip does NOT reduce to scope narrowing:
   # zero of those, and the state is the third one above, not the first.
   if [ "$pass" -eq 0 ] && [ "$failn" -eq 0 ] && [ "$total" -gt 0 ]; then
+    # Only the dropped checks kept the run from a verdict: say so, not "install".
+    if [ "$covered" = 1 ] && [ "$covered_needs_install" -gt 0 ] \
+       && [ "$covered_needs_install" -eq "$dropped_needs" ]; then
+      printf 'verify: nothing was checked, so this is not a pass — %s; nothing verified it\n' "$dropped_msg"
+      return 3
+    fi
+    [ -z "$dropped_msg" ] || printf 'verify: %s; nothing verified it\n' "$dropped_msg"
     if [ "$covered" = 1 ] && [ "$covered_needs_install" -gt 0 ]; then
       printf 'verify: nothing was checked, so this is not a pass — install the project'"'"'s tools so its profile can run\n'
       return 3

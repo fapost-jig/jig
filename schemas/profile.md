@@ -112,10 +112,8 @@ the stack does not resolve, doctor names that reason and nothing is called unrea
 - **Pure layer.** A profile with `extends` and no `verify.sh` is not a broken install: `jig verify`
   does not run it or count it, and prints `<layer> is a layer over <base>; its checks run in its
   bases`. A profile with neither stays `SKIP <name>: no verify.sh`.
-- **Not yet.** A layer's `checks.*` rows (a check table that overrides its base) arrive with the
-  task "A layer overrides a check". Until then `jig verify` refuses a layer whose `profile.yaml`
-  has any line starting `checks.`, so an override is not silently ignored; the plain `checks:`
-  list is fine.
+- **Check overrides.** A layer's `checks.<role>.<field>` lines change a check of its base
+  (**Layer overrides**, below). A pure layer lists no `checks:` of its own.
 - **Install.** `jig upgrade` installs, updates and keeps every profile of the stack, bases
   included, and still never edits `profiles:`; a first `jig init` writes only the top layers of
   what it detects (adr-20261117-profiles-lists-top-layers-and-jig-resolves-the-stack).
@@ -205,9 +203,9 @@ file path. The lower profile still receives its own map for the checks it keeps.
 
 `covers` and `checks` are the first step of profile layers (`.ai/specs/profile-layers/`): one
 name, one way to drop a check. `covers` stays beside the check table below: it is a relation between
-profiles with no stack between them, and the table does not replace it. Overrides of a check's
-arguments by a layer (`extends`, **Stacks**) are later work — until then `jig verify` refuses a
-layer's `checks.*` lines. Every check a stock profile lists in `checks` answers to `jp_covered`.
+profiles with no stack between them, and the table does not replace it. A layer (`extends`,
+**Stacks**) changes a check's arguments, or removes the check, with the table's own lines
+(**Layer overrides**). Every check a stock profile lists in `checks` answers to `jp_covered`.
 
 ## Check table
 
@@ -233,7 +231,7 @@ checks.
 | `command` | the check's command. Absent: the profile's own `verify.sh` chooses it on the fly (phpunit or pest, a wrapper or `mvn`, `pnpm` or `npm`). A stock profile writes it only where the tool is a literal |
 | `full` | the arguments of a full run — and of a narrowed run that falls back to the full set (an `ALL` decision, a filter that selects nothing, a config change). Absent: no arguments |
 | `narrowed` | the arguments of a narrowed run, with exactly one `{selection}` word. Absent: the check does not narrow by selection |
-| `drop` | reserved for a layer that removes a check; the linter refuses it until it is implemented |
+| `drop` | a layer only: `true` removes the check of a base for this run. Any other value is an error, and so is `drop` beside another field of the same role (**Layer overrides**) |
 
 **Values.** Plain words, split on blanks and never globbed — the grammar of `run.exec`. No quotes
 (`"` `'`), no `$`, backtick or backslash. `#` starts a comment, as everywhere in this file. `[]` is
@@ -264,7 +262,7 @@ an override that does nothing, so `jig verify` lints the profile's installed `pr
 runs the profile (`profiles_check_table`). The first problem fails that profile —
 `RESULT <profile>: fail (profile.yaml:<line>: <reason>)`, and `PLAN <profile>: error (…)` under
 `--explain` — and the profile does not run. It refuses: a role not in `checks`, a bad role, an unknown
-field (`drop` included), a key set twice, an indented `checks.` key (the reader cannot see it), a
+field, a `drop` that is not for a role of a base, a key set twice, an indented `checks.` key (the reader cannot see it), a
 forbidden character, a `narrowed` without exactly one `{selection}`, a `{selection}` anywhere else, an
 empty value, `command: []`.
 
@@ -272,8 +270,10 @@ empty value, `command: []`.
 tabs, with one `<role> listed` row for every role in `checks`, to a temporary file and hands its path
 to the profile as `JIG_VERIFY_CHECKS`. The rows are the declaration: a profile with no `checks.`
 lines — `checks: [tests]` alone, as released before the table — runs with the variable unset — a caller's own value never reaches it — and `scope` has no new
-word for it. The decision is `jig verify`'s and the profile only reads it, so a later layer that
-merges tables changes what `jig verify` writes and nothing in a profile.
+word for it. The decision is `jig verify`'s and the profile only reads it, so the layers that
+merge into a base's table change what `jig verify` writes and nothing in a profile. A role a layer
+dropped has no `command`, `full` or `narrowed` rows, only `<role> drop <layer>`; `jp_covered` and
+`jp_check_cmd` answer to it (**Layer overrides**).
 
 **Reading it, from a `verify.sh`.** `jp_check_cmd <role> <label> full|narrowed <default-cmd>... [--
 <selection>...]` sets `JP_CMD` to the table's `command` words (or `<default-cmd>`) and the mode's
@@ -290,6 +290,85 @@ not a skip: a skip beside another check that passed would leave the profile `pas
 unrun. The profile does not fall back to a command of its own:
 that is the profile.yaml kept by `upgrade` beside a newer `verify.sh`, and a quiet different command is
 the worse answer. The function sets a global, so call it as a command, never inside `$( )`.
+
+## Layer overrides
+
+A layer changes a check of its base with the same lines the base's table uses, without naming the
+base (adr-20261118-a-layer-overrides-its-bases-checks-by-role). A project's `warehouse` over `laravel`:
+
+```yaml
+# .ai/profiles/warehouse/profile.yaml — a pure layer: no verify.sh
+name: warehouse
+extends: laravel
+checks.tests.full: --parallel --functional
+checks.tests.narrowed: --compact {selection}
+```
+
+```
+$ jig verify --explain
+verify: laravel:tests: full, narrowed from warehouse
+verify: warehouse is a layer over laravel; its checks run in its bases
+PLAN laravel: tests (artisan test): full (…)
+```
+
+A full run is `php artisan test --parallel --functional`, a narrowed one `php artisan test --compact
+<files>`. Which files to select stays the code of `laravel/verify.sh`; the layer changes only the words
+around them, and no stock `verify.sh` is edited for it.
+
+- **Whose role it is.** The chain of a layer is the layer, then its base, then that one's base. A row
+  `checks.<role>.<field>` belongs to the **first** profile of the chain whose `checks:` lists
+  `<role>`. When that profile is the layer itself (it has a `verify.sh` and lists the role) the row
+  is its own table, as always; otherwise the row overrides that base's check. The base is not named
+  in the key, so a row survives a role moving down the chain: `checks.tests.full` of `warehouse`
+  keeps working when `tests` moves from `laravel` to `php`.
+- **A layer cannot override a base's role that has the same name as one of its own roles.** The own
+  role wins and the base's is out of reach. A layer `top` with a `verify.sh` that lists `tests` and
+  sits over `base`, which also lists `tests`, writes `checks.tests.full` for `top:tests`, never for
+  `base:tests`. To change `base:tests` a layer needs a role with another name; there is no second
+  syntax for addressing a profile.
+- **Pure layers own no role.** A layer with no `verify.sh` runs no check of its own, so a non-empty
+  `checks:` there is an error: the role would hide the base's and the override would go nowhere.
+- **Fields.** `command`, `full` and `narrowed`, with the grammar of **Check table**: `[]` erases the
+  base's words (`full: []`), `command: []` is an error. A field the layer does not write is the
+  base's, so `checks.tests.full` alone keeps the base's `narrowed`. `drop: true` removes the check.
+  `drop` accepts only the value `true` (`false`, an empty value or any other word is an error) and
+  cannot stand beside another field of the same role in one layer. A field or a second `drop` over a
+  role a layer below already dropped is refused: it would never be read.
+- **Merging.** `jig verify` merges the tables of the chain and hands the base the result as its
+  `JIG_VERIFY_CHECKS` (`profiles_check_merged`), the layer nearest the base first, the top layer
+  winning field by field. Only the layers in the run's stack count: `--profile laravel` runs `laravel`
+  without `warehouse`'s overrides, `--profile warehouse` with them.
+- **Naming the layer.** Before a base's own output, in a run and under `--explain`, `jig verify`
+  prints one line per overridden check: `verify: <base>:<role>: <field>[, <field>] from <layer>`,
+  or `full from a; narrowed from b` when several layers set fields. A drop has no such line: the
+  check's own line says `skip (scope: dropped by <layer>, <base>:<role>)`
+  (`PLAN … skip (…)` under `--explain`). The reason starts with `scope:` because a dropped check is
+  a decision of the project, like a cover, not a gap to fix. `jp_covered` and `jp_check_cmd` read the
+  `<role> drop <layer>` row; a cover wins when both hold.
+- **Errors.** `jig verify` lints every layer's table before any profile runs, after the errors of the
+  stack: `FAIL <layer>: profile.yaml:<line>: <reason>`, `PLAN <layer>: error (profile.yaml:<line>:
+  <reason>)` under `--explain`, exit 1, nothing runs (`profiles_check_layers`). It refuses: the
+  grammar of **Check table** over the roles of the layer and its chain; a role in no `checks:` of the
+  chain; a base that has no check table of its own (its `verify.sh` would not read one); `narrowed`
+  for a check the base does not narrow; `drop` that is not exactly `true` or stands beside another
+  field; a field or a `drop` over a role a lower layer of the chain dropped; and two layers on different branches over one base that change the same role — the base
+  runs once, so one of them would be ignored. Different roles of one base merge: the base runs with
+  the overrides of both layers.
+- **Covers.** A drop lifts a cover: if the profile that `covers: [<lower>:<role>]` has its own
+  `<role>` dropped in this run, nothing would run those tests, so the cover does not hold and the lower
+  profile runs them. `jig verify` says so — `verify: laravel:tests is dropped by warehouse, so laravel
+  no longer covers php:tests; php runs it` — in a run and under `--explain`. An override of a check
+  that another profile covers in this run has no effect, and `jig verify` warns:
+  `verify: warning: <layer> overrides <base>:<role>, but <runner> runs it in this run (covers), so the
+  override has no effect`.
+- **When every check is dropped.** A profile all of whose listed roles a layer dropped runs nothing.
+  `jig verify` knows it from the merged table, not from the profile's output. Exit codes are as
+  they were for any run where nothing passed: a run that ended in "install the project's tools"
+  (a full run, which reads no output) still exits 3 but says `every check of <profile> was dropped
+  by <layer>; nothing verified it` instead; a narrowed run whose skips all name a scope keeps its
+  ending and exit code and gets that sentence as an extra line. Only the words change.
+- **Old copies.** A `verify.sh` that calls neither `jp_covered` nor `jp_check_cmd` (a copy `upgrade`
+  kept) does not hear a `drop` and runs the check — the safe direction.
 
 ## Stock checks
 

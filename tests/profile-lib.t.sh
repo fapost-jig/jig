@@ -806,3 +806,62 @@ test_profile_lib_jp_check_cmd_runs_through_jp_run() {
   assert_contains "$OUT" "--only a b c"
   assert_contains "$OUT" "demo: echoer: pass (n)"
 }
+
+# --- a dropped check (adr-20261118-a-layer-overrides-its-bases-checks-by-role) ---
+
+test_profile_lib_jp_covered_a_dropped_role_prints_a_scoped_skip_and_returns_0() {
+  unset JIG_VERIFY_EXPLAIN JIG_VERIFY_COVERED
+  _lib_checks "tests listed -" "lint listed -" "lint drop warehouse"
+  _lib_run 'jp_begin php; jp_covered lint "lint (phpcs)" && echo "RC=0"; jp_covered tests "tests (phpunit)" || echo "RC=$?"'
+  assert_eq "php: lint (phpcs): skip (scope: dropped by warehouse, php:lint)
+RC=0
+RC=1" "$OUT"
+}
+
+test_profile_lib_jp_covered_a_dropped_role_is_a_plan_skip_under_explain() {
+  JIG_VERIFY_EXPLAIN=1
+  export JIG_VERIFY_EXPLAIN
+  unset JIG_VERIFY_COVERED
+  _lib_checks "lint listed -" "lint drop warehouse"
+  _lib_run 'jp_begin php; jp_covered lint "lint (phpcs)"'
+  unset JIG_VERIFY_EXPLAIN
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "PLAN php: lint (phpcs): skip (scope: dropped by warehouse, php:lint)" "$OUT"
+}
+
+test_profile_lib_jp_covered_a_cover_wins_over_a_drop_and_no_table_drops_nothing() {
+  unset JIG_VERIFY_EXPLAIN
+  JIG_VERIFY_COVERED="lint=laravel"
+  export JIG_VERIFY_COVERED
+  _lib_checks "lint listed -" "lint drop warehouse"
+  _lib_run 'jp_begin php; jp_covered lint "lint (phpcs)"'
+  assert_eq "php: lint (phpcs): skip (scope: covered by laravel, php:lint)" "$OUT"
+  unset JIG_VERIFY_COVERED JIG_VERIFY_CHECKS
+  _lib_run 'jp_begin php; jp_covered lint "lint (phpcs)" || echo "RC=$?"'
+  assert_eq "RC=1" "$OUT"
+}
+
+test_profile_lib_jp_check_cmd_a_dropped_role_prints_the_skip_and_returns_1() {
+  unset JIG_VERIFY_EXPLAIN
+  _lib_checks "tests listed -" "tests full --x" "tests drop warehouse"
+  _lib_run 'jp_begin php; jp_check_cmd tests "tests (phpunit)" full phpunit || echo "RC=$?"; echo "JP_CMD=${JP_CMD[*]-unset}"'
+  assert_eq "php: tests (phpunit): skip (scope: dropped by warehouse, php:tests)
+RC=1
+JP_CMD=unset" "$OUT"
+
+  JIG_VERIFY_EXPLAIN=1
+  export JIG_VERIFY_EXPLAIN
+  _lib_run 'jp_begin php; jp_check_cmd tests "tests (phpunit)" full phpunit || echo "RC=$?"'
+  unset JIG_VERIFY_EXPLAIN
+  assert_eq "PLAN php: tests (phpunit): skip (scope: dropped by warehouse, php:tests)
+RC=1" "$OUT"
+}
+
+test_profile_lib_jp_check_cmd_drops_only_the_role_the_row_names() {
+  unset JIG_VERIFY_EXPLAIN
+  _lib_checks "tests listed -" "lint listed -" "lint drop warehouse" "tests full --x"
+  _lib_cmd 'jp_check_cmd tests "x" full phpunit'
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "[phpunit]
+[--x]" "$OUT"
+}

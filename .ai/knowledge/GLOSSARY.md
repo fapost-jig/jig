@@ -39,6 +39,16 @@ register hooks. Contains no SDLC logic.
 Technology-specific bundle (`profiles/<name>/`): detection rules, `verify.sh`, rules,
 conventions. A project activates one or more.
 
+## Layer (Profile Layer)
+
+A Profile that builds on one other, its **base**, with `extends: <base>`; a layer with all
+the bases below it is a **stack**, and `profiles:` lists stacks by their top layers. A layer
+may override a check of its base by role in its own check table (`checks.<role>.<field>`, or
+`drop: true`), and `jig verify` names the layer that did
+(adr-20261117-profiles-lists-top-layers-and-jig-resolves-the-stack,
+adr-20261118-a-layer-overrides-its-bases-checks-by-role). Informal synonyms: overlay, child
+profile.
+
 ## Knowledge (Durable Knowledge)
 
 Information under `.ai/knowledge/` that must outlive any single task: glossary,

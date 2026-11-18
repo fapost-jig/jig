@@ -223,6 +223,9 @@ never assumed" rule the profile contract below states.
   arguments for a full and a narrowed run, with a whole-word `{selection}` where the narrowed
   selection goes. `jig verify` lints it and hands the rows down as `JIG_VERIFY_CHECKS`; a
   `verify.sh` reads them through `jp_check_cmd` (adr-20261117-a-profile-declares-its-checks-in-a-table).
+  A layer writes the same rows, plus `drop: true`, for a role of its base: `jig verify` merges
+  them top-down into what the base receives, and names the layer
+  (adr-20261118-a-layer-overrides-its-bases-checks-by-role).
 
 `profiles/<stack>/verify.sh` is run from the repository root and exits 0 pass, 1 fail,
 **2 skip**, **3 incomplete** — a check that started and did not finish, which is neither a

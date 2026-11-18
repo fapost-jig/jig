@@ -95,6 +95,19 @@ the global `RULES.md` (ADR-0013). What follows binds changes inside this domain.
   under `--explain`), never a skip a passing sibling check would hide and never a quiet command
   of the profile's own
   (adr-20261117-a-profile-declares-its-checks-in-a-table).
+- **A layer's override never does nothing in silence.** A layer's `checks.<role>.<field>` rows and
+  `drop: true` address the nearest profile of its `extends` chain that lists the role; a layer's
+  own role shadows a base's role of the same name. `jig verify` lints every layer of the stack
+  before any profile runs, and refuses the run (`FAIL <layer>: profile.yaml:<line>: …`) for a role
+  no profile of the chain lists, a base with no check table of its own, a `narrowed` the base never
+  reads, a non-empty `checks:` on a pure layer, a bad `drop`, a field or a drop over a role a layer
+  below already dropped, and two branches over one base touching one role. The merge is `jig verify`'s (`profiles_check_merged`, top layer wins field by
+  field), and every overridden check is named with its layer (`verify: <base>:<role>: <fields>
+  from <layer>`). A dropped check is skipped with `scope: dropped by <layer>`, by `jp_covered`
+  first and `jp_check_cmd` as a safety net, and a cover whose covering role is dropped does not
+  hold. A profile whose every check is dropped is named as such (decided from the merged table,
+  not the profile's output); the wording changes, the run's exit code does not
+  (adr-20261118-a-layer-overrides-its-bases-checks-by-role).
 - `jig verify --explain` asks a profile for a plan only when it declares `scope: [..., explain]`.
   A profile in this mode MUST name every check as full, filtered, skipped or conditional;
   a conditional answer MUST name a possible full run. It MUST NOT run a project tool,
