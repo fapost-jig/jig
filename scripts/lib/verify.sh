@@ -573,6 +573,19 @@ EOF
   return 0
 }
 
+# _verify_profile_maps_v <var> <installed-dir> <profile> <edges> — the project maps
+# that exist for <profile>, space-separated, each written as
+# `$JIG_AI_DIR/verify/<name>.map`: the maps of the pure layers whose tests it runs
+# (profiles_layer_maps_v), topmost first, then its own. Empty when there is none.
+_verify_profile_maps_v() {
+  local __pm_lyrs __pm_n __pm_out=""
+  profiles_layer_maps_v __pm_lyrs "$2" "$3" "$4"
+  for __pm_n in $__pm_lyrs "$3"; do
+    [ ! -f "$JIG_PROJECT/$JIG_AI_DIR/verify/$__pm_n.map" ] || __pm_out="${__pm_out:+$__pm_out }$JIG_AI_DIR/verify/$__pm_n.map"
+  done
+  printf -v "$1" '%s' "$__pm_out"
+}
+
 # _verify_covers_resolve <installed-dir> <covers> <narrowed> [<edges>] — the covers of
 # _verify_covers, each followed to the profile that finally runs the check:
 # `shop covers myapp:tests` and `myapp covers laravel:tests` (laravel's tests being
@@ -589,7 +602,7 @@ EOF
 # runs its tests in the covered profile count as the covered profile's own.
 _verify_covers_resolve() {
   local dir="$1" all="$2" narrowed="$3" edges="${4:-}"
-  local b check u named final depth seen cycle nb nc nu found wdir bdir lyrs lyr mapfile
+  local b check u named final depth seen cycle nb nc nu found wdir bdir pmaps mapfile
   while IFS=$'\t' read -r b check u named; do
     [ -n "$b" ] || continue
     final="$u"
@@ -616,14 +629,8 @@ EOF
       continue
     fi
     if [ "$narrowed" = 1 ] && [ "$check" = tests ]; then
-      mapfile=""
-      profiles_layer_maps_v lyrs "$dir" "$b" "$edges"
-      for lyr in $lyrs $b; do
-        if [ -f "$JIG_PROJECT/$JIG_AI_DIR/verify/$lyr.map" ]; then
-          mapfile="$JIG_AI_DIR/verify/$lyr.map"
-          break
-        fi
-      done
+      _verify_profile_maps_v pmaps "$dir" "$b" "$edges"
+      mapfile="${pmaps%% *}"
       if [ -n "$mapfile" ]; then
         bdir=$(profiles_dir "$dir" "$b")
         wdir=$(profiles_dir "$dir" "$final")
@@ -790,7 +797,7 @@ cmd_verify() {
   # one empty line, and would otherwise be dropped rather than rejected.
   local list_only=0 explain=0 profile_given=0 profiles_words="" p pdir raw tok
   local scope=0 base="" nfiles=0 scope_ok note full=0 explicit=0 full_run
-  local header="" base_branch base_ref mb map map_ok map_err maps maps_listed map_bad b layer_names lyr stale_base stock_src stale_why tracked_profiles=""
+  local header="" base_branch base_ref mb map map_ok map_err maps maps_listed map_bad b pmaps stale_base stock_src stale_why tracked_profiles=""
   local incomplete=0 covered=0 explained=0 unknown=0 plan_output plan_bad hr_state hr_rt hr_text
   local table_err table_rows table_overrides="" base_roles="" p_dropped="" dropped_msg="" dropped_needs=0 covered_needs_install=0 is_fallback=0 run_output ci_left=0 task_base="" task_which="" task_note=""
   JIG_VERIFY_TMP=""
@@ -1254,21 +1261,14 @@ EOF
       # first (warehouse.map before laravel.map), then the profile's own map,
       # then the map of every profile whose tests it covers, each behind the
       # maps of its own layers: the decisions follow the tests
-      # (_verify_handed_maps, profiles_layer_maps_v), and with the nearest
+      # (_verify_handed_maps, _verify_profile_maps_v), and with the nearest
       # lines first, first match wins across all of them.
       maps=""
-      profiles_layer_maps_v layer_names "$installed_dir" "$p" "$stack_edges"
-      for b in $layer_names; do
-        [ ! -f "$JIG_PROJECT/$JIG_AI_DIR/verify/$b.map" ] || maps="${maps:+$maps }$JIG_AI_DIR/verify/$b.map"
-      done
-      [ ! -f "$JIG_PROJECT/$JIG_AI_DIR/verify/$p.map" ] || maps="${maps:+$maps }$JIG_AI_DIR/verify/$p.map"
+      _verify_profile_maps_v maps "$installed_dir" "$p" "$stack_edges"
       # Nearest first.
       for b in $(_verify_handed_maps "$installed_dir" "$covers" "$p" | LC_ALL=C sort -n -k1,1 | cut -f2); do
-        profiles_layer_maps_v layer_names "$installed_dir" "$b" "$stack_edges"
-        for lyr in $layer_names; do
-          [ ! -f "$JIG_PROJECT/$JIG_AI_DIR/verify/$lyr.map" ] || maps="${maps:+$maps }$JIG_AI_DIR/verify/$lyr.map"
-        done
-        [ ! -f "$JIG_PROJECT/$JIG_AI_DIR/verify/$b.map" ] || maps="${maps:+$maps }$JIG_AI_DIR/verify/$b.map"
+        _verify_profile_maps_v pmaps "$installed_dir" "$b" "$stack_edges"
+        [ -z "$pmaps" ] || maps="${maps:+$maps }$pmaps"
       done
       map_bad=0
       for map in $maps; do

@@ -1020,6 +1020,38 @@ test_verify_warehouse_map_is_read_before_the_laravel_map() {
   assert_contains "$OUT" "map .ai/verify/warehouse.map, .ai/verify/laravel.map)"
 }
 
+# _verify_profile_maps_v: the maps that exist for a profile, the pure layers it
+# runs the tests of first (topmost first), then its own; relative paths.
+test_verify_profile_maps_lists_the_existing_maps_layers_first() {
+  fixture_repo
+  local n
+  for n in php laravel; do
+    mkdir -p "root/$n"
+    printf '#!/usr/bin/env bash\nexit 0\n' > "root/$n/verify.sh"
+  done
+  printf 'name: php\nchecks: [tests]\nchecks.tests.command: phpunit\n' > root/php/profile.yaml
+  printf 'name: laravel\nextends: php\n' > root/laravel/profile.yaml
+  mkdir -p root/warehouse root/shop .ai/verify
+  printf 'name: warehouse\nextends: laravel\n' > root/warehouse/profile.yaml
+  printf 'name: shop\nextends: warehouse\n' > root/shop/profile.yaml
+  # shellcheck disable=SC2016  # expanded by the inner bash -c, not this shell
+  local call='e=$(printf "shop\twarehouse\nwarehouse\tlaravel\nlaravel\tphp\n"); _verify_profile_maps_v v "$PWD/root" php "$e"; printf "[%s]" "$v"'
+  # shellcheck disable=SC2016  # expanded by the inner bash -c, not this shell
+  local harness='
+    JIG_LIB="$JIG_HOME/scripts/lib"
+    JIG_PROJECT="$(pwd)"
+    export JIG_LIB JIG_PROJECT
+    . "$JIG_LIB/version.sh"; . "$JIG_LIB/common.sh"; . "$JIG_LIB/config.sh"
+    . "$JIG_LIB/profiles.sh"; . "$JIG_LIB/verify.sh"
+  '
+  run bash -c "$harness$call"
+  assert_eq "[]" "$OUT" "$OUT"
+  : > .ai/verify/shop.map
+  : > .ai/verify/php.map
+  run bash -c "$harness$call"
+  assert_eq "[.ai/verify/shop.map .ai/verify/php.map]" "$OUT" "$OUT"
+}
+
 # jig upgrade keeps a profile.yaml the person edited, and deletes the verify.sh
 # the stock laravel no longer ships: what is left is a profile that is neither a
 # layer nor runnable, and php would silently run phpunit in its place.
