@@ -733,7 +733,7 @@ EOF
     fi
     return 1
   fi
-  local layer_refused=0 ext chk_line
+  local layer_refused=0 ext chk_line chk_n chk_text
   for p in $profiles_words; do
     pdir=$(profiles_dir "$installed_dir" "$p")
     profile_get_v ext "$pdir" extends || continue
@@ -741,7 +741,15 @@ EOF
     # The check-table rows `checks.<name>.*` belong to "A layer overrides a
     # check": until it lands they would be read by nobody and a layer's override
     # would silently do nothing.
-    chk_line=$(grep -n '^[[:space:]]*checks\.' "$pdir/profile.yaml" | head -n 1 | cut -d: -f1) || chk_line=""
+    chk_line=""
+    chk_n=0
+    while IFS= read -r chk_text || [ -n "$chk_text" ]; do
+      chk_n=$((chk_n + 1))
+      chk_text=${chk_text#"${chk_text%%[![:space:]]*}"}
+      case "$chk_text" in
+        checks.*) chk_line=$chk_n; break ;;
+      esac
+    done < "$pdir/profile.yaml"
     [ -n "$chk_line" ] || continue
     layer_refused=1
     if [ "$explain" = 1 ]; then
