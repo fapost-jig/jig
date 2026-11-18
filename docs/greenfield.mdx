@@ -102,9 +102,12 @@ be a class schedule; reservations could be the next task.
 
 <Accordion title="For developers: tasks, branches, and releases">
   The agent classifies each task by risk and links it to the spec. Tasks normally branch from
-  the project's main branch. If the product will be released once at the end, the agent discusses
-  an **epic branch** with you while shaping the roadmap. Its tasks branch from the epic and their
-  pull requests target it; the main branch receives the combined work when the epic is merged.
+  the project's main branch. While shaping the roadmap, the agent always asks whether the spec gets
+  an **epic branch**, so that it is released once at the end, and says what it recommends. Its tasks
+  branch from the epic and their pull requests target it; the main branch receives the combined work
+  when the epic is merged. When a task of a spec without an epic starts before anything of that
+  spec has merged, `jig task start` says that its tasks will merge into the main branch, while an
+  epic is still possible.
 
   `jig spec epic <id>` creates that branch once the spec is on the main branch. The epic merges the
   finished feature without raising the version; the release that ships it is made afterwards, by

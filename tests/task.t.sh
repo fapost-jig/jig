@@ -3047,6 +3047,74 @@ test_task_start_no_spec_no_epic_line_in_the_output() {
   run_split jig task start T-1
   assert_eq 0 "$RC"
   assert_not_contains "$ERR" "is cut from"
+  assert_not_contains "$ERR" "has no epic"
+}
+
+# shellcheck disable=SC2016 # the roadmap's backticks are literal
+test_task_start_spec_without_epic_nothing_merged_notes_it() {
+  task_setup_clean
+  jig spec new idea-x >/dev/null
+  git checkout -q main
+  printf '## Phase 1 — x\n\n%s\n%s\n' '- [ ] `T-1` — one' '- [ ] two — later' > .ai/specs/idea-x/roadmap.md
+  git add -A
+  git commit -q -m "add spec idea-x"
+  jig task new T-1 >/dev/null
+  task_link_spec T-1 idea-x
+
+  run_split jig task start T-1
+  assert_eq 0 "$RC"
+  assert_eq "task/T-1" "$(git symbolic-ref --short HEAD)"
+  assert_contains "$ERR" "task start: spec idea-x has no epic; its tasks will merge into main"
+  assert_not_contains "$OUT" "has no epic"
+}
+
+# shellcheck disable=SC2016 # the roadmap's backticks are literal
+test_task_start_spec_without_epic_after_a_merge_says_nothing() {
+  task_setup_clean
+  jig spec new idea-x >/dev/null
+  git checkout -q main
+  printf '## Phase 1 — x\n\n%s\n%s\n' '- [x] `T-0` — done' '- [ ] `T-1` — one' > .ai/specs/idea-x/roadmap.md
+  git add -A
+  git commit -q -m "add spec idea-x"
+  jig task new T-1 >/dev/null
+  task_link_spec T-1 idea-x
+
+  run_split jig task start T-1
+  assert_eq 0 "$RC"
+  assert_not_contains "$ERR" "has no epic"
+}
+
+# shellcheck disable=SC2016 # the roadmap's backticks are literal
+test_task_start_spec_without_epic_after_a_closed_task_says_nothing() {
+  task_setup_clean
+  jig spec new idea-x >/dev/null
+  git checkout -q main
+  printf '## Phase 1 — x\n\n%s\n%s\n' '- [ ] `T-0` — done' '- [ ] `T-1` — one' > .ai/specs/idea-x/roadmap.md
+  git add -A
+  git commit -q -m "add spec idea-x"
+  jig task new T-0 >/dev/null
+  task_link_spec T-0 idea-x
+  task_route_done T-0
+  jig task set T-0 knowledge_consolidated true >/dev/null
+  jig task set T-0 status consolidated >/dev/null
+  jig task new T-1 >/dev/null
+  task_link_spec T-1 idea-x
+
+  run_split jig task start T-1
+  assert_eq 0 "$RC"
+  assert_file_contains .ai/workspace/tasks/T-0/state "status: consolidated"
+  assert_not_contains "$ERR" "has no epic"
+}
+
+test_task_start_spec_with_epic_does_not_note_no_epic() {
+  task_setup_clean
+  task_open_epic idea-x
+  jig task new T-1 >/dev/null
+  task_link_spec T-1 idea-x
+
+  run_split jig task start T-1
+  assert_eq 0 "$RC"
+  assert_not_contains "$ERR" "has no epic"
 }
 
 test_task_start_spec_roadmap_missing_in_this_checkout_dies() {
