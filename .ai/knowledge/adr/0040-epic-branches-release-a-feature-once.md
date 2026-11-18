@@ -15,7 +15,7 @@ paths:
   - .github/scripts/epic-pr-check.sh
   - schemas/spec.md
 summary: Why a feature released once lives on an epic branch, how a spec declares, cuts and finishes it, and why phase workspaces wait for the epic to reach main.
-reviewed_at: 2026-10-04
+reviewed_at: 2026-11-17
 ---
 # ADR-0040: A feature released once lives on an epic branch until it is finished
 
@@ -161,3 +161,9 @@ decisions answer. It stands on a base per task (ADR-0039).
 > Context's reason against merging into `main` without a raise was half a feature there; an epic
 > merges whole. The `epic-pr` job no longer requires an unreleased version
 > (adr-20261112-release-notes-name-the-commit-they-describe).
+
+> **Amendment (2026-11-17).** "CI runs the tests on every push to `epic/**`" is measured, not
+> unconditional. The first push of an epic has no successful run to measure from, so its base is
+> `git merge-base origin/main HEAD`, and Windows is decided by `ci-windows-scope.sh` on that
+> base, as for a pull request (adr-20260924-windows-runs-on-a-pull-request-that-touches-platform-behaviour).
+> A push that only adds spec files then runs the knowledge check instead of nineteen jobs.

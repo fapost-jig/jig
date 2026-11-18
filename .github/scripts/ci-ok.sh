@@ -31,6 +31,7 @@
 #             tested this tree (.github/scripts/ci-reuse.sh) and the suite's
 #             jobs skip; only a full push may say so
 #   EVENT     github.event_name
+#   REF_NAME  github.ref_name (a push's branch)
 #   BASE_REF  github.base_ref   (pull requests only)
 #   HEAD_REF  github.head_ref   (pull requests only)
 # Arguments: one <job>=<result> per job in the `needs` list of ci-ok.
@@ -43,7 +44,7 @@ _ok_fail() { printf 'ci-ok: %s\n' "$*"; exit 1; }
 main() {
   local pair job result expect failed=0
   local full="${FULL:-}" suite="${SUITE:-}" windows="${WINDOWS:-}" reuse="${REUSE:-}" event="${EVENT:-}"
-  local base="${BASE_REF:-}" head="${HEAD_REF:-}"
+  local base="${BASE_REF:-}" head="${HEAD_REF:-}" ref="${REF_NAME:-}"
 
   [ $# -gt 0 ] || _ok_fail "no job results were reported"
 
@@ -64,6 +65,18 @@ main() {
   # full push. Anywhere else a 'true' would skip a suite nobody tested.
   if [ "$reuse" = true ] && { [ "$event" != push ] || [ "$full" != true ]; }; then
     _ok_fail "scope reused a tested tree on a $event run with full=$full; only a full push may"
+  fi
+
+  # Only a pull request and a push to an epic branch may have the Windows
+  # shards decided away (adr-20260924-windows-runs-on-a-pull-request-that-touches-platform-behaviour):
+  # main's push, the nightly run and a manual dispatch run every platform. A
+  # `windows=false` anywhere else is scope's mistake, and the skipped shards
+  # would read as decided.
+  if [ "$full" = true ] && [ "$reuse" != true ] && [ "$windows" != true ]; then
+    case "$event:$ref" in
+      pull_request:* | push:epic/*) ;;
+      *) _ok_fail "scope skipped the Windows shards on a $event run${ref:+ of $ref}; only a pull request or a push to an epic branch may" ;;
+    esac
   fi
 
   for pair in "$@"; do
