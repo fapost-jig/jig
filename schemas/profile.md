@@ -15,7 +15,7 @@ absent key means is decided by its reader, not by this file.
 | `extends` | one profile name | the profile this one builds on: a layer over a base. Listing the layer in `profiles:` brings its base with it — see **Stacks**. A scalar, never a list |
 | `scope` | inline list of capabilities | which parts of the verify scope protocol this profile's `verify.sh` understands: `changed` (ADR-0013), `map` (ADR-0041), `explain`, `environment` — see **Scope** |
 | `covers` | inline list of `<profile>:<check>` | checks of other profiles this profile's own checks replace: `laravel` declares `covers: [php:tests]`, because `php artisan test` runs the suite php's PHPUnit or Pest would — see **Covers** |
-| `checks` | inline list of check names | the checks of this profile another can take over by name, and the index of its check table. Today one name is declared by stock profiles, `tests`, in `php`, `laravel`, `node` and `python` — see **Covers** and **Check table** |
+| `checks` | inline list of check names | the checks of this profile by role, which another profile can take over by name, and the index of its check table. Every stock profile that runs checks lists its roles — see **Covers**, **Check table** and **Stock checks** |
 | `checks.<role>.<field>` | words | the command and arguments of the check `<role>`, which `checks` must list; fields `command`, `full`, `narrowed` — see **Check table** |
 
 ## Grammar
@@ -188,7 +188,7 @@ the check nowhere, so its covers are dropped with a warning and every profile in
 check.
 
 The lower profile receives `JIG_VERIFY_COVERED`, `<check>=<profile>` words, and asks it with
-`jp_covered <check> <label>`, which prints the check's skip — `php: phpunit: skip (scope: covered by
+`jp_covered <check> <label>`, which prints the check's skip — `php: tests (phpunit): skip (scope: covered by
 laravel, php:tests)`, or the `PLAN` line in a preview — and returns 0. Every other profile runs
 with the variable unset. The reason starts `scope:`: the tools are fine and the work is another
 profile's, so a run where everything else narrowed away is not read as a gap in coverage. A
@@ -207,7 +207,7 @@ file path. The lower profile still receives its own map for the checks it keeps.
 name, one way to drop a check. `covers` stays beside the check table below: it is a relation between
 profiles with no stack between them, and the table does not replace it. Overrides of a check's
 arguments by a layer (`extends`, **Stacks**) are later work — until then `jig verify` refuses a
-layer's `checks.*` lines — and other stock profiles name their checks as that work reaches them.
+layer's `checks.*` lines. Every check a stock profile lists in `checks` answers to `jp_covered`.
 
 ## Check table
 
@@ -290,6 +290,36 @@ not a skip: a skip beside another check that passed would leave the profile `pas
 unrun. The profile does not fall back to a command of its own:
 that is the profile.yaml kept by `upgrade` beside a newer `verify.sh`, and a quiet different command is
 the worse answer. The function sets a global, so call it as a command, never inside `$( )`.
+
+## Stock checks
+
+Every stock profile that runs checks lists them by role in `checks` and builds each command line
+from its table through `jp_check_cmd`. A check's label is `<role> (<tool>)`: the role is the stable
+name a layer or a `covers` aims at, and the tool is what this run chose, so a Pest project's tests
+are still `php:tests`. Renaming a role is a breaking change for the changelog. Words that depend
+on the tool chosen at run time (phpunit or pest, `npm test` or `bun run test`, jest's
+`--findRelatedTests`, gradle's `check` or maven's `test`) stay in `verify.sh` as the default command;
+the table holds the words every variant shares. `generic` runs no check of its own and has no table.
+
+| Profile | Roles (tool) |
+|---|---|
+| `shell` | `lint` (shellcheck), `tests` (tests/run.sh) |
+| `php` | `tests` (phpunit or pest), `static` (phpstan), `style` (pint), `manifest` (composer validate) |
+| `laravel` | `tests` (artisan test) |
+| `node` | `tests`, `lint`, `typecheck` (your scripts, run by npm, pnpm, yarn or bun; jest, vitest or eslint for a narrowed run) |
+| `go` | `static` (go vet), `tests` (go test) |
+| `python` | `lint` (ruff), `typecheck` (mypy), `tests` (pytest) |
+| `rust` | `style` (cargo fmt), `lint` (cargo clippy), `tests` (cargo test) |
+| `dotnet` | `style` (dotnet format), `tests` (dotnet test) |
+| `jvm` | `tests` (gradle check or mvn test) |
+| `ruby` | `lint` (rubocop), `tests` (rspec or minitest) |
+| `dart` | `static` (dart or flutter analyze), `style` (dart format), `tests` (dart or flutter test) |
+| `swift` | `build` (swift build), `tests` (swift test) |
+
+Three checks run once per item and so always build a `narrowed` command line: shellcheck (one
+script per call), `tests/run.sh` under a narrowed run (one filter per call) and a narrowed
+`dotnet test` (one project per call). mypy's `--exclude` pattern for the project's virtualenv holds
+a backslash, which the table cannot write: `verify.sh` appends it after a full run's command line.
 
 ## The reader is tolerant, and that is the design
 

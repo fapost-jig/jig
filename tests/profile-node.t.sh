@@ -40,6 +40,14 @@ run_no_tools() {
   export OUT RC
 }
 
+# _node_fixture — a fixture repository, and the check table of the node
+# profile in JIG_VERIFY_CHECKS the way `jig verify` hands it down: these tests
+# run verify.sh directly.
+_node_fixture() {
+  fixture_repo
+  profile_checks_env "$JIG_HOME/profiles/node"
+}
+
 # _node_pkg <scripts-json> [deps-json] — write a minimal package.json with a
 # "scripts" object and, when given, a "devDependencies" object (used to
 # declare vitest/jest so _node_test_runner finds them).
@@ -181,7 +189,7 @@ profiles_harness() {
 # --- detect ------------------------------------------------------------------
 
 test_profile_node_detected_by_package_json() {
-  fixture_repo
+  _node_fixture
   printf '{}\n' > package.json
   # shellcheck disable=SC2016
   profiles_harness 'profiles_detect "$JIG_HOME/profiles"'
@@ -192,59 +200,59 @@ test_profile_node_detected_by_package_json() {
 # --- no tools / no scripts (back-compat: existing tests/verify.t.sh assertions) --
 
 test_profile_node_skips_every_check_without_any_manager() {
-  fixture_repo
+  _node_fixture
   _node_pkg '{"test": "echo ok", "lint": "echo ok", "typecheck": "echo ok"}'
 
   run_no_tools bash "$JIG_HOME/profiles/node/verify.sh"
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "node: npm test: skip"
-  assert_contains "$OUT" "node: npm run lint: skip"
-  assert_contains "$OUT" "node: npm run typecheck: skip"
+  assert_contains "$OUT" "node: tests (npm test): skip"
+  assert_contains "$OUT" "node: lint (npm run lint): skip"
+  assert_contains "$OUT" "node: typecheck (npm run typecheck): skip"
 }
 
 test_profile_node_skips_when_no_scripts_declared() {
-  fixture_repo
+  _node_fixture
   printf '{}\n' > package.json
   _node_mgr_stub npm 9.9.9 0
 
   run bash "$JIG_HOME/profiles/node/verify.sh"
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "node: npm test: skip (no test script or npm not found)"
-  assert_contains "$OUT" "node: npm run lint: skip (no lint script or npm not found)"
-  assert_contains "$OUT" "node: npm run typecheck: skip (no typecheck script or npm not found)"
+  assert_contains "$OUT" "node: tests (npm test): skip (no test script or npm not found)"
+  assert_contains "$OUT" "node: lint (npm run lint): skip (no lint script or npm not found)"
+  assert_contains "$OUT" "node: typecheck (npm run typecheck): skip (no typecheck script or npm not found)"
 }
 
 # --- full run: pass/fail, version in the verdict ----------------------------
 
 test_profile_node_full_run_passes_and_names_npm_version() {
-  fixture_repo
+  _node_fixture
   _node_pkg '{"test": "echo ok", "lint": "echo ok", "typecheck": "echo ok"}'
   _node_mgr_stub npm 10.2.0 0
 
   run bash "$JIG_HOME/profiles/node/verify.sh"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "node: npm test: pass (10.2.0)"
-  assert_contains "$OUT" "node: npm run lint: pass (10.2.0)"
-  assert_contains "$OUT" "node: npm run typecheck: pass (10.2.0)"
+  assert_contains "$OUT" "node: tests (npm test): pass (10.2.0)"
+  assert_contains "$OUT" "node: lint (npm run lint): pass (10.2.0)"
+  assert_contains "$OUT" "node: typecheck (npm run typecheck): pass (10.2.0)"
   assert_file_contains npm-invoked.log "npm test"
   assert_file_contains npm-invoked.log "npm run lint"
   assert_file_contains npm-invoked.log "npm run typecheck"
 }
 
 test_profile_node_full_run_fails_and_names_npm_version() {
-  fixture_repo
+  _node_fixture
   _node_pkg '{"test": "exit 1"}'
   _node_mgr_stub npm 10.2.0 1
 
   run bash "$JIG_HOME/profiles/node/verify.sh"
   assert_eq 1 "$RC" "$OUT"
-  assert_contains "$OUT" "node: npm test: fail (10.2.0)"
+  assert_contains "$OUT" "node: tests (npm test): fail (10.2.0)"
 }
 
 # --- package manager selection ----------------------------------------------
 
 test_profile_node_names_manager_from_package_manager_field() {
-  fixture_repo
+  _node_fixture
   {
     printf '{\n'
     printf '  "packageManager": "pnpm@8.6.0",\n'
@@ -255,61 +263,61 @@ test_profile_node_names_manager_from_package_manager_field() {
 
   run bash "$JIG_HOME/profiles/node/verify.sh"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "node: pnpm test: pass (8.6.0)"
+  assert_contains "$OUT" "node: tests (pnpm test): pass (8.6.0)"
   assert_file_contains pnpm-invoked.log "pnpm test"
 }
 
 test_profile_node_names_manager_from_pnpm_lock_file() {
-  fixture_repo
+  _node_fixture
   _node_pkg '{"test": "echo ok"}'
   : > pnpm-lock.yaml
   _node_mgr_stub pnpm 8.0.0 0
 
   run bash "$JIG_HOME/profiles/node/verify.sh"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "node: pnpm test: pass"
+  assert_contains "$OUT" "node: tests (pnpm test): pass"
 }
 
 test_profile_node_names_manager_from_yarn_lock_file() {
-  fixture_repo
+  _node_fixture
   _node_pkg '{"test": "echo ok"}'
   : > yarn.lock
   _node_mgr_stub yarn 1.22.0 0
 
   run bash "$JIG_HOME/profiles/node/verify.sh"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "node: yarn test: pass"
+  assert_contains "$OUT" "node: tests (yarn test): pass"
 }
 
 test_profile_node_bun_uses_run_test_not_bun_test() {
   # `bun test` is Bun's own built-in test runner and ignores package.json's
   # "test" script entirely; only `bun run test` runs it.
-  fixture_repo
+  _node_fixture
   _node_pkg '{"test": "echo ok"}'
   : > bun.lockb
   _node_mgr_stub bun 1.1.0 0
 
   run bash "$JIG_HOME/profiles/node/verify.sh"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "node: bun run test: pass"
+  assert_contains "$OUT" "node: tests (bun run test): pass"
   assert_file_contains bun-invoked.log "bun run test"
 }
 
 test_profile_node_chosen_manager_missing_on_path_skips_naming_it() {
-  fixture_repo
+  _node_fixture
   _node_pkg '{"test": "echo ok"}'
   : > pnpm-lock.yaml
   # No pnpm stub anywhere: run_no_tools strips PATH to the base system dirs.
 
   run_no_tools bash "$JIG_HOME/profiles/node/verify.sh"
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "node: pnpm test: skip (no test script or pnpm not found)"
+  assert_contains "$OUT" "node: tests (pnpm test): skip (no test script or pnpm not found)"
 }
 
 # --- lint narrowing (D4) -----------------------------------------------------
 
 test_profile_node_lint_narrows_to_changed_eslint_files() {
-  fixture_repo
+  _node_fixture
   _node_pkg '{"lint": "eslint ."}'
   _node_mgr_stub npm 10.0.0 0
   _node_local_tool_stub eslint 8.5.0 0
@@ -320,14 +328,14 @@ test_profile_node_lint_narrows_to_changed_eslint_files() {
 
   _node_scope "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "node: npm run lint: pass (8.5.0, scope: eslint, 2 files)"
+  assert_contains "$OUT" "node: lint (npm run lint): pass (8.5.0, scope: eslint, 2 files)"
   assert_file_contains eslint-invoked.log "a.ts"
   assert_file_contains eslint-invoked.log "b.ts"
   assert_not_contains "$(cat eslint-invoked.log)" "README.md"
 }
 
 test_profile_node_lint_full_when_script_does_not_invoke_eslint() {
-  fixture_repo
+  _node_fixture
   _node_pkg '{"lint": "prettier --check ."}'
   _node_mgr_stub npm 10.0.0 0
   _node_local_tool_stub eslint 8.5.0 0
@@ -336,13 +344,13 @@ test_profile_node_lint_full_when_script_does_not_invoke_eslint() {
 
   _node_scope "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "node: npm run lint: pass (10.0.0, scope: not narrowable, ran full set)"
+  assert_contains "$OUT" "node: lint (npm run lint): pass (10.0.0, scope: not narrowable, ran full set)"
   assert_no_file eslint-invoked.log
   assert_file_contains npm-invoked.log "npm run lint"
 }
 
 test_profile_node_lint_full_when_eslint_binary_missing() {
-  fixture_repo
+  _node_fixture
   _node_pkg '{"lint": "eslint ."}'
   _node_mgr_stub npm 10.0.0 0
   printf 'x\n' > a.ts
@@ -350,11 +358,11 @@ test_profile_node_lint_full_when_eslint_binary_missing() {
 
   _node_scope "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "node: npm run lint: pass (10.0.0, scope: not narrowable, ran full set)"
+  assert_contains "$OUT" "node: lint (npm run lint): pass (10.0.0, scope: not narrowable, ran full set)"
 }
 
 test_profile_node_lint_all_trigger_on_package_json_change() {
-  fixture_repo
+  _node_fixture
   _node_pkg '{"lint": "eslint ."}'
   _node_mgr_stub npm 10.0.0 0
   _node_local_tool_stub eslint 8.5.0 0
@@ -362,12 +370,12 @@ test_profile_node_lint_all_trigger_on_package_json_change() {
 
   _node_scope "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "node: npm run lint: pass (10.0.0, scope: project configuration changed, whole project)"
+  assert_contains "$OUT" "node: lint (npm run lint): pass (10.0.0, scope: project configuration changed, whole project)"
   assert_no_file eslint-invoked.log
 }
 
 test_profile_node_lint_skips_when_no_lintable_files_changed() {
-  fixture_repo
+  _node_fixture
   _node_pkg '{"lint": "eslint ."}'
   _node_mgr_stub npm 10.0.0 0
   _node_local_tool_stub eslint 8.5.0 0
@@ -376,13 +384,13 @@ test_profile_node_lint_skips_when_no_lintable_files_changed() {
 
   _node_scope "$files"
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "node: npm run lint: skip (scope: no changed lintable files)"
+  assert_contains "$OUT" "node: lint (npm run lint): skip (scope: no changed lintable files)"
 }
 
 # --- test narrowing (D4): jest -----------------------------------------------
 
 test_profile_node_test_narrows_via_jest_related_tests() {
-  fixture_repo
+  _node_fixture
   _node_pkg '{"test": "jest"}' '{"jest": "^29.0.0"}'
   _node_mgr_stub npm 10.0.0 0
   _node_jest_stub 29.0.0 2 0
@@ -391,13 +399,13 @@ test_profile_node_test_narrows_via_jest_related_tests() {
 
   _node_scope "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "node: npm test: pass (29.0.0, scope: jest related, 2 files)"
+  assert_contains "$OUT" "node: tests (npm test): pass (29.0.0, scope: jest related, 2 files)"
   assert_file_contains jest-invoked.log "--listTests --findRelatedTests a.ts"
   assert_file_contains jest-invoked.log "--findRelatedTests a.ts"
 }
 
 test_profile_node_test_jest_confirms_zero_related_falls_back_to_full() {
-  fixture_repo
+  _node_fixture
   _node_pkg '{"test": "jest"}' '{"jest": "^29.0.0"}'
   _node_mgr_stub npm 10.0.0 0
   _node_jest_stub 29.0.0 0 0
@@ -406,14 +414,14 @@ test_profile_node_test_jest_confirms_zero_related_falls_back_to_full() {
 
   _node_scope "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "node: npm test: pass (10.0.0, scope: jest finds no related tests, ran full set)"
+  assert_contains "$OUT" "node: tests (npm test): pass (10.0.0, scope: jest finds no related tests, ran full set)"
   assert_file_contains npm-invoked.log "npm test"
 }
 
 # --- test narrowing (D4): vitest --------------------------------------------
 
 test_profile_node_test_narrows_via_vitest_for_a_changed_test_file() {
-  fixture_repo
+  _node_fixture
   _node_pkg '{"test": "vitest run"}' '{"vitest": "^1.0.0"}'
   _node_mgr_stub npm 10.0.0 0
   _node_local_tool_stub vitest 1.4.0 0
@@ -422,7 +430,7 @@ test_profile_node_test_narrows_via_vitest_for_a_changed_test_file() {
 
   _node_scope "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "node: npm test: pass (1.4.0, scope: vitest related, 1 files)"
+  assert_contains "$OUT" "node: tests (npm test): pass (1.4.0, scope: vitest related, 1 files)"
   assert_file_contains vitest-invoked.log "run a.test.ts"
 }
 
@@ -431,7 +439,7 @@ test_profile_node_test_vitest_non_test_source_change_forces_full() {
   # listing them, so there is no way to confirm a narrowed run would select
   # anything without already running it (design D4): a changed source file
   # that is not itself a test file always sends vitest to the full script.
-  fixture_repo
+  _node_fixture
   _node_pkg '{"test": "vitest run"}' '{"vitest": "^1.0.0"}'
   _node_mgr_stub npm 10.0.0 0
   _node_local_tool_stub vitest 1.4.0 0
@@ -440,7 +448,7 @@ test_profile_node_test_vitest_non_test_source_change_forces_full() {
 
   _node_scope "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "node: npm test: pass (10.0.0, scope: no related tests found for a.ts, ran full set)"
+  assert_contains "$OUT" "node: tests (npm test): pass (10.0.0, scope: no related tests found for a.ts, ran full set)"
   assert_no_file vitest-invoked.log
   assert_file_contains npm-invoked.log "npm test"
 }
@@ -448,7 +456,7 @@ test_profile_node_test_vitest_non_test_source_change_forces_full() {
 # --- always-ALL trigger for test (D4) ---------------------------------------
 
 test_profile_node_test_all_trigger_on_lock_file_change() {
-  fixture_repo
+  _node_fixture
   _node_pkg '{"test": "jest"}' '{"jest": "^29.0.0"}'
   _node_mgr_stub npm 10.0.0 0
   _node_jest_stub 29.0.0 3 0
@@ -456,14 +464,14 @@ test_profile_node_test_all_trigger_on_lock_file_change() {
 
   _node_scope "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "node: npm test: pass (10.0.0, scope: package-lock.json can affect any test, ran full set)"
+  assert_contains "$OUT" "node: tests (npm test): pass (10.0.0, scope: package-lock.json can affect any test, ran full set)"
   assert_no_file jest-invoked.log
 }
 
 # --- typecheck never narrows (D4) -------------------------------------------
 
 test_profile_node_typecheck_always_runs_full_when_scoped() {
-  fixture_repo
+  _node_fixture
   _node_pkg '{"typecheck": "tsc --noEmit"}'
   _node_mgr_stub npm 10.0.0 0
   printf 'x\n' > a.ts
@@ -471,14 +479,14 @@ test_profile_node_typecheck_always_runs_full_when_scoped() {
 
   _node_scope "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "node: npm run typecheck: pass (10.0.0, scope: not narrowable, ran full set)"
+  assert_contains "$OUT" "node: typecheck (npm run typecheck): pass (10.0.0, scope: not narrowable, ran full set)"
   assert_file_contains npm-invoked.log "npm run typecheck"
 }
 
 # --- zero selection is not a pass (ADR-0041) ---------------------------------
 
 test_profile_node_zero_selection_empty_decision_skips() {
-  fixture_repo
+  _node_fixture
   _node_pkg '{"test": "jest"}' '{"jest": "^29.0.0"}'
   _node_mgr_stub npm 10.0.0 0
   _node_jest_stub 29.0.0 1 0
@@ -487,7 +495,7 @@ test_profile_node_zero_selection_empty_decision_skips() {
 
   _node_scope "$files"
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "node: npm test: skip (scope: no changed file maps to a test)"
+  assert_contains "$OUT" "node: tests (npm test): skip (scope: no changed file maps to a test)"
   assert_no_file jest-invoked.log
 }
 
@@ -495,7 +503,7 @@ test_profile_node_zero_selection_missing_filter_runs_full() {
   # A deleted tracked file is still "changed"; the map (or the builtin,
   # here proven through it) can therefore point at a test file that no
   # longer exists. That must never quietly select nothing.
-  fixture_repo
+  _node_fixture
   _node_pkg '{"test": "jest"}' '{"jest": "^29.0.0"}'
   _node_mgr_stub npm 10.0.0 0
   _node_jest_stub 29.0.0 1 0
@@ -505,14 +513,14 @@ test_profile_node_zero_selection_missing_filter_runs_full() {
 
   _node_scope "$files" "$mapped"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "node: npm test: pass (10.0.0, scope: filter 'gone.test.ts' selects no tests, ran full set)"
+  assert_contains "$OUT" "node: tests (npm test): pass (10.0.0, scope: filter 'gone.test.ts' selects no tests, ran full set)"
   assert_no_file jest-invoked.log
 }
 
 # --- map filters (D5): a test file path, used directly ----------------------
 
 test_profile_node_map_filter_overrides_builtin() {
-  fixture_repo
+  _node_fixture
   _node_pkg '{"test": "jest"}' '{"jest": "^29.0.0"}'
   _node_mgr_stub npm 10.0.0 0
   _node_jest_stub 29.0.0 1 0
@@ -524,7 +532,7 @@ test_profile_node_map_filter_overrides_builtin() {
 
   _node_scope "$files" "$mapped"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "node: npm test: pass (29.0.0, scope: jest related, 1 files)"
+  assert_contains "$OUT" "node: tests (npm test): pass (29.0.0, scope: jest related, 1 files)"
   assert_file_contains jest-invoked.log "custom.test.ts"
   assert_not_contains "$(cat jest-invoked.log)" "a.ts "
 }
@@ -553,7 +561,7 @@ _node_explain() {
 }
 
 test_profile_node_asset_change_runs_no_test_via_jest() {
-  fixture_repo
+  _node_fixture
   _node_pkg '{"test": "jest"}' '{"jest": "^29.0.0"}'
   _node_mgr_stub npm 10.0.0 0
   _node_jest_stub 29.0.0 1 0
@@ -563,12 +571,12 @@ test_profile_node_asset_change_runs_no_test_via_jest() {
 
   _node_scope "$files"
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "node: npm test: skip (scope: no changed file maps to a test)"
+  assert_contains "$OUT" "node: tests (npm test): skip (scope: no changed file maps to a test)"
   assert_no_file jest-invoked.log
 }
 
 test_profile_node_asset_change_runs_no_test_via_vitest() {
-  fixture_repo
+  _node_fixture
   _node_pkg '{"test": "vitest run"}' '{"vitest": "^1.0.0"}'
   _node_mgr_stub npm 10.0.0 0
   _node_local_tool_stub vitest 1.4.0 0
@@ -578,12 +586,12 @@ test_profile_node_asset_change_runs_no_test_via_vitest() {
 
   _node_scope "$files"
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "node: npm test: skip (scope: no changed file maps to a test)"
+  assert_contains "$OUT" "node: tests (npm test): skip (scope: no changed file maps to a test)"
   assert_no_file vitest-invoked.log
 }
 
 test_profile_node_asset_under_public_runs_full_test() {
-  fixture_repo
+  _node_fixture
   _node_pkg '{"test": "jest"}' '{"jest": "^29.0.0"}'
   _node_mgr_stub npm 10.0.0 0
   _node_jest_stub 29.0.0 1 0
@@ -594,11 +602,11 @@ test_profile_node_asset_under_public_runs_full_test() {
   _node_scope "$files"
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" \
-    "node: npm test: pass (10.0.0, scope: the profile cannot map public/app.css to tests, ran full set)"
+    "node: tests (npm test): pass (10.0.0, scope: the profile cannot map public/app.css to tests, ran full set)"
 }
 
 test_profile_node_asset_fixture_under_test_fixtures_runs_full_test() {
-  fixture_repo
+  _node_fixture
   _node_pkg '{"test": "jest"}' '{"jest": "^29.0.0"}'
   _node_mgr_stub npm 10.0.0 0
   _node_jest_stub 29.0.0 1 0
@@ -609,11 +617,11 @@ test_profile_node_asset_fixture_under_test_fixtures_runs_full_test() {
   _node_scope "$files"
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" \
-    "node: npm test: pass (10.0.0, scope: the profile cannot map test/fixtures/sample.png to tests, ran full set)"
+    "node: tests (npm test): pass (10.0.0, scope: the profile cannot map test/fixtures/sample.png to tests, ran full set)"
 }
 
 test_profile_node_asset_beside_source_runs_only_the_related_test() {
-  fixture_repo
+  _node_fixture
   _node_pkg '{"test": "jest"}' '{"jest": "^29.0.0"}'
   _node_mgr_stub npm 10.0.0 0
   _node_jest_stub 29.0.0 1 0
@@ -624,7 +632,7 @@ test_profile_node_asset_beside_source_runs_only_the_related_test() {
 
   _node_scope "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "node: npm test: pass (29.0.0, scope: jest related, 1 files)"
+  assert_contains "$OUT" "node: tests (npm test): pass (29.0.0, scope: jest related, 1 files)"
   assert_file_contains jest-invoked.log "--findRelatedTests src/a.ts"
   assert_not_contains "$(cat jest-invoked.log)" "src/a.css"
 }
@@ -632,7 +640,7 @@ test_profile_node_asset_beside_source_runs_only_the_related_test() {
 # --- explain: the plan says why, not just what -------------------------------
 
 test_profile_node_explain_asset_change_maps_to_no_test() {
-  fixture_repo
+  _node_fixture
   _node_pkg '{"test": "jest"}' '{"jest": "^29.0.0"}'
   _node_mgr_stub npm 10.0.0 0
   _node_jest_stub 29.0.0 1 0
@@ -642,12 +650,12 @@ test_profile_node_explain_asset_change_maps_to_no_test() {
 
   _node_explain "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "PLAN node: npm test: skip (no changed file maps to this check)"
+  assert_contains "$OUT" "PLAN node: tests (npm test): skip (no changed file maps to this check)"
   assert_no_file jest-invoked.log
 }
 
 test_profile_node_explain_names_the_path_that_forces_the_full_set() {
-  fixture_repo
+  _node_fixture
   _node_pkg '{"test": "jest"}' '{"jest": "^29.0.0"}'
   _node_mgr_stub npm 10.0.0 0
   _node_jest_stub 29.0.0 1 0
@@ -655,14 +663,14 @@ test_profile_node_explain_names_the_path_that_forces_the_full_set() {
 
   _node_explain "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "PLAN node: npm test: full (package-lock.json can affect any test)"
+  assert_contains "$OUT" "PLAN node: tests (npm test): full (package-lock.json can affect any test)"
   assert_no_file jest-invoked.log
 }
 
 # --- verify.full_run: ci leaves the full set to CI ---------------------------
 
 test_profile_node_full_run_ci_leaves_a_lock_file_change_to_ci() {
-  fixture_repo
+  _node_fixture
   _node_pkg '{"test": "jest"}' '{"jest": "^29.0.0"}'
   _node_mgr_stub npm 10.0.0 0
   _node_jest_stub 29.0.0 3 0
@@ -674,13 +682,13 @@ test_profile_node_full_run_ci_leaves_a_lock_file_change_to_ci() {
   unset JIG_VERIFY_FULL_RUN
   # Nothing ran, so the profile exits 2 ("verified nothing"), as for any all-skip run.
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "node: npm test: skip (scope: package-lock.json can affect any test, full set left to CI)"
+  assert_contains "$OUT" "node: tests (npm test): skip (scope: package-lock.json can affect any test, full set left to CI)"
   assert_no_file jest-invoked.log
   assert_no_file npm-invoked.log
 }
 
 test_profile_node_full_run_ci_runs_the_related_tests_beside_a_lock_file_change() {
-  fixture_repo
+  _node_fixture
   _node_pkg '{"test": "jest"}' '{"jest": "^29.0.0"}'
   _node_mgr_stub npm 10.0.0 0
   _node_jest_stub 29.0.0 2 0
@@ -692,13 +700,13 @@ test_profile_node_full_run_ci_runs_the_related_tests_beside_a_lock_file_change()
   _node_scope "$files"
   unset JIG_VERIFY_FULL_RUN
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "node: npm test: pass (29.0.0, scope: jest related, 2 files, full set left to CI)"
+  assert_contains "$OUT" "node: tests (npm test): pass (29.0.0, scope: jest related, 2 files, full set left to CI)"
   assert_file_contains jest-invoked.log "--findRelatedTests a.ts"
   assert_no_file npm-invoked.log
 }
 
 test_profile_node_full_run_ci_runs_a_changed_vitest_file_beside_a_lock_file_change() {
-  fixture_repo
+  _node_fixture
   _node_pkg '{"test": "vitest run"}' '{"vitest": "^1.0.0"}'
   _node_mgr_stub npm 10.0.0 0
   _node_local_tool_stub vitest 1.4.0 0
@@ -710,7 +718,7 @@ test_profile_node_full_run_ci_runs_a_changed_vitest_file_beside_a_lock_file_chan
   _node_scope "$files"
   unset JIG_VERIFY_FULL_RUN
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "node: npm test: pass (1.4.0, scope: vitest related, 1 files, full set left to CI)"
+  assert_contains "$OUT" "node: tests (npm test): pass (1.4.0, scope: vitest related, 1 files, full set left to CI)"
   assert_file_contains vitest-invoked.log "run a.test.ts"
   assert_no_file npm-invoked.log
 }
@@ -718,7 +726,7 @@ test_profile_node_full_run_ci_runs_a_changed_vitest_file_beside_a_lock_file_chan
 # --- verify.full_run: ci leaves whole-tree lint and typecheck to CI ----------
 
 test_profile_node_full_run_ci_leaves_a_lint_script_that_is_not_eslint_to_ci() {
-  fixture_repo
+  _node_fixture
   _node_pkg '{"lint": "prettier --check ."}'
   _node_mgr_stub npm 10.0.0 0
   printf 'x\n' > a.ts
@@ -728,12 +736,12 @@ test_profile_node_full_run_ci_leaves_a_lint_script_that_is_not_eslint_to_ci() {
   export JIG_VERIFY_FULL_RUN
   _node_scope "$files"
   unset JIG_VERIFY_FULL_RUN
-  assert_contains "$OUT" "node: npm run lint: skip (scope: not narrowable, full set left to CI)"
+  assert_contains "$OUT" "node: lint (npm run lint): skip (scope: not narrowable, full set left to CI)"
   assert_no_file npm-invoked.log
 }
 
 test_profile_node_full_run_ci_leaves_a_lint_config_change_to_ci() {
-  fixture_repo
+  _node_fixture
   _node_pkg '{"lint": "eslint ."}'
   _node_mgr_stub npm 10.0.0 0
   _node_local_tool_stub eslint 8.5.0 0
@@ -743,13 +751,13 @@ test_profile_node_full_run_ci_leaves_a_lint_config_change_to_ci() {
   export JIG_VERIFY_FULL_RUN
   _node_scope "$files"
   unset JIG_VERIFY_FULL_RUN
-  assert_contains "$OUT" "node: npm run lint: skip (scope: project configuration changed, full set left to CI)"
+  assert_contains "$OUT" "node: lint (npm run lint): skip (scope: project configuration changed, full set left to CI)"
   assert_no_file eslint-invoked.log
   assert_no_file npm-invoked.log
 }
 
 test_profile_node_full_run_ci_still_lints_the_changed_files() {
-  fixture_repo
+  _node_fixture
   _node_pkg '{"lint": "eslint ."}'
   _node_mgr_stub npm 10.0.0 0
   _node_local_tool_stub eslint 8.5.0 0
@@ -760,12 +768,12 @@ test_profile_node_full_run_ci_still_lints_the_changed_files() {
   export JIG_VERIFY_FULL_RUN
   _node_scope "$files"
   unset JIG_VERIFY_FULL_RUN
-  assert_contains "$OUT" "node: npm run lint: pass (8.5.0, scope: eslint, 1 files)"
+  assert_contains "$OUT" "node: lint (npm run lint): pass (8.5.0, scope: eslint, 1 files)"
   assert_file_contains eslint-invoked.log "a.ts"
 }
 
 test_profile_node_full_run_ci_leaves_typecheck_to_ci() {
-  fixture_repo
+  _node_fixture
   _node_pkg '{"typecheck": "tsc --noEmit"}'
   _node_mgr_stub npm 10.0.0 0
   printf 'x\n' > a.ts
@@ -775,6 +783,136 @@ test_profile_node_full_run_ci_leaves_typecheck_to_ci() {
   export JIG_VERIFY_FULL_RUN
   _node_scope "$files"
   unset JIG_VERIFY_FULL_RUN
-  assert_contains "$OUT" "node: npm run typecheck: skip (scope: not narrowable, full set left to CI)"
+  assert_contains "$OUT" "node: typecheck (npm run typecheck): skip (scope: not narrowable, full set left to CI)"
   assert_no_file npm-invoked.log
+}
+
+# --- the check table (adr-20261117-a-profile-declares-its-checks-in-a-table) --
+
+# The command line of every check, exactly, in a full run, in a narrowed run
+# and in a fallback to the full set: the table carries what verify.sh used to
+# write, so nothing a project runs changes. Each stub logs its arguments.
+test_profile_node_check_table_keeps_every_command_line() {
+  _node_fixture
+  _node_pkg '{"test": "jest", "lint": "eslint .", "typecheck": "tsc"}' '{"jest": "^29.0.0"}'
+  _node_mgr_stub npm 10.0.0 0
+  _node_jest_stub 29.0.0 2 0
+  _node_local_tool_stub eslint 8.5.0 0
+  printf 'x\n' > a.ts
+
+  run bash "$JIG_HOME/profiles/node/verify.sh"
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "npm test
+npm run lint
+npm run typecheck" "$(cat npm-invoked.log)"
+  assert_no_file jest-invoked.log
+  assert_no_file eslint-invoked.log
+
+  rm -f npm-invoked.log
+  files=$(_node_files a.ts)
+  _node_scope "$files"
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "jest --listTests --findRelatedTests a.ts
+jest --findRelatedTests a.ts" "$(cat jest-invoked.log)"
+  assert_eq "eslint a.ts" "$(cat eslint-invoked.log)"
+  assert_eq "npm run typecheck" "$(cat npm-invoked.log)"
+
+  rm -f npm-invoked.log jest-invoked.log eslint-invoked.log
+  files=$(_node_files package-lock.json)
+  _node_scope "$files"
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "npm test
+npm run lint
+npm run typecheck" "$(cat npm-invoked.log)" "a lock file widens test and lint to the full set"
+  assert_no_file jest-invoked.log
+  assert_no_file eslint-invoked.log
+}
+
+# The runner and the package manager are words the table leaves to verify.sh:
+# vitest narrows to `vitest run <files>`, bun runs `bun run test`.
+test_profile_node_check_table_keeps_the_runner_and_manager_words() {
+  _node_fixture
+  _node_pkg '{"test": "vitest run"}' '{"vitest": "^1.0.0"}'
+  : > bun.lockb
+  _node_mgr_stub bun 1.1.0 0
+  _node_local_tool_stub vitest 1.4.0 0
+  printf 'x\n' > a.test.ts
+  printf 'y\n' > a.ts
+
+  files=$(_node_files a.test.ts)
+  _node_scope "$files"
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "vitest run a.test.ts" "$(cat vitest-invoked.log)"
+  assert_no_file bun-invoked.log
+
+  files=$(_node_files a.ts)
+  _node_scope "$files"
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "bun run test" "$(cat bun-invoked.log)"
+}
+
+# The table is what runs: a changed row changes the command line, and the
+# selection lands where `{selection}` stands.
+test_profile_node_check_table_rows_shape_the_command() {
+  _node_fixture
+  _node_pkg '{"lint": "eslint ."}'
+  _node_mgr_stub npm 10.0.0 0
+  _node_local_tool_stub eslint 8.5.0 0
+  printf 'x\n' > a.ts
+  sed -e 's/^checks.lint.narrowed: .*/checks.lint.narrowed: --max-warnings 0 {selection}/' \
+    "$JIG_HOME/profiles/node/profile.yaml" > profile.tmp
+  mkdir -p table-profile
+  cp profile.tmp table-profile/profile.yaml
+  profile_checks_env table-profile
+  files=$(_node_files a.ts)
+  _node_scope "$files"
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "eslint --max-warnings 0 a.ts" "$(cat eslint-invoked.log)"
+}
+
+# A profile.yaml from before the table (kept by `upgrade` as modified) beside
+# this verify.sh fails each check it would run, loudly, instead of running
+# another command in silence; --explain names the gap without a verdict.
+test_profile_node_check_table_missing_fails_loudly() {
+  _node_fixture
+  _node_pkg '{"test": "jest", "lint": "eslint .", "typecheck": "tsc"}'
+  _node_mgr_stub npm 10.0.0 0
+  unset JIG_VERIFY_CHECKS
+  run bash "$JIG_HOME/profiles/node/verify.sh"
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "node: tests (npm test): fail (profile.yaml names no check 'tests'; jig upgrade restores it)"
+  assert_contains "$OUT" "node: lint (npm run lint): fail (profile.yaml names no check 'lint'; jig upgrade restores it)"
+  assert_contains "$OUT" "node: typecheck (npm run typecheck): fail (profile.yaml names no check 'typecheck'; jig upgrade restores it)"
+  assert_no_file npm-invoked.log
+
+  JIG_VERIFY_EXPLAIN=1 run bash "$JIG_HOME/profiles/node/verify.sh"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN node: tests (npm test): skip (profile.yaml names no check 'tests'; jig upgrade restores it)"
+  assert_contains "$OUT" "PLAN node: lint (npm run lint): skip (profile.yaml names no check 'lint'; jig upgrade restores it)"
+  assert_contains "$OUT" "PLAN node: typecheck (npm run typecheck): skip (profile.yaml names no check 'typecheck'; jig upgrade restores it)"
+}
+
+# Every role the profile lists in `checks:` can be taken over by another
+# profile (`covers: [node:<role>]`): the check prints jp_covered's line and
+# runs no tool.
+test_profile_node_every_role_can_be_covered() {
+  _node_fixture
+  _node_pkg '{"test": "jest", "lint": "eslint .", "typecheck": "tsc"}'
+  _node_mgr_stub npm 10.0.0 0
+  JIG_VERIFY_COVERED="tests=other lint=other typecheck=other"
+  export JIG_VERIFY_COVERED
+  run bash "$JIG_HOME/profiles/node/verify.sh"
+  assert_eq 2 "$RC" "$OUT"
+  assert_contains "$OUT" "node: tests (npm test): skip (scope: covered by other, node:tests)"
+  assert_contains "$OUT" "node: lint (npm run lint): skip (scope: covered by other, node:lint)"
+  assert_contains "$OUT" "node: typecheck (npm run typecheck): skip (scope: covered by other, node:typecheck)"
+  assert_no_file npm-invoked.log
+
+  JIG_VERIFY_EXPLAIN=1 run bash "$JIG_HOME/profiles/node/verify.sh"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN node: tests (npm test): skip (scope: covered by other, node:tests)"
+  assert_contains "$OUT" "PLAN node: lint (npm run lint): skip (scope: covered by other, node:lint)"
+  assert_contains "$OUT" "PLAN node: typecheck (npm run typecheck): skip (scope: covered by other, node:typecheck)"
+  assert_no_file npm-invoked.log
+  unset JIG_VERIFY_COVERED
 }

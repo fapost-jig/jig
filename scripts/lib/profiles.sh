@@ -273,6 +273,25 @@ profiles_check_rows() {
   done < "$file"
 }
 
+# profiles_check_handdown <profile-dir> — what `jig verify` hands a profile as
+# JIG_VERIFY_CHECKS: a `<role><TAB>listed<TAB>` row for every role in `checks`,
+# then the table's rows (profiles_check_rows). Prints nothing for a profile
+# without table rows: the rows are the declaration, and `checks: [tests]` alone
+# is not one. One producer, so a test that runs a profile's verify.sh directly
+# hands it the same file `jig verify` would.
+profiles_check_handdown() {
+  local rows listed role
+  rows=$(profiles_check_rows "$1")
+  [ -n "$rows" ] || return 0
+  listed=$(_profiles_list_lines "$1" checks)
+  while IFS= read -r role; do
+    [ -z "$role" ] || printf '%s\tlisted\t\n' "$role"
+  done <<EOF
+$listed
+EOF
+  printf '%s\n' "$rows"
+}
+
 # profiles_applies <profile-dir> — true when the profile's own stack is in
 # the project: `detect` is `always`, absent (a project's profile, activated
 # by name), or one of its globs matches. A profile covers another's check only

@@ -16,6 +16,7 @@ _DOTNET_VERIFY=".ai/profiles/dotnet/verify.sh"
 _dotnet_install() {
   fixture_repo
   jig init --from "$JIG_HOME" --profiles dotnet >/dev/null
+  profile_checks_env .ai/profiles/dotnet
   mkdir -p src/App tests/App.Tests
   cat > App.sln <<'EOF'
 Microsoft Visual Studio Solution File, Format Version 12.00
@@ -190,8 +191,8 @@ test_profile_dotnet_skips_every_check_without_toolchain() {
   # Every check skipped, so the run checked nothing and says so, exit 3
   # (adr-20260925-one-test-run-per-clone-and-a-dead-run-is-not-a-pass).
   assert_eq 3 "$RC" "$OUT"
-  assert_contains "$OUT" "dotnet: format: skip (not found on PATH)"
-  assert_contains "$OUT" "dotnet: test: skip (not found on PATH)"
+  assert_contains "$OUT" "dotnet: style (dotnet format): skip (not found on PATH)"
+  assert_contains "$OUT" "dotnet: tests (dotnet test): skip (not found on PATH)"
   assert_contains "$OUT" "RESULT dotnet: skip"
 }
 
@@ -202,12 +203,12 @@ test_profile_dotnet_format_pass_and_fail_report_version() {
   _dotnet_stub 8.0.100 0 0 dotnet.log
   run jig verify --profile dotnet
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "dotnet: format: pass (8.0.100)"
+  assert_contains "$OUT" "dotnet: style (dotnet format): pass (8.0.100)"
 
   _dotnet_stub 8.0.100 1 0 dotnet.log
   run jig verify --profile dotnet
   assert_eq 1 "$RC"
-  assert_contains "$OUT" "dotnet: format: fail (8.0.100)"
+  assert_contains "$OUT" "dotnet: style (dotnet format): fail (8.0.100)"
 }
 
 test_profile_dotnet_test_pass_and_fail_report_version() {
@@ -215,12 +216,12 @@ test_profile_dotnet_test_pass_and_fail_report_version() {
   _dotnet_stub 8.0.100 0 0 dotnet.log
   run jig verify --profile dotnet
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "dotnet: test: pass (8.0.100)"
+  assert_contains "$OUT" "dotnet: tests (dotnet test): pass (8.0.100)"
 
   _dotnet_stub 8.0.100 0 1 dotnet.log
   run jig verify --profile dotnet
   assert_eq 1 "$RC"
-  assert_contains "$OUT" "dotnet: test: fail (8.0.100)"
+  assert_contains "$OUT" "dotnet: tests (dotnet test): fail (8.0.100)"
 }
 
 test_profile_dotnet_full_mode_runs_plain_dotnet_test_no_project_guessed() {
@@ -245,7 +246,7 @@ test_profile_dotnet_format_narrowed_to_changed_files() {
 
   _dotnet_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "dotnet: format: pass (8.0.100, scope: 1 files)"
+  assert_contains "$OUT" "dotnet: style (dotnet format): pass (8.0.100, scope: 1 files)"
   assert_file_contains dotnet.log "src/App/Program.cs"
   assert_not_contains "$(cat dotnet.log)" "Extra.txt"
 }
@@ -257,7 +258,7 @@ test_profile_dotnet_format_skips_when_no_changed_source_files() {
 
   _dotnet_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "dotnet: format: skip (scope: no changed .cs/.fs/.vb files)"
+  assert_contains "$OUT" "dotnet: style (dotnet format): skip (scope: no changed .cs/.fs/.vb files)"
 }
 
 # Documentation reaches no check (jp_is_doc): both checks skip, and the
@@ -270,8 +271,8 @@ test_profile_dotnet_documentation_only_change_skips_every_check() {
 
   _dotnet_scoped "$files"
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "dotnet: format: skip"
-  assert_contains "$OUT" "dotnet: test: skip"
+  assert_contains "$OUT" "dotnet: style (dotnet format): skip"
+  assert_contains "$OUT" "dotnet: tests (dotnet test): skip"
 }
 
 # --- always-ALL triggers (D4) --------------------------------------------------
@@ -284,8 +285,8 @@ test_profile_dotnet_sln_change_runs_full_format_and_test() {
   _dotnet_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" \
-    "dotnet: format: pass (8.0.100, scope: sln/build config changed, whole project)"
-  assert_contains "$OUT" "dotnet: test: pass (8.0.100, scope: not narrowable, ran full set)"
+    "dotnet: style (dotnet format): pass (8.0.100, scope: sln/build config changed, whole project)"
+  assert_contains "$OUT" "dotnet: tests (dotnet test): pass (8.0.100, scope: not narrowable, ran full set)"
   assert_file_contains dotnet.log "^format --verify-no-changes$"
   assert_file_contains dotnet.log "^test$"
 }
@@ -297,7 +298,7 @@ test_profile_dotnet_directory_build_props_runs_full() {
 
   _dotnet_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "dotnet: test: pass (8.0.100, scope: not narrowable, ran full set)"
+  assert_contains "$OUT" "dotnet: tests (dotnet test): pass (8.0.100, scope: not narrowable, ran full set)"
 }
 
 test_profile_dotnet_global_json_runs_full() {
@@ -307,7 +308,7 @@ test_profile_dotnet_global_json_runs_full() {
 
   _dotnet_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "dotnet: test: pass (8.0.100, scope: not narrowable, ran full set)"
+  assert_contains "$OUT" "dotnet: tests (dotnet test): pass (8.0.100, scope: not narrowable, ran full set)"
 }
 
 test_profile_dotnet_nuget_config_runs_full() {
@@ -317,7 +318,7 @@ test_profile_dotnet_nuget_config_runs_full() {
 
   _dotnet_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "dotnet: test: pass (8.0.100, scope: not narrowable, ran full set)"
+  assert_contains "$OUT" "dotnet: tests (dotnet test): pass (8.0.100, scope: not narrowable, ran full set)"
 }
 
 # --- narrowing: test project resolution (D4) -----------------------------------
@@ -329,7 +330,7 @@ test_profile_dotnet_changed_file_in_test_project_narrows_to_that_project() {
 
   _dotnet_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "dotnet: test: pass (8.0.100, scope: 1 test projects)"
+  assert_contains "$OUT" "dotnet: tests (dotnet test): pass (8.0.100, scope: 1 test projects)"
   assert_file_contains dotnet.log "test tests/App.Tests/App.Tests.csproj"
 }
 
@@ -340,7 +341,7 @@ test_profile_dotnet_changed_file_in_non_test_project_runs_full() {
 
   _dotnet_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "dotnet: test: pass (8.0.100, scope: not narrowable, ran full set)"
+  assert_contains "$OUT" "dotnet: tests (dotnet test): pass (8.0.100, scope: not narrowable, ran full set)"
   assert_file_contains dotnet.log "^test$"
 }
 
@@ -352,7 +353,7 @@ test_profile_dotnet_changed_file_with_no_ancestor_project_runs_full() {
 
   _dotnet_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "dotnet: test: pass (8.0.100, scope: not narrowable, ran full set)"
+  assert_contains "$OUT" "dotnet: tests (dotnet test): pass (8.0.100, scope: not narrowable, ran full set)"
 }
 
 test_profile_dotnet_zero_selection_skips_test() {
@@ -365,7 +366,7 @@ test_profile_dotnet_zero_selection_skips_test() {
 
   _dotnet_scoped "$files"
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "dotnet: test: skip (scope: no changed file maps to a test project)"
+  assert_contains "$OUT" "dotnet: tests (dotnet test): skip (scope: no changed file maps to a test project)"
 }
 
 test_profile_dotnet_missing_selected_project_falls_back_to_full() {
@@ -379,7 +380,7 @@ test_profile_dotnet_missing_selected_project_falls_back_to_full() {
   _dotnet_scoped "$files" "$mapped"
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" \
-    "dotnet: test: pass (8.0.100, scope: filter 'tests/Gone/Gone.csproj' selects no tests, ran full set)"
+    "dotnet: tests (dotnet test): pass (8.0.100, scope: filter 'tests/Gone/Gone.csproj' selects no tests, ran full set)"
 }
 
 # --- map filters (D5: a test project path) -------------------------------------
@@ -417,7 +418,7 @@ test_profile_dotnet_map_dash_means_no_impact() {
 
   _dotnet_scoped "$files" "$mapped"
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "dotnet: test: skip (scope: no changed file maps to a test project)"
+  assert_contains "$OUT" "dotnet: tests (dotnet test): skip (scope: no changed file maps to a test project)"
 }
 
 test_profile_dotnet_map_question_mark_falls_back_to_builtin() {
@@ -444,8 +445,8 @@ test_profile_dotnet_full_run_ci_leaves_a_sln_change_to_ci() {
   unset JIG_VERIFY_FULL_RUN
   # Nothing ran, so the profile exits 2.
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "dotnet: format: skip (scope: sln/build config changed, full set left to CI)"
-  assert_contains "$OUT" "dotnet: test: skip (scope: not narrowable, full set left to CI)"
+  assert_contains "$OUT" "dotnet: style (dotnet format): skip (scope: sln/build config changed, full set left to CI)"
+  assert_contains "$OUT" "dotnet: tests (dotnet test): skip (scope: not narrowable, full set left to CI)"
   assert_not_contains "$(cat dotnet.log)" "format"
   assert_not_contains "$(cat dotnet.log)" "test"
 }
@@ -460,6 +461,99 @@ test_profile_dotnet_full_run_ci_runs_the_named_project_beside_a_sln_change() {
   _dotnet_scoped "$files"
   unset JIG_VERIFY_FULL_RUN
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "dotnet: test: pass (8.0.100, scope: 1 test projects, full set left to CI)"
+  assert_contains "$OUT" "dotnet: tests (dotnet test): pass (8.0.100, scope: 1 test projects, full set left to CI)"
   assert_file_contains dotnet.log "test tests/App.Tests/App.Tests.csproj"
+}
+
+# --- the check table (adr-20261117-a-profile-declares-its-checks-in-a-table) --
+
+# The command line of every check, exactly, in a full run, a narrowed run (one
+# `dotnet test` per test project) and a fallback to the full set: the table
+# carries what verify.sh used to write, so nothing a project runs changes. The
+# stub logs its arguments as one line.
+test_profile_dotnet_check_table_keeps_every_command_line() {
+  _dotnet_install
+  mkdir -p tests/Other.Tests
+  cp tests/App.Tests/App.Tests.csproj tests/Other.Tests/Other.Tests.csproj
+  : > tests/Other.Tests/BarTests.cs
+  git add -A
+  git commit -q -m "second test project"
+  _dotnet_stub 8.0.100 0 0 dotnet.log
+
+  run bash "$_DOTNET_VERIFY"
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "format --verify-no-changes
+test" "$(cat dotnet.log)"
+
+  rm -f dotnet.log
+  files=$(_files_list tests/App.Tests/FooTests.cs tests/Other.Tests/BarTests.cs)
+  _dotnet_scoped "$files"
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "format --verify-no-changes --include tests/App.Tests/FooTests.cs tests/Other.Tests/BarTests.cs
+test tests/App.Tests/App.Tests.csproj
+test tests/Other.Tests/Other.Tests.csproj" "$(cat dotnet.log)"
+
+  rm -f dotnet.log
+  files=$(_files_list App.sln)
+  _dotnet_scoped "$files"
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "format --verify-no-changes
+test" "$(cat dotnet.log)" "a solution file runs both checks in full"
+}
+
+# The table is what runs: a changed row changes the command line, and the
+# selection lands where `{selection}` stands.
+test_profile_dotnet_check_table_rows_shape_the_command() {
+  _dotnet_install
+  _dotnet_stub 8.0.100 0 0 dotnet.log
+  sed -e 's/^checks.tests.narrowed: .*/checks.tests.narrowed: test --no-build {selection}/' \
+    .ai/profiles/dotnet/profile.yaml > profile.tmp
+  rm -f .ai/profiles/dotnet/profile.yaml
+  cp profile.tmp .ai/profiles/dotnet/profile.yaml
+  profile_checks_env .ai/profiles/dotnet
+  files=$(_files_list tests/App.Tests/FooTests.cs)
+  _dotnet_scoped "$files"
+  assert_eq 0 "$RC" "$OUT"
+  assert_file_contains dotnet.log "^test --no-build tests/App.Tests/App.Tests.csproj$"
+}
+
+# A profile.yaml from before the table (kept by `upgrade` as modified) beside
+# this verify.sh fails each check it would run, loudly, instead of running
+# another command in silence; --explain names the gap without a verdict.
+test_profile_dotnet_check_table_missing_fails_loudly() {
+  _dotnet_install
+  _dotnet_stub 8.0.100 0 0 dotnet.log
+  unset JIG_VERIFY_CHECKS
+  run bash "$_DOTNET_VERIFY"
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "dotnet: style (dotnet format): fail (profile.yaml names no check 'style'; jig upgrade restores it)"
+  assert_contains "$OUT" "dotnet: tests (dotnet test): fail (profile.yaml names no check 'tests'; jig upgrade restores it)"
+  assert_no_file dotnet.log
+
+  JIG_VERIFY_EXPLAIN=1 run bash "$_DOTNET_VERIFY"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN dotnet: style (dotnet format): skip (profile.yaml names no check 'style'; jig upgrade restores it)"
+  assert_contains "$OUT" "PLAN dotnet: tests (dotnet test): skip (profile.yaml names no check 'tests'; jig upgrade restores it)"
+}
+
+# Every role the profile lists in `checks:` can be taken over by another
+# profile (`covers: [dotnet:<role>]`): the check prints jp_covered's line and
+# runs no tool.
+test_profile_dotnet_every_role_can_be_covered() {
+  _dotnet_install
+  _dotnet_stub 8.0.100 0 0 dotnet.log
+  JIG_VERIFY_COVERED="style=other tests=other"
+  export JIG_VERIFY_COVERED
+  run bash "$_DOTNET_VERIFY"
+  assert_eq 2 "$RC" "$OUT"
+  assert_contains "$OUT" "dotnet: style (dotnet format): skip (scope: covered by other, dotnet:style)"
+  assert_contains "$OUT" "dotnet: tests (dotnet test): skip (scope: covered by other, dotnet:tests)"
+  assert_no_file dotnet.log
+
+  JIG_VERIFY_EXPLAIN=1 run bash "$_DOTNET_VERIFY"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN dotnet: style (dotnet format): skip (scope: covered by other, dotnet:style)"
+  assert_contains "$OUT" "PLAN dotnet: tests (dotnet test): skip (scope: covered by other, dotnet:tests)"
+  assert_no_file dotnet.log
+  unset JIG_VERIFY_COVERED
 }

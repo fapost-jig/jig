@@ -3,6 +3,12 @@
 # repository root. Exit 0 = pass, 1 = fail, 2 = skip (no check could run).
 # Prints one line per check: "dotnet: <check>: pass|fail|skip (<note>)".
 #
+# Checks by role (`checks:` in profile.yaml), the tool in the label: style
+# (`style (dotnet format)`) and tests (`tests (dotnet test)`). Every command
+# line comes from the profile's check table through jp_check_cmd
+# (schemas/profile.md, Check table); a fallback to the full set is a `full`
+# command line.
+#
 # The `dotnet` CLI is the only tool (adr-20260918-profiles-narrow-per-check-with-project-tools): the stack toolchain, from
 # PATH. dotnet itself resolves which project or solution to build or test;
 # this profile never guesses among several root *.sln files, it only ever
@@ -25,6 +31,9 @@ set -o pipefail
 . "$(dirname "$0")/../../scripts/lib/profile.sh"
 
 jp_begin dotnet
+
+STYLE_LABEL="style (dotnet format)"
+TESTS_LABEL="tests (dotnet test)"
 
 # _dotnet_is_always_all <path> — a file whose change can alter the result of
 # any check regardless of which project it lives in: a solution, an
@@ -55,29 +64,38 @@ _dotnet_always_all_changed() {
 
 DOTNET_WHERE="not found on PATH"
 
+# A check another profile took over (jp_covered) prints its own skip line and
+# is left out of everything below, before any tool is looked for.
+style_covered=0
+tests_covered=0
+if jp_covered style "$STYLE_LABEL"; then style_covered=1; fi
+if jp_covered tests "$TESTS_LABEL"; then tests_covered=1; fi
+
 if ! jp_have dotnet; then
   if [ "${JIG_VERIFY_EXPLAIN:-}" = 1 ]; then
-    jp_plan format skip "$DOTNET_WHERE"
-    jp_plan test skip "$DOTNET_WHERE"
+    [ "$style_covered" = 1 ] || jp_plan "$STYLE_LABEL" skip "$DOTNET_WHERE"
+    [ "$tests_covered" = 1 ] || jp_plan "$TESTS_LABEL" skip "$DOTNET_WHERE"
     exit 0
   fi
-  jp_skip "format" "$DOTNET_WHERE"
-  jp_skip "test" "$DOTNET_WHERE"
+  [ "$style_covered" = 1 ] || jp_skip "$STYLE_LABEL" "$DOTNET_WHERE"
+  [ "$tests_covered" = 1 ] || jp_skip "$TESTS_LABEL" "$DOTNET_WHERE"
   jp_end
 fi
 
-if [ "${JIG_VERIFY_EXPLAIN:-}" != 1 ]; then
+if [ "${JIG_VERIFY_EXPLAIN:-}" != 1 ] && { [ "$style_covered" = 0 ] || [ "$tests_covered" = 0 ]; }; then
   v=$(jp_version dotnet --version)
 fi
 
-# --- format --------------------------------------------------------------------
+# --- style: dotnet format --------------------------------------------------------------------
 
 if [ "${JIG_VERIFY_EXPLAIN:-}" != 1 ]; then
 
-if jp_scoped && ! _dotnet_always_all_changed; then
+if [ "$style_covered" = 1 ]; then
+  :
+elif jp_scoped && ! _dotnet_always_all_changed; then
   files=$(jp_changed cs fs vb)
   if [ -z "$files" ]; then
-    jp_skip "format" "scope: no changed .cs/.fs/.vb files"
+    jp_skip "$STYLE_LABEL" "scope: no changed .cs/.fs/.vb files"
   else
     n=$(printf '%s\n' "$files" | grep -c .)
     # One argument per line, so a path with a space stays one path.
@@ -88,17 +106,21 @@ if jp_scoped && ! _dotnet_always_all_changed; then
     set -- $files
     set +f
     IFS=$' \t\n'
-    jp_run "format" "$v, scope: $n files" dotnet format --verify-no-changes --include "$@"
+    if jp_check_cmd style "$STYLE_LABEL" narrowed dotnet -- "$@"; then
+      jp_run "$STYLE_LABEL" "$v, scope: $n files" "${JP_CMD[@]}"
+    fi
   fi
 elif jp_scoped; then
-  jp_full_left_to_ci "format" "sln/build config changed" \
-    || jp_run "format" "$v, scope: sln/build config changed, whole project" dotnet format --verify-no-changes
-else
-  jp_run "format" "$v" dotnet format --verify-no-changes
+  jp_full_left_to_ci "$STYLE_LABEL" "sln/build config changed" \
+    || if jp_check_cmd style "$STYLE_LABEL" full dotnet; then
+      jp_run "$STYLE_LABEL" "$v, scope: sln/build config changed, whole project" "${JP_CMD[@]}"
+    fi
+elif jp_check_cmd style "$STYLE_LABEL" full dotnet; then
+  jp_run "$STYLE_LABEL" "$v" "${JP_CMD[@]}"
 fi
 fi
 
-# --- test ------------------------------------------------------------------
+# --- tests: dotnet test ------------------------------------------------------------------
 
 # Every *.csproj/*.fsproj in the project, computed once (a scoped run only):
 # each ancestor lookup below would otherwise re-walk the whole file list.
@@ -179,33 +201,42 @@ _dotnet_builtin() {
 # _dotnet_test <note> [<project>...] — `dotnet test`, once with no argument
 # for a full run, once per project when narrowed: `dotnet test` accepts at
 # most one project or solution, so several selected test projects are run
-# one invocation each rather than passed on a single command line.
+# one invocation each rather than passed on a single command line. Each
+# invocation is its own `narrowed` command line, with that one project as the
+# selection. A table that cannot build the command line has printed the
+# check's fail line (jp_check_cmd), so no verdict follows it.
 _dotnet_test() {
   local note="$1" proj failed=0
   shift
   if [ $# -eq 0 ]; then
-    if jp_exec dotnet test; then jp_pass "test" "$note"; else jp_fail "test" "$note"; fi
+    jp_check_cmd tests "$TESTS_LABEL" full dotnet || return 0
+    if jp_exec "${JP_CMD[@]}"; then jp_pass "$TESTS_LABEL" "$note"; else jp_fail "$TESTS_LABEL" "$note"; fi
     return 0
   fi
   for proj in "$@"; do
-    jp_exec dotnet test "$proj" || failed=1
+    jp_check_cmd tests "$TESTS_LABEL" narrowed dotnet -- "$proj" || return 0
+    jp_exec "${JP_CMD[@]}" || failed=1
   done
-  if [ "$failed" = 0 ]; then jp_pass "test" "$note"; else jp_fail "test" "$note"; fi
+  if [ "$failed" = 0 ]; then jp_pass "$TESTS_LABEL" "$note"; else jp_fail "$TESTS_LABEL" "$note"; fi
   return 0
 }
 
 if [ "${JIG_VERIFY_EXPLAIN:-}" = 1 ]; then
-  if jp_scoped && _dotnet_always_all_changed; then
-    jp_plan_full format "solution or build configuration changed"
+  if [ "$style_covered" = 1 ]; then
+    :
+  elif jp_scoped && _dotnet_always_all_changed; then
+    if jp_check_cmd style "$STYLE_LABEL" full dotnet; then
+      jp_plan_full "$STYLE_LABEL" "solution or build configuration changed"
+    fi
   elif jp_scoped; then
     files=$(jp_changed cs fs vb)
     if [ -z "$files" ]; then
-      jp_plan format skip "no changed .cs/.fs/.vb files"
-    else
-      jp_plan format filtered "changed files: $(printf '%s\n' "$files" | paste -sd, -)"
+      jp_plan "$STYLE_LABEL" skip "no changed .cs/.fs/.vb files"
+    elif jp_check_cmd style "$STYLE_LABEL" narrowed dotnet -- "$files"; then
+      jp_plan "$STYLE_LABEL" filtered "changed files: $(printf '%s\n' "$files" | paste -sd, -)"
     fi
-  else
-    jp_plan format full "full scope"
+  elif jp_check_cmd style "$STYLE_LABEL" full dotnet; then
+    jp_plan "$STYLE_LABEL" full "full scope"
   fi
   jp_select _dotnet_builtin
   filters=$JP_SELECTION
@@ -217,19 +248,32 @@ if [ "${JIG_VERIFY_EXPLAIN:-}" = 1 ]; then
 $filters
 EOF
   fi
-  jp_plan_select test "$filters" "test projects"
+  if [ "$tests_covered" = 1 ]; then
+    :
+  elif jp_scoped && [ -z "$filters" ]; then
+    jp_plan_select "$TESTS_LABEL" "$filters" "test projects"
+  elif jp_scoped && [ "$filters" != ALL ]; then
+    # `dotnet test` runs once per project; one project stands for the check.
+    if jp_check_cmd tests "$TESTS_LABEL" narrowed dotnet -- "$filters"; then
+      jp_plan_select "$TESTS_LABEL" "$filters" "test projects"
+    fi
+  elif jp_check_cmd tests "$TESTS_LABEL" full dotnet; then
+    jp_plan_select "$TESTS_LABEL" "$filters" "test projects"
+  fi
   exit 0
 fi
 
-if ! jp_scoped; then
+if [ "$tests_covered" = 1 ]; then
+  :
+elif ! jp_scoped; then
   _dotnet_test "$v"
 else
   jp_select _dotnet_builtin
   filters=$JP_SELECTION
   if [ -z "$filters" ]; then
-    jp_skip "test" "scope: no changed file maps to a test project"
+    jp_skip "$TESTS_LABEL" "scope: no changed file maps to a test project"
   elif [ "$filters" = ALL ]; then
-    jp_full_left_to_ci test "not narrowable" \
+    jp_full_left_to_ci "$TESTS_LABEL" "not narrowable" \
       || _dotnet_test "$v, scope: not narrowable, ran full set"
   else
     IFS='
@@ -240,7 +284,7 @@ else
     set +f
     IFS=$' \t\n'
     if missing=$(jp_first_missing "$@"); then
-      jp_full_left_to_ci test "filter '$missing' selects no tests" \
+      jp_full_left_to_ci "$TESTS_LABEL" "filter '$missing' selects no tests" \
         || _dotnet_test "$v, scope: filter '$missing' selects no tests, ran full set"
     else
       _dotnet_test "$v, scope: $# test projects$JP_SELECTION_NOTE" "$@"

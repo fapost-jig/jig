@@ -80,8 +80,8 @@ test_profile_environment_shell_runs_shellcheck_and_tests_through_the_prefix() {
   _pe_tool shellcheck
   run jig verify --profile shell
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "shell: shellcheck: pass"
-  assert_contains "$OUT" "shell: tests/run.sh: pass"
+  assert_contains "$OUT" "shell: lint (shellcheck): pass"
+  assert_contains "$OUT" "shell: tests (tests/run.sh): pass"
   _pe_assert_ran "shellcheck -s bash" "tests/run.sh"
 }
 
@@ -91,8 +91,8 @@ test_profile_environment_python_takes_tools_from_the_environment_path() {
   _pe_tool ruff pytest
   run jig verify --profile python
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "python: ruff: pass (ruff 1.2.3)"
-  assert_contains "$OUT" "python: pytest: pass (pytest 1.2.3)"
+  assert_contains "$OUT" "python: lint (ruff): pass (ruff 1.2.3)"
+  assert_contains "$OUT" "python: tests (pytest): pass (pytest 1.2.3)"
   _pe_assert_ran "ruff check" "pytest"
 }
 
@@ -105,7 +105,7 @@ test_profile_environment_python_ignores_a_host_virtualenv_it_cannot_run() {
   _pe_tool pytest
   run jig verify --profile python
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "python: pytest: pass"
+  assert_contains "$OUT" "python: tests (pytest): pass"
   assert_eq 0 "$(grep -c 'app \.venv/bin/pytest$' docker.log || true)" "the host's virtualenv ran in the environment"
 }
 
@@ -115,8 +115,8 @@ test_profile_environment_go_runs_vet_and_test_through_the_prefix() {
   _pe_tool go
   run jig verify --profile go
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "go: vet: pass (go 1.2.3)"
-  assert_contains "$OUT" "go: test: pass"
+  assert_contains "$OUT" "go: static (go vet): pass (go 1.2.3)"
+  assert_contains "$OUT" "go: tests (go test): pass"
   _pe_assert_ran "go vet" "go test"
 }
 
@@ -144,11 +144,12 @@ STUB
   JIG_VERIFY_SCOPE=changed
   JIG_VERIFY_FILES="$PWD/changed-files"
   export JIG_RUN_EXEC JIG_VERIFY_SCOPE JIG_VERIFY_FILES
+  profile_checks_env "$JIG_HOME/profiles/go"
   run bash "$JIG_HOME/profiles/go/verify.sh"
   unset JIG_RUN_EXEC JIG_VERIFY_SCOPE JIG_VERIFY_FILES
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "go: vet: pass (go version go1.22, scope: 1 packages)"
-  assert_contains "$OUT" "go: test: pass (go version go1.22, scope: 2 packages)"
+  assert_contains "$OUT" "go: static (go vet): pass (go version go1.22, scope: 1 packages)"
+  assert_contains "$OUT" "go: tests (go test): pass (go version go1.22, scope: 2 packages)"
   _pe_assert_ran "go list"
 }
 
@@ -167,7 +168,7 @@ test_profile_environment_a_tool_missing_in_the_environment_is_a_skip_not_a_host_
   fi
   run jig verify --profile go
   assert_eq 3 "$RC" "$OUT"
-  assert_contains "$OUT" "go: vet: skip"
+  assert_contains "$OUT" "go: static (go vet): skip"
   [ ! -f host-go.log ] || fail "go ran on the host"
 }
 
@@ -177,9 +178,9 @@ test_profile_environment_rust_runs_cargo_through_the_prefix() {
   _pe_tool cargo
   run jig verify --profile rust
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "rust: fmt: pass"
-  assert_contains "$OUT" "rust: clippy: pass"
-  assert_contains "$OUT" "rust: test: pass"
+  assert_contains "$OUT" "rust: style (cargo fmt): pass"
+  assert_contains "$OUT" "rust: lint (cargo clippy): pass"
+  assert_contains "$OUT" "rust: tests (cargo test): pass"
   _pe_assert_ran "cargo fmt --check" "cargo clippy" "cargo test"
 }
 
@@ -190,8 +191,8 @@ test_profile_environment_ruby_runs_bundle_through_the_prefix() {
   _pe_tool bundle
   run jig verify --profile ruby
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "ruby: rubocop: pass"
-  assert_contains "$OUT" "ruby: rspec: pass"
+  assert_contains "$OUT" "ruby: lint (rubocop): pass"
+  assert_contains "$OUT" "ruby: tests (rspec): pass"
   _pe_assert_ran "bundle exec rubocop" "bundle exec rspec"
 }
 
@@ -201,7 +202,7 @@ test_profile_environment_jvm_runs_gradle_from_the_environment_path() {
   _pe_tool gradle
   run jig verify --profile jvm
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "jvm: check: pass"
+  assert_contains "$OUT" "jvm: tests (gradle check): pass"
   _pe_assert_ran "gradle check"
 }
 
@@ -212,7 +213,7 @@ test_profile_environment_jvm_runs_the_maven_wrapper_through_the_prefix() {
   _pe_tool sh
   run jig verify --profile jvm
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "jvm: test: pass"
+  assert_contains "$OUT" "jvm: tests (mvn test): pass"
   _pe_assert_ran "sh ./mvnw"
 }
 
@@ -222,8 +223,8 @@ test_profile_environment_dotnet_runs_format_and_test_through_the_prefix() {
   _pe_tool dotnet
   run jig verify --profile dotnet
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "dotnet: format: pass (dotnet 1.2.3)"
-  assert_contains "$OUT" "dotnet: test: pass"
+  assert_contains "$OUT" "dotnet: style (dotnet format): pass (dotnet 1.2.3)"
+  assert_contains "$OUT" "dotnet: tests (dotnet test): pass"
   _pe_assert_ran "dotnet format" "dotnet test"
 }
 
@@ -233,9 +234,9 @@ test_profile_environment_dart_runs_analyze_format_and_test_through_the_prefix() 
   _pe_tool dart
   run jig verify --profile dart
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "dart: analyze: pass"
-  assert_contains "$OUT" "dart: format: pass"
-  assert_contains "$OUT" "dart: test: pass"
+  assert_contains "$OUT" "dart: static (dart analyze): pass"
+  assert_contains "$OUT" "dart: style (dart format): pass"
+  assert_contains "$OUT" "dart: tests (dart test): pass"
   _pe_assert_ran "dart analyze" "dart format" "dart test"
 }
 
@@ -245,7 +246,7 @@ test_profile_environment_swift_runs_build_and_test_through_the_prefix() {
   _pe_tool swift
   run jig verify --profile swift
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "swift: build: pass"
-  assert_contains "$OUT" "swift: test: pass"
+  assert_contains "$OUT" "swift: build (swift build): pass"
+  assert_contains "$OUT" "swift: tests (swift test): pass"
   _pe_assert_ran "swift build" "swift test"
 }

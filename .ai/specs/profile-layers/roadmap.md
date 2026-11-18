@@ -19,8 +19,8 @@ project's `jig verify --explain` plans one PHPUnit pass, and `jig doctor` names 
 Goal: every check is addressable by a stable role name. Done when: `--explain` prints
 `php:tests (phpunit)` style lines for every stock profile, and the names are documented.
 
-- [ ] `check-table-format` — Check table format — a profile declares its checks by role name, command and full/narrowed arguments in a form the flat reader holds, with an explicit rule for where narrowed test paths go
-- [ ] `stock-profiles-declare-checks` — Stock profiles declare their checks — every stock profile's checks carry role names in the table, the tool chosen at run time shown inside the check (after: Check table format — the table must exist to be filled)
+- [x] `check-table-format` — Check table format — a profile declares its checks by role name, command and full/narrowed arguments in a form the flat reader holds, with an explicit rule for where narrowed test paths go
+- [x] `stock-profiles-declare-checks` — Stock profiles declare their checks — every stock profile's checks carry role names in the table, the tool chosen at run time shown inside the check (after: Check table format — the table must exist to be filled)
 
 ## Phase 3 — Profiles build on profiles
 

@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Verification for the go profile. Called by `jig verify` from the
 # repository root. Exit 0 = pass, 1 = fail, 2 = skip (no check could run).
-# Prints one line per check: "go: <check>: pass|fail|skip (<note>)".
+# Prints one line per check: "go: <check>: pass|fail|skip (<note>)", the check
+# being its role and tool: `static (go vet)`, `tests (go test)` (`checks:` in
+# profile.yaml). Each command line comes from the profile's check table through
+# jp_check_cmd (schemas/profile.md, Check table); every fallback to the full
+# set is a `full` command line.
 #
 # go itself is the stack toolchain (adr-20260918-profiles-narrow-per-check-with-project-tools): resolved from $PATH, as this
 # profile always did.
@@ -29,6 +33,10 @@ set -o pipefail
 jp_begin go
 
 GO_ALL_GLOBS="go.mod go.sum go.work go.work.sum"
+
+# The checks' labels: role and tool.
+GO_VET_LABEL="static (go vet)"
+GO_TESTS_LABEL="tests (go test)"
 
 # _go_pkg_dir <path> — the package directory a changed path belongs to: the
 # directory before a `testdata/` component (go's own convention, and where
@@ -238,7 +246,9 @@ $(_go_reverse_dependents "$targets" "$depmap")"
 _go_plan_test() {
   local patterns="$1" missing="" pattern dir possible
   if [ "$patterns" = ALL ]; then
-    jp_plan_full test "module-wide change"
+    if jp_ci_runs_full || jp_check_cmd tests "$GO_TESTS_LABEL" full go; then
+      jp_plan_full "$GO_TESTS_LABEL" "module-wide change"
+    fi
     return 0
   fi
   while IFS= read -r pattern; do
@@ -252,36 +262,54 @@ _go_plan_test() {
 $patterns
 EOF
   if [ -n "$missing" ]; then
-    jp_plan_full test "package $missing has no .go files"
-  else
+    if jp_ci_runs_full || jp_check_cmd tests "$GO_TESTS_LABEL" full go; then
+      jp_plan_full "$GO_TESTS_LABEL" "package $missing has no .go files"
+    fi
+  elif jp_check_cmd tests "$GO_TESTS_LABEL" narrowed go; then
     # Under `ci` a full set is never run here: the cases that would are skips.
     possible="; full set possible"
     if jp_ci_runs_full; then possible=""; fi
-    jp_plan test conditional "changed packages: $(printf '%s\n' "$patterns" | paste -sd, -)$JP_SELECTION_NOTE; importers require go list$possible"
+    jp_plan "$GO_TESTS_LABEL" conditional "changed packages: $(printf '%s\n' "$patterns" | paste -sd, -)$JP_SELECTION_NOTE; importers require go list$possible"
   fi
   return 0
 }
 
 # --- tool --------------------------------------------------------------------
 
+# A check another profile took over (jp_covered) prints its own skip line and
+# is left out of everything below, before any tool is looked for.
+vet_covered=0
+tests_covered=0
+if jp_covered static "$GO_VET_LABEL"; then vet_covered=1; fi
+if jp_covered tests "$GO_TESTS_LABEL"; then tests_covered=1; fi
+
 if [ "${JIG_VERIFY_EXPLAIN:-}" = 1 ]; then
   if ! jp_have go; then
-    jp_plan vet skip "go not found in PATH"
-    jp_plan test skip "go not found in PATH"
+    [ "$vet_covered" = 1 ] || jp_plan "$GO_VET_LABEL" skip "go not found in PATH"
+    [ "$tests_covered" = 1 ] || jp_plan "$GO_TESTS_LABEL" skip "go not found in PATH"
     exit 0
   fi
   jp_select _go_builtin
   pkg_patterns=$JP_SELECTION
   test_patterns=$JP_SELECTION
   if ! jp_scoped; then
-    jp_plan vet full "full scope"
-    jp_plan test full "full scope"
+    if [ "$vet_covered" = 1 ]; then :
+    elif jp_check_cmd static "$GO_VET_LABEL" full go; then
+      jp_plan "$GO_VET_LABEL" full "full scope"
+    fi
+    if [ "$tests_covered" = 1 ]; then :
+    elif jp_check_cmd tests "$GO_TESTS_LABEL" full go; then
+      jp_plan "$GO_TESTS_LABEL" full "full scope"
+    fi
   elif [ -z "$pkg_patterns" ]; then
-    jp_plan vet skip "no changed file maps to a package"
-    jp_plan test skip "no changed file maps to a package"
+    [ "$vet_covered" = 1 ] || jp_plan "$GO_VET_LABEL" skip "no changed file maps to a package"
+    [ "$tests_covered" = 1 ] || jp_plan "$GO_TESTS_LABEL" skip "no changed file maps to a package"
   elif [ "$pkg_patterns" = ALL ]; then
-    jp_plan_full vet "module-wide change"
-    _go_plan_test "$test_patterns"
+    if [ "$vet_covered" = 1 ]; then :
+    elif jp_ci_runs_full || jp_check_cmd static "$GO_VET_LABEL" full go; then
+      jp_plan_full "$GO_VET_LABEL" "module-wide change"
+    fi
+    [ "$tests_covered" = 1 ] || _go_plan_test "$test_patterns"
   else
     missing=""
     while IFS= read -r pattern; do
@@ -295,19 +323,25 @@ if [ "${JIG_VERIFY_EXPLAIN:-}" = 1 ]; then
 $pkg_patterns
 EOF
     if [ -n "$missing" ]; then
-      jp_plan_full vet "package $missing has no .go files"
-      _go_plan_test "$test_patterns"
+      if [ "$vet_covered" = 1 ]; then :
+      elif jp_ci_runs_full || jp_check_cmd static "$GO_VET_LABEL" full go; then
+        jp_plan_full "$GO_VET_LABEL" "package $missing has no .go files"
+      fi
+      [ "$tests_covered" = 1 ] || _go_plan_test "$test_patterns"
     else
-      jp_plan_select vet "$pkg_patterns" "packages"
-      _go_plan_test "$test_patterns"
+      if [ "$vet_covered" = 1 ]; then :
+      elif jp_check_cmd static "$GO_VET_LABEL" narrowed go; then
+        jp_plan_select "$GO_VET_LABEL" "$pkg_patterns" "packages"
+      fi
+      [ "$tests_covered" = 1 ] || _go_plan_test "$test_patterns"
     fi
   fi
   exit 0
 fi
 
 if ! jp_have go; then
-  jp_skip "vet" "go not found in \$PATH"
-  jp_skip "test" "go not found in \$PATH"
+  [ "$vet_covered" = 1 ] || jp_skip "$GO_VET_LABEL" "go not found in \$PATH"
+  [ "$tests_covered" = 1 ] || jp_skip "$GO_TESTS_LABEL" "go not found in \$PATH"
   jp_end
 fi
 
@@ -324,13 +358,19 @@ pkg_note=$JP_SELECTION_NOTE
 
 # --- go vet --------------------------------------------------------------------
 
-if ! jp_scoped; then
-  jp_run "vet" "$v" go vet ./...
+if [ "$vet_covered" = 1 ]; then
+  :
+elif ! jp_scoped; then
+  if jp_check_cmd static "$GO_VET_LABEL" full go; then
+    jp_run "$GO_VET_LABEL" "$v" "${JP_CMD[@]}"
+  fi
 elif [ -z "$pkg_patterns" ]; then
-  jp_skip "vet" "scope: no changed file maps to a package"
+  jp_skip "$GO_VET_LABEL" "scope: no changed file maps to a package"
 elif [ "$pkg_patterns" = ALL ]; then
-  jp_full_left_to_ci "vet" "module-wide file changed, whole project" \
-    || jp_run "vet" "$v, scope: module-wide file changed, whole project" go vet ./...
+  jp_full_left_to_ci "$GO_VET_LABEL" "module-wide file changed, whole project" \
+    || if jp_check_cmd static "$GO_VET_LABEL" full go; then
+      jp_run "$GO_VET_LABEL" "$v, scope: module-wide file changed, whole project" "${JP_CMD[@]}"
+    fi
 else
   IFS='
 '
@@ -340,11 +380,15 @@ else
   set +f
   IFS=$' \t\n'
   if missing=$(_go_first_missing_pkg "$@"); then
-    jp_full_left_to_ci "vet" "package '$missing' has no .go files" \
-      || jp_run "vet" "$v, scope: package '$missing' has no .go files, ran full set" go vet ./...
+    jp_full_left_to_ci "$GO_VET_LABEL" "package '$missing' has no .go files" \
+      || if jp_check_cmd static "$GO_VET_LABEL" full go; then
+        jp_run "$GO_VET_LABEL" "$v, scope: package '$missing' has no .go files, ran full set" "${JP_CMD[@]}"
+      fi
   else
     n=$#
-    jp_run "vet" "$v, scope: $n packages$pkg_note" go vet "$@"
+    if jp_check_cmd static "$GO_VET_LABEL" narrowed go -- "$@"; then
+      jp_run "$GO_VET_LABEL" "$v, scope: $n packages$pkg_note" "${JP_CMD[@]}"
+    fi
   fi
 fi
 
@@ -356,23 +400,27 @@ _go_test_run() {
   local note="$1"
   shift
   if [ $# -eq 0 ]; then
-    jp_run "test" "$note" go test ./...
-  else
-    jp_run "test" "$note" go test "$@"
+    if jp_check_cmd tests "$GO_TESTS_LABEL" full go; then
+      jp_run "$GO_TESTS_LABEL" "$note" "${JP_CMD[@]}"
+    fi
+  elif jp_check_cmd tests "$GO_TESTS_LABEL" narrowed go -- "$@"; then
+    jp_run "$GO_TESTS_LABEL" "$note" "${JP_CMD[@]}"
   fi
 }
 
-if ! jp_scoped; then
+if [ "$tests_covered" = 1 ]; then
+  :
+elif ! jp_scoped; then
   _go_test_run "$v"
 elif [ -z "$pkg_patterns" ]; then
-  jp_skip "test" "scope: no changed file maps to a package"
+  jp_skip "$GO_TESTS_LABEL" "scope: no changed file maps to a package"
 else
   test_patterns=$pkg_patterns
   if [ "$test_patterns" = ALL ]; then
-    jp_full_left_to_ci "test" "module-wide file changed, whole project" \
+    jp_full_left_to_ci "$GO_TESTS_LABEL" "module-wide file changed, whole project" \
       || _go_test_run "$v, scope: module-wide file changed, whole project"
   elif ! expanded=$(_go_test_packages "$test_patterns"); then
-    jp_full_left_to_ci "test" "go list failed" \
+    jp_full_left_to_ci "$GO_TESTS_LABEL" "go list failed" \
       || _go_test_run "$v, scope: go list failed, ran full set"
   else
     IFS='
@@ -383,7 +431,7 @@ else
     set +f
     IFS=$' \t\n'
     if missing=$(_go_first_missing_pkg "$@"); then
-      jp_full_left_to_ci "test" "package '$missing' has no .go files" \
+      jp_full_left_to_ci "$GO_TESTS_LABEL" "package '$missing' has no .go files" \
         || _go_test_run "$v, scope: package '$missing' has no .go files, ran full set"
     else
       n=$#

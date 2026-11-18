@@ -299,6 +299,7 @@ test_verify_shell_all_scripts_find_fallback_outside_git_repo() {
   chmod +x plain.sh
   sc_stub_logging 1.0.0
 
+  profile_checks_env "$JIG_HOME/profiles/shell"
   bash "$JIG_HOME/profiles/shell/verify.sh" >out 2>&1
   rc=$?
   assert_eq 0 "$rc"
@@ -645,10 +646,10 @@ test_verify_php_skips_every_check_without_toolchain() {
 
   run_no_tools jig verify --profile php
   assert_eq 3 "$RC" "$OUT"
-  assert_contains "$OUT" "php: phpunit: skip"
-  assert_contains "$OUT" "php: phpstan: skip"
-  assert_contains "$OUT" "php: pint: skip"
-  assert_contains "$OUT" "php: composer validate: skip"
+  assert_contains "$OUT" "php: tests (phpunit): skip"
+  assert_contains "$OUT" "php: static (phpstan): skip"
+  assert_contains "$OUT" "php: style (pint): skip"
+  assert_contains "$OUT" "php: manifest (composer validate): skip"
   assert_contains "$OUT" "RESULT php: skip"
   assert_contains "$OUT" "verify: 1 profiles, 0 pass, 0 fail, 1 skip"
   assert_contains "$OUT" "verify: nothing was checked"
@@ -667,7 +668,7 @@ EOF
 
   run_no_tools jig verify --profile php
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "php: phpunit: pass"
+  assert_contains "$OUT" "php: tests (phpunit): pass"
   assert_contains "$OUT" "RESULT php: pass"
   assert_contains "$OUT" "verify: 1 profiles, 1 pass, 0 fail, 0 skip"
 }
@@ -680,8 +681,8 @@ test_verify_go_skips_without_toolchain() {
   # See the comment on test_verify_php_skips_every_check_without_toolchain:
   # every check skips, so the run checked nothing (rc 3), not a pass.
   assert_eq 3 "$RC" "$OUT"
-  assert_contains "$OUT" "go: vet: skip"
-  assert_contains "$OUT" "go: test: skip"
+  assert_contains "$OUT" "go: static (go vet): skip"
+  assert_contains "$OUT" "go: tests (go test): skip"
   assert_contains "$OUT" "RESULT go: skip"
   assert_contains "$OUT" "verify: 1 profiles, 0 pass, 0 fail, 1 skip"
   assert_contains "$OUT" "verify: nothing was checked"
@@ -696,8 +697,8 @@ test_verify_node_skips_without_toolchain() {
   # See the comment on test_verify_php_skips_every_check_without_toolchain:
   # every check skips, so the run checked nothing (rc 3), not a pass.
   assert_eq 3 "$RC" "$OUT"
-  assert_contains "$OUT" "node: npm test: skip"
-  assert_contains "$OUT" "node: npm run lint: skip"
+  assert_contains "$OUT" "node: tests (npm test): skip"
+  assert_contains "$OUT" "node: lint (npm run lint): skip"
   assert_contains "$OUT" "RESULT node: skip"
   assert_contains "$OUT" "verify: 1 profiles, 0 pass, 0 fail, 1 skip"
   assert_contains "$OUT" "verify: nothing was checked"
@@ -712,8 +713,8 @@ test_verify_node_skips_when_no_scripts_declared() {
   # See the comment on test_verify_php_skips_every_check_without_toolchain:
   # every check skips, so the run checked nothing (rc 3), not a pass.
   assert_eq 3 "$RC"
-  assert_contains "$OUT" "node: npm test: skip (no test script or npm not found)"
-  assert_contains "$OUT" "node: npm run lint: skip (no lint script or npm not found)"
+  assert_contains "$OUT" "node: tests (npm test): skip (no test script or npm not found)"
+  assert_contains "$OUT" "node: lint (npm run lint): skip (no lint script or npm not found)"
   assert_contains "$OUT" "RESULT node: skip"
 }
 
@@ -727,7 +728,7 @@ test_verify_laravel_skips_without_artisan_or_php() {
   # See the comment on test_verify_php_skips_every_check_without_toolchain:
   # every check skips, so the run checked nothing (rc 3), not a pass.
   assert_eq 3 "$RC" "$OUT"
-  assert_contains "$OUT" "laravel: artisan test: skip"
+  assert_contains "$OUT" "laravel: tests (artisan test): skip"
   assert_contains "$OUT" "RESULT laravel: skip"
 }
 
@@ -867,11 +868,12 @@ test_verify_explain_shell_common_code_widens_to_full_tests() {
   printf ':\n' > scripts/lib/common.sh
   printf 'scripts/lib/common.sh\n' > changed
 
+  profile_checks_env "$JIG_HOME/profiles/shell"
   run env JIG_VERIFY_EXPLAIN=1 JIG_VERIFY_SCOPE=changed \
     JIG_VERIFY_FILES="$PWD/changed" bash "$JIG_HOME/profiles/shell/verify.sh"
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "PLAN shell: tests/run.sh: full"
-  assert_not_contains "$OUT" "shell: tests/run.sh: pass"
+  assert_contains "$OUT" "PLAN shell: tests (tests/run.sh): full"
+  assert_not_contains "$OUT" "shell: tests (tests/run.sh): pass"
 }
 
 # The shell profile has its own selection logic for each check. Exercise the
@@ -903,6 +905,7 @@ test_verify_explain_shell_plan_agrees_with_actual_checks() {
         ;;
     esac
 
+    profile_checks_env "$JIG_HOME/profiles/shell"
     run env JIG_VERIFY_EXPLAIN=1 JIG_VERIFY_SCOPE=changed \
       JIG_VERIFY_FILES="$PWD/changed" bash "$JIG_HOME/profiles/shell/verify.sh"
     assert_eq 0 "$RC"
@@ -916,7 +919,7 @@ test_verify_explain_shell_plan_agrees_with_actual_checks() {
 
     plan_checks=$(printf '%s\n' "$plan" | awk -F ': ' '$1 == "PLAN shell" { print $2 }')
     run_checks=$(printf '%s\n' "$run_output" | awk -F ': ' '$1 == "shell" { print $2 }')
-    assert_eq "$(printf 'shellcheck\ntests/run.sh')" "$plan_checks"
+    assert_eq "$(printf 'lint (shellcheck)\ntests (tests/run.sh)')" "$plan_checks"
     assert_eq "$plan_checks" "$run_checks"
 
     while IFS= read -r check; do
@@ -948,7 +951,7 @@ test_verify_explain_command_uses_installed_shell_rules_for_changed_code() {
 
   run jig verify --explain --changed --profile shell
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "PLAN shell: tests/run.sh: full"
+  assert_contains "$OUT" "PLAN shell: tests (tests/run.sh): full"
   assert_contains "$OUT" "no checks ran"
   assert_no_file ran
 }
@@ -1021,21 +1024,23 @@ test_verify_explain_go_and_jest_name_possible_full_run() {
   printf 'module example.com/sample\n' > go.mod
   printf 'package pkg\n' > pkg/sample.go
   printf 'pkg/sample.go\n' > changed
+  profile_checks_env "$JIG_HOME/profiles/go"
   run env PATH="$PWD/fake-bin:$PATH" JIG_VERIFY_EXPLAIN=1 JIG_VERIFY_SCOPE=changed \
     JIG_VERIFY_FILES="$PWD/changed" bash "$JIG_HOME/profiles/go/verify.sh"
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "PLAN go: vet: filtered"
-  assert_contains "$OUT" "PLAN go: test: conditional"
+  assert_contains "$OUT" "PLAN go: static (go vet): filtered"
+  assert_contains "$OUT" "PLAN go: tests (go test): conditional"
   assert_contains "$OUT" "full set possible"
   assert_no_file tool-called
 
   printf '{"scripts":{"test":"jest"},"devDependencies":{"jest":"*"}}\n' > package.json
   printf 'export const answer = 42;\n' > source.js
   printf 'source.js\n' > changed
+  profile_checks_env "$JIG_HOME/profiles/node"
   run env PATH="$PWD/fake-bin:$PATH" JIG_VERIFY_EXPLAIN=1 JIG_VERIFY_SCOPE=changed \
     JIG_VERIFY_FILES="$PWD/changed" bash "$JIG_HOME/profiles/node/verify.sh"
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "PLAN node: npm test: conditional"
+  assert_contains "$OUT" "PLAN node: tests (npm test): conditional"
   assert_contains "$OUT" "full set possible"
   assert_no_file tool-called
 }
@@ -1051,21 +1056,23 @@ test_verify_explain_go_and_jest_under_ci_do_not_name_a_possible_full_set() {
   printf 'module example.com/sample\n' > go.mod
   printf 'package pkg\n' > pkg/sample.go
   printf 'pkg/sample.go\n' > changed
+  profile_checks_env "$JIG_HOME/profiles/go"
   run env JIG_VERIFY_FULL_RUN=ci PATH="$PWD/fake-bin:$PATH" JIG_VERIFY_EXPLAIN=1 JIG_VERIFY_SCOPE=changed \
     JIG_VERIFY_FILES="$PWD/changed" bash "$JIG_HOME/profiles/go/verify.sh"
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "PLAN go: vet: filtered"
-  assert_contains "$OUT" "PLAN go: test: conditional"
+  assert_contains "$OUT" "PLAN go: static (go vet): filtered"
+  assert_contains "$OUT" "PLAN go: tests (go test): conditional"
   assert_not_contains "$OUT" "full set possible"
   assert_no_file tool-called
 
   printf '{"scripts":{"test":"jest"},"devDependencies":{"jest":"*"}}\n' > package.json
   printf 'export const answer = 42;\n' > source.js
   printf 'source.js\n' > changed
+  profile_checks_env "$JIG_HOME/profiles/node"
   run env JIG_VERIFY_FULL_RUN=ci PATH="$PWD/fake-bin:$PATH" JIG_VERIFY_EXPLAIN=1 JIG_VERIFY_SCOPE=changed \
     JIG_VERIFY_FILES="$PWD/changed" bash "$JIG_HOME/profiles/node/verify.sh"
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "PLAN node: npm test: conditional"
+  assert_contains "$OUT" "PLAN node: tests (npm test): conditional"
   assert_not_contains "$OUT" "full set possible"
   assert_no_file tool-called
 }
@@ -1073,11 +1080,12 @@ test_verify_explain_go_and_jest_under_ci_do_not_name_a_possible_full_set() {
 test_verify_explain_empty_changed_scope_names_each_skipped_check() {
   fixture_repo
   : > changed
+  profile_checks_env "$JIG_HOME/profiles/shell"
   run env JIG_VERIFY_EXPLAIN=1 JIG_VERIFY_SCOPE=changed \
     JIG_VERIFY_FILES="$PWD/changed" bash "$JIG_HOME/profiles/shell/verify.sh"
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "PLAN shell: shellcheck: skip (scope: changed, no changed files)"
-  assert_contains "$OUT" "PLAN shell: tests/run.sh: skip (scope: changed, no changed files)"
+  assert_contains "$OUT" "PLAN shell: lint (shellcheck): skip (scope: changed, no changed files)"
+  assert_contains "$OUT" "PLAN shell: tests (tests/run.sh): skip (scope: changed, no changed files)"
 }
 
 test_verify_explain_does_not_wait_for_or_replace_busy_record() {
@@ -1265,7 +1273,7 @@ test_verify_shellcheck_verdict_names_its_version() {
 
   run jig verify
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "shell: shellcheck: pass (shellcheck 1.2.3)"
+  assert_contains "$OUT" "shell: lint (shellcheck): pass (shellcheck 1.2.3)"
 }
 
 test_verify_shellcheck_failure_also_names_its_version() {
@@ -1277,7 +1285,7 @@ test_verify_shellcheck_failure_also_names_its_version() {
 
   run jig verify
   assert_eq 1 "$RC"
-  assert_contains "$OUT" "shell: shellcheck: fail (shellcheck 4.5.6)"
+  assert_contains "$OUT" "shell: lint (shellcheck): fail (shellcheck 4.5.6)"
 }
 
 test_verify_shellcheck_scoped_verdict_keeps_both_facts() {
@@ -1288,7 +1296,7 @@ test_verify_shellcheck_scoped_verdict_keeps_both_facts() {
   sc_stub 7.8.9 0
 
   run jig verify --changed
-  assert_contains "$OUT" "shell: shellcheck: pass (shellcheck 7.8.9"
+  assert_contains "$OUT" "shell: lint (shellcheck): pass (shellcheck 7.8.9"
   assert_contains "$OUT" "scope: "
 }
 
@@ -1308,8 +1316,8 @@ test_verify_survives_a_shellcheck_that_cannot_report_its_version() {
   run jig verify
   # The lint itself fails (the stub fails everything), but the profile must
   # still report both of its checks rather than dying silently.
-  assert_contains "$OUT" "shell: shellcheck: fail (shellcheck unknown)"
-  assert_contains "$OUT" "shell: tests/run.sh:"
+  assert_contains "$OUT" "shell: lint (shellcheck): fail (shellcheck unknown)"
+  assert_contains "$OUT" "shell: tests (tests/run.sh):"
 }
 
 # --- CI-backed projects: verify.full_run (ADR-0041) -------------------------
@@ -1957,7 +1965,7 @@ test_verify_shell_profile_map_dash_skips_the_narrowed_run() {
 
   run jig verify --changed
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "shell: tests/run.sh: skip (scope: no changed file maps to a test)"
+  assert_contains "$OUT" "shell: tests (tests/run.sh): skip (scope: no changed file maps to a test)"
   assert_no_file run-log
 }
 
@@ -1975,7 +1983,7 @@ test_verify_shell_profile_map_question_mark_falls_back_to_builtin_rule() {
 
   run jig verify --changed
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "shell: tests/run.sh: pass (scope: 1 filters)"
+  assert_contains "$OUT" "shell: tests (tests/run.sh): pass (scope: 1 filters)"
   assert_file_contains run-log "foo::"
 }
 
@@ -1990,7 +1998,7 @@ test_verify_shell_profile_full_run_when_filter_selects_no_tests() {
   run jig verify --changed
   assert_eq 0 "$RC"
   assert_contains "$OUT" \
-    "shell: tests/run.sh: pass (scope: filter 'foo::' selects no tests, ran full set)"
+    "shell: tests (tests/run.sh): pass (scope: filter 'foo::' selects no tests, ran full set)"
   assert_file_contains run-log "(full)"
 }
 
@@ -2005,7 +2013,7 @@ test_verify_shell_profile_full_run_when_script_has_no_matching_test_file() {
 
   run jig verify --changed
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "shell: tests/run.sh: pass (scope: not narrowable, ran full set)"
+  assert_contains "$OUT" "shell: tests (tests/run.sh): pass (scope: not narrowable, ran full set)"
   assert_file_contains run-log "(full)"
 }
 
@@ -2032,7 +2040,7 @@ EOF
 
   run jig verify --changed
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "shell: tests/run.sh: pass (scope: 1 filters)"
+  assert_contains "$OUT" "shell: tests (tests/run.sh): pass (scope: 1 filters)"
   assert_not_contains "$OUT" "selects no tests"
   assert_file_contains run-log "foo::test_bar"
 }
@@ -2058,7 +2066,7 @@ test_verify_shell_profile_map_decision_glob_token_is_not_expanded_against_files(
   run jig verify --changed
   assert_eq 0 "$RC"
   assert_contains "$OUT" \
-    "shell: tests/run.sh: pass (scope: filter 'a*' selects no tests, ran full set)"
+    "shell: tests (tests/run.sh): pass (scope: filter 'a*' selects no tests, ran full set)"
   assert_not_contains "$OUT" "filter 'a1'"
   assert_not_contains "$OUT" "filter 'a2'"
 }
@@ -2116,7 +2124,7 @@ test_verify_shell_library_function_edit_narrows_to_its_callers_tests() {
   _fixture_shell_lib_project
   _edit_fn fb
   _shell_lib_plan
-  assert_contains "$OUT" "PLAN shell: tests/run.sh: filtered (test filters: two::)"
+  assert_contains "$OUT" "PLAN shell: tests (tests/run.sh): filtered (test filters: two::)"
 
   git checkout -q scripts/lib/shared.sh
   _edit_fn fa
@@ -2132,7 +2140,7 @@ test_verify_shell_library_function_edit_runs_only_the_selected_tests() {
   rm -f run-log
   run jig verify --changed --profile shell
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "shell: tests/run.sh: pass (scope: 1 filters)"
+  assert_contains "$OUT" "shell: tests (tests/run.sh): pass (scope: 1 filters)"
   assert_file_contains run-log "two::"
 }
 
@@ -2143,7 +2151,7 @@ test_verify_shell_library_function_without_callers_stays_full() {
   git diff --quiet scripts/lib/shared.sh && fail "the edit did not land"
   _shell_lib_plan
   # fc has no caller anywhere: nobody can say what reaches it, so the full set.
-  assert_contains "$OUT" "PLAN shell: tests/run.sh: full"
+  assert_contains "$OUT" "PLAN shell: tests (tests/run.sh): full"
 }
 
 # A one-line function must not lend its name to the function after it when the
@@ -2172,26 +2180,26 @@ test_verify_shell_library_changes_the_diff_cannot_name_stay_full() {
   sed 's/^SHARED_GLOBAL=1$/SHARED_GLOBAL=2/' scripts/lib/shared.sh > shared.new
   mv shared.new scripts/lib/shared.sh
   _shell_lib_plan
-  assert_contains "$OUT" "PLAN shell: tests/run.sh: full"
+  assert_contains "$OUT" "PLAN shell: tests (tests/run.sh): full"
   git checkout -q scripts/lib/shared.sh
 
   # A new function: nothing calls it yet, so its callers cannot be listed.
   printf '\nfd() { :; }\n' >> scripts/lib/shared.sh
   _shell_lib_plan
-  assert_contains "$OUT" "PLAN shell: tests/run.sh: full"
+  assert_contains "$OUT" "PLAN shell: tests (tests/run.sh): full"
   git checkout -q scripts/lib/shared.sh
 
   # A removed function.
   sed '/^fb() {$/,/^}$/d' scripts/lib/shared.sh > shared.new
   mv shared.new scripts/lib/shared.sh
   _shell_lib_plan
-  assert_contains "$OUT" "PLAN shell: tests/run.sh: full"
+  assert_contains "$OUT" "PLAN shell: tests (tests/run.sh): full"
   git checkout -q scripts/lib/shared.sh
 
   # A brand new file.
   printf 'fz() { :; }\n' > scripts/lib/fresh.sh
   _shell_lib_plan
-  assert_contains "$OUT" "PLAN shell: tests/run.sh: full"
+  assert_contains "$OUT" "PLAN shell: tests (tests/run.sh): full"
 }
 
 test_verify_shell_library_caller_without_a_test_keeps_the_full_set() {
@@ -2201,7 +2209,7 @@ test_verify_shell_library_caller_without_a_test_keeps_the_full_set() {
   git commit -q -m "a caller nobody tests"
   _edit_fn fb
   _shell_lib_plan
-  assert_contains "$OUT" "PLAN shell: tests/run.sh: full"
+  assert_contains "$OUT" "PLAN shell: tests (tests/run.sh): full"
 }
 
 # The project map answers for a caller the change did not touch: a script with
@@ -2214,7 +2222,7 @@ test_verify_shell_library_caller_is_mapped_by_the_project_map() {
   git commit -q -m "entry script"
   _edit_fn fb
   _shell_lib_plan
-  assert_contains "$OUT" "PLAN shell: tests/run.sh: full"
+  assert_contains "$OUT" "PLAN shell: tests (tests/run.sh): full"
 
   git checkout -q scripts/lib/shared.sh
   mkdir -p .ai/verify
@@ -2239,7 +2247,7 @@ test_verify_shell_full_run_ci_leaves_the_full_set_to_ci_beside_filters() {
 
   run jig verify --changed --profile shell
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "shell: tests/run.sh: pass (scope: 1 filters, full set left to CI)"
+  assert_contains "$OUT" "shell: tests (tests/run.sh): pass (scope: 1 filters, full set left to CI)"
   assert_file_contains run-log "two::"
 }
 
@@ -2255,7 +2263,7 @@ test_verify_shell_full_run_ci_alone_leaves_the_full_set_to_ci() {
 
   run jig verify --changed --profile shell
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "shell: tests/run.sh: skip (scope: not narrowable, full set left to CI)"
+  assert_contains "$OUT" "shell: tests (tests/run.sh): skip (scope: not narrowable, full set left to CI)"
   assert_contains "$OUT" "verify: 1 check(s) left their full set to CI (verify.full_run: ci); jig verify --full runs it here"
   assert_no_file run-log
 }
@@ -2284,7 +2292,7 @@ test_verify_shell_full_run_ci_explain_says_the_full_set_is_left_to_ci() {
 
   run jig verify --changed --explain --profile shell
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "PLAN shell: tests/run.sh: skip (scope: changed paths require the full set, full set left to CI)"
+  assert_contains "$OUT" "PLAN shell: tests (tests/run.sh): skip (scope: changed paths require the full set, full set left to CI)"
 }
 
 test_verify_shell_full_run_local_keeps_all_beside_filters() {
@@ -2931,8 +2939,8 @@ test_verify_a_covered_stack_a_change_narrows_out_of_is_not_refused() {
 
   run jig verify --changed --base HEAD~1
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "shell: shellcheck: skip (scope: no changed shell scripts)"
-  assert_contains "$OUT" "shell: tests/run.sh: skip (scope: no changed file maps to a test)"
+  assert_contains "$OUT" "shell: lint (shellcheck): skip (scope: no changed shell scripts)"
+  assert_contains "$OUT" "shell: tests (tests/run.sh): skip (scope: no changed file maps to a test)"
   assert_contains "$OUT" "RESULT shell: skip (scope: changed, 1 files)"
   assert_contains "$OUT" "verify: every check in scope skipped"
   assert_not_contains "$OUT" "install the project's tools"
@@ -3057,7 +3065,7 @@ test_verify_shell_full_run_ci_leaves_the_whole_tree_shellcheck_to_ci() {
   sc_stub_logging 1.0.0
 
   run jig verify --changed --profile shell
-  assert_contains "$OUT" "shell: shellcheck: skip (scope: .shellcheckrc changed; whole script set, full set left to CI)"
+  assert_contains "$OUT" "shell: lint (shellcheck): skip (scope: .shellcheckrc changed; whole script set, full set left to CI)"
   assert_contains "$OUT" "check(s) left their full set to CI"
   assert_no_file sc-linted.log
 }
@@ -3075,7 +3083,7 @@ test_verify_shell_full_run_ci_still_lints_the_changed_script() {
   sc_stub_logging 1.0.0
 
   run jig verify --changed --profile shell
-  assert_contains "$OUT" "shell: shellcheck: pass (shellcheck 1.0.0, scope: "
+  assert_contains "$OUT" "shell: lint (shellcheck): pass (shellcheck 1.0.0, scope: "
   assert_not_contains "$OUT" "left to CI"
   assert_file_contains sc-linted.log tracked.sh
 }
@@ -3112,7 +3120,7 @@ test_verify_shell_full_run_ci_explain_leaves_shellcheck_to_ci() {
   sc_stub_logging 1.0.0
 
   run jig verify --changed --explain --profile shell
-  assert_contains "$OUT" "PLAN shell: shellcheck: skip (scope: .shellcheckrc changed; whole script set, full set left to CI)"
+  assert_contains "$OUT" "PLAN shell: lint (shellcheck): skip (scope: .shellcheckrc changed; whole script set, full set left to CI)"
 }
 
 # --- a profile covers a check of another (covers / checks) --------------------
@@ -3165,7 +3173,7 @@ test_verify_a_project_profile_covers_a_stock_profile_s_tests() {
   _node_cover_project
   run jig verify
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "node: npm test: skip (scope: covered by upper, node:tests)"
+  assert_contains "$OUT" "node: tests (npm test): skip (scope: covered by upper, node:tests)"
   assert_contains "$OUT" "upper: covered=<unset>"
   assert_no_file npm.log
 }
@@ -3176,14 +3184,14 @@ test_verify_explain_plans_a_covered_stock_check_as_a_skip() {
     > .ai/profiles/upper/verify.sh
   run jig verify --explain
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "PLAN node: npm test: skip (scope: covered by upper, node:tests)"
+  assert_contains "$OUT" "PLAN node: tests (npm test): skip (scope: covered by upper, node:tests)"
 }
 
 test_verify_a_stock_check_runs_when_its_cover_is_not_in_the_run() {
   _node_cover_project
   run jig verify --profile node
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "node: npm test: pass"
+  assert_contains "$OUT" "node: tests (npm test): pass"
   assert_file npm.log
 }
 
@@ -3191,7 +3199,7 @@ test_verify_a_profile_that_never_starts_covers_nothing() {
   _node_cover_project
   rm .ai/profiles/upper/verify.sh
   run jig verify
-  assert_contains "$OUT" "node: npm test: pass"
+  assert_contains "$OUT" "node: tests (npm test): pass"
   assert_file npm.log
 }
 
@@ -3199,11 +3207,11 @@ test_verify_a_profile_covers_only_where_its_stack_is() {
   _node_cover_project
   printf 'detect: [manage.py]\n' >> .ai/profiles/upper/profile.yaml
   run jig verify
-  assert_contains "$OUT" "node: npm test: pass"
+  assert_contains "$OUT" "node: tests (npm test): pass"
   : > manage.py
   rm -f npm.log
   run jig verify
-  assert_contains "$OUT" "node: npm test: skip (scope: covered by upper, node:tests)"
+  assert_contains "$OUT" "node: tests (npm test): skip (scope: covered by upper, node:tests)"
   assert_no_file npm.log
 }
 
@@ -3593,4 +3601,81 @@ test_verify_accepts_the_plain_checks_list_on_a_layer_and_check_rows_on_a_base() 
   run jig verify --profile top
   assert_eq 0 "$RC"
   assert_contains "$OUT" "RESULT base: pass"
+}
+
+# --- the shell profile's check table (adr-20261117-a-profile-declares-its-checks-in-a-table) --
+
+# _sh_table_fixture — a repository with one script, plus stubs of tests/run.sh
+# and of the linter that log their arguments, one line per call.
+_sh_table_fixture() {
+  fixture_repo
+  mkdir -p scripts tests stub-bin
+  printf '#!/usr/bin/env bash\necho x\n' > scripts/a.sh
+  chmod +x scripts/a.sh
+  printf '#!/bin/sh\necho "$*" >> "%s/runsh.log"\nexit 0\n' "$PWD" > tests/run.sh
+  chmod +x tests/run.sh
+  printf 'test_one() { :; }\n' > tests/a.t.sh
+  # shellcheck disable=SC2016 # the stub's own $1 and $*, expanded when it runs
+  printf '#!/bin/sh\n[ "$1" = --version ] && { echo "version: 0.9.0"; exit 0; }\necho "$*" >> "%s/sc.log"\nexit 0\n' "$PWD" > stub-bin/shellcheck
+  chmod +x stub-bin/shellcheck
+  PATH="$PWD/stub-bin:$PATH"
+  export PATH
+  profile_checks_env "$JIG_HOME/profiles/shell"
+}
+
+# Every command line the shell profile runs, in a full and a narrowed run,
+# is the one it ran before the table.
+test_verify_shell_check_table_keeps_every_command_line() {
+  _sh_table_fixture
+  run bash "$JIG_HOME/profiles/shell/verify.sh"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$(cat sc.log)" "-s bash -e SC1091 scripts/a.sh"
+  assert_eq "" "$(cat runsh.log)"
+  assert_contains "$OUT" "shell: lint (shellcheck): pass"
+  assert_contains "$OUT" "shell: tests (tests/run.sh): pass"
+
+  rm -f sc.log runsh.log
+  printf 'tests/a.t.sh\n' > changed
+  run env JIG_VERIFY_SCOPE=changed JIG_VERIFY_FILES="$PWD/changed" \
+    bash "$JIG_HOME/profiles/shell/verify.sh"
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "a::" "$(cat runsh.log)"
+}
+
+# A profile.yaml from before the table beside this verify.sh fails both
+# checks, and runs neither tool.
+test_verify_shell_check_table_missing_fails_loudly() {
+  _sh_table_fixture
+  unset JIG_VERIFY_CHECKS
+  run bash "$JIG_HOME/profiles/shell/verify.sh"
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "shell: lint (shellcheck): fail (profile.yaml names no check 'lint'; jig upgrade restores it)"
+  assert_contains "$OUT" "shell: tests (tests/run.sh): fail (profile.yaml names no check 'tests'; jig upgrade restores it)"
+  assert_no_file sc.log
+  assert_no_file runsh.log
+}
+
+# Every role the shell profile lists can be taken over by another profile.
+test_verify_shell_every_role_can_be_covered() {
+  _sh_table_fixture
+  JIG_VERIFY_COVERED="lint=other tests=other"
+  export JIG_VERIFY_COVERED
+  run bash "$JIG_HOME/profiles/shell/verify.sh"
+  assert_eq 2 "$RC" "$OUT"
+  assert_eq "shell: lint (shellcheck): skip (scope: covered by other, shell:lint)
+shell: tests (tests/run.sh): skip (scope: covered by other, shell:tests)" "$OUT"
+  assert_no_file sc.log
+  assert_no_file runsh.log
+
+  JIG_VERIFY_EXPLAIN=1 run bash "$JIG_HOME/profiles/shell/verify.sh"
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "PLAN shell: lint (shellcheck): skip (scope: covered by other, shell:lint)
+PLAN shell: tests (tests/run.sh): skip (scope: covered by other, shell:tests)" "$OUT"
+
+  JIG_VERIFY_COVERED="lint=other"
+  run bash "$JIG_HOME/profiles/shell/verify.sh"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "shell: tests (tests/run.sh): pass"
+  assert_no_file sc.log
+  unset JIG_VERIFY_COVERED
 }

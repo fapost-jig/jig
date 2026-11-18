@@ -3,3 +3,13 @@ name: jvm
 description: JVM projects on Gradle or Maven (Gradle `check`, Maven `test`; project wrapper first).
 detect: [build.gradle, build.gradle.kts, settings.gradle, settings.gradle.kts, pom.xml]
 scope: [changed, map, explain, environment]
+# The check of this profile by role, and the index of its check table
+# (schemas/profile.md, Check table). Another profile can take it over by name
+# (`covers: [jvm:tests]`); both build systems stand down then.
+checks: [tests]
+# tests: Gradle `check` or Maven `test`, whichever build files the project has;
+# verify.sh chooses the tool and its wrapper, so the table names no command and
+# no full-run words (Gradle's `check`, Maven's `test`). A narrowed run passes the
+# selection it made: Gradle tasks (`:app:check`), or Maven's `-pl <modules> -am`
+# followed, in verify.sh, by `test`.
+checks.tests.narrowed: {selection}
