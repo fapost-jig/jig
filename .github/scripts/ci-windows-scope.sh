@@ -1,10 +1,22 @@
 #!/usr/bin/env bash
-# ci-windows-scope.sh — decide whether a pull request needs the Windows shards
+# ci-windows-scope.sh — decide whether a pull request, or a push to an epic
+# branch, needs the Windows shards
 # (adr-20260924-windows-runs-on-a-pull-request-that-touches-platform-behaviour).
 # Run by the `scope` job of .github/workflows/ci.yml in the root of the
-# checkout, with the first parent of the pull request's merge commit — its base
-# branch as it is now, so only the pull request's own change is read. Other
-# events never call it: main, the nightly run and a manual dispatch run
+# checkout, with the base the change is measured from:
+#
+#   - a pull request: the first parent of its merge commit — its base branch as
+#     it is now, so only the pull request's own change is read;
+#   - a push to `epic/**`: the commit of the branch's last successful run, or,
+#     when there is none, where the branch left main (`git merge-base
+#     origin/main HEAD`) — the same base ci-scope.sh got, chosen by
+#     ci-push-base.sh. Every change reaches an epic as a push, a merged phase
+#     pull request or a sync with main, and that push was checked only as a
+#     push: ten Windows shards each time, held against the organisation's small
+#     concurrent-job limit. An epic that holds nothing beyond its base never
+#     gets here; the workflow skips Windows for it.
+#
+# Other events never call it: main, the nightly run and a manual dispatch run
 # Windows whatever changed.
 #
 # Prints one line, `windows` or `skip`, and why:

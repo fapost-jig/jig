@@ -11,7 +11,7 @@ paths:
   - tests/ci-windows-scope.t.sh
   - .github/scripts/main-green-check.sh
 summary: "Why the full Windows suite runs on a pull request whose diff touches line endings, MSYS paths, directory links, a Windows-only file, a CI workflow or JIG_VERSION, and passes over the rest: the signal, the numbers behind it, why it matches no literal carriage return, and why a release also waits for a green main."
-reviewed_at: 2026-10-27
+reviewed_at: 2026-11-18
 ---
 # Windows runs on a pull request whose diff touches platform behaviour
 
@@ -201,3 +201,30 @@ already skip the tests those two guard by capability (`skip_unless_symlinks`,
 > run cannot see it. It keys on the change, not on an untagged version: once a release is declared
 > and `main` is red, every pull request carries the untagged version, the one repairing `main`
 > included.
+
+> **Amendment (2026-11-17).** A push to an epic branch decides about Windows as a pull request
+> does. Every change reaches an epic (ADR-0040) as a push — a merged phase pull request, a sync
+> with `main` — and that push was checked only as a push, where "a push runs every platform"
+> made its first push, which differed from `main` by spec files alone, start
+> ten Windows shards beside four Linux and four macOS jobs: nineteen jobs held the
+> organisation's concurrent-job limit — small on the Free plan and shared by all its repositories —
+> and every other run waited about fifteen minutes (17 November 2026; the repository has since moved
+> to an organisation of its own, and the reason stands: the limit is still small and shared by
+> every run of this repository). `scope` now asks `ci-windows-scope.sh` on a push to `epic/**`, with the base
+> `ci-scope.sh` was given (`.github/scripts/ci-push-base.sh` chooses it): the commit of the branch's last successful run, and — where there is
+> none, or the API did not answer — `git merge-base origin/main HEAD`, because what the epic
+> holds beyond `main` is what it added, and `main`'s content was tested on every platform on
+> `main`. Where the merge-base cannot be computed the base stays empty and the run is full on
+> every platform, as before. `main`, the nightly run and a manual dispatch still run Windows
+> whatever changed. The residual risk is the one above, moved to the epic: a skip costs a red
+> run of the pull request from the epic into `main`, which is a pull request and asks the same
+> question over the whole epic.
+>
+> An epic that holds nothing beyond its base — `jig spec ship` pushes one, cut from `main` with
+> only the spec — would still read as unmeasurable (an empty diff is `full (no changed files)`),
+> so `ci-push-base.sh` names it `empty` and `scope` answers `light` and `skip` Windows, with the
+> reason in the log. A rerun of a commit whose run already passed is the same case on purpose:
+> the same tree was tested, and there is nothing to test again. `ci-ok.sh` holds the other side:
+> it is given the branch and refuses `windows=false` on every run but a pull request and a push
+> to `epic/**`, so a `scope` that skipped Windows on `main`, the nightly run or a dispatch
+> fails the gate instead of reading as decided.

@@ -115,6 +115,8 @@ jobs:
           mkdir -p "$plan"
           export CI_SCOPE_FILTERS="$plan/filters"
           pr_base=""
+          push_base=""
+          push_empty=""
           if [ "$EVENT" = pull_request ]; then
             pr_base=$(git rev-parse --verify --quiet 'HEAD^1') || pr_base=""
           fi
@@ -125,7 +127,24 @@ jobs:
               # answer: ci-scope.sh then runs everything.
               green=$(.github/scripts/ci-green-base.sh "$BRANCH") || green=""
               echo "last successful run on $BRANCH: ${green:-none}"
-              line=$(.github/scripts/ci-scope.sh "$green")
+              # The base of the push, and whether it adds anything: for an
+              # epic branch without a green run it is where the branch left
+              # main, whose content was tested on main (ci-push-base.sh, which
+              # has tests and the argument).
+              pb=$(.github/scripts/ci-push-base.sh "$BRANCH" "$green") || pb="none (ci-push-base.sh failed)"
+              echo "base: $pb"
+              case "$pb" in
+                base*) push_base=${pb#base }; push_base=${push_base%% *} ;;
+                empty*)
+                  push_base=${pb#empty }; push_base=${push_base%% *}
+                  push_empty="$pb"
+                  ;;
+              esac
+              if [ -n "$push_empty" ]; then
+                line="light (epic holds nothing beyond its base: $push_empty)"
+              else
+                line=$(.github/scripts/ci-scope.sh "$push_base")
+              fi
               ;;
             *) line="full ($EVENT runs everything)" ;;
           esac
@@ -154,14 +173,26 @@ jobs:
 
           # Whether the Windows shards run, per
           # adr-20260924-windows-runs-on-a-pull-request-that-touches-platform-behaviour.
-          # Only a pull request asks: main, the nightly run and a manual
-          # dispatch run every platform whatever changed. The event check
-          # lives here rather than on the job, which now reads one output.
-          if [ "$EVENT" = pull_request ]; then
-            win=$(.github/scripts/ci-windows-scope.sh "$pr_base")
-          else
-            win="windows ($EVENT runs every platform)"
-          fi
+          # A pull request asks, and so does a push to an epic branch, with
+          # the base the scope was measured from: every change reaches an epic
+          # as a push (a merged phase, a sync with main), and that push would
+          # otherwise run ten Windows shares each time (the concurrent-job
+          # limit of the organisation this repository lives in is small on
+          # the Free plan). Main, the nightly run
+          # and a manual dispatch run every platform whatever changed. The
+          # event check lives here rather than on the job, which reads one
+          # output.
+          case "$EVENT:$BRANCH" in
+            pull_request:*) win=$(.github/scripts/ci-windows-scope.sh "$pr_base") ;;
+            push:epic/*)
+              if [ -n "$push_empty" ]; then
+                win="skip (epic holds nothing beyond its base: $push_empty)"
+              else
+                win=$(.github/scripts/ci-windows-scope.sh "$push_base")
+              fi
+              ;;
+            *) win="windows ($EVENT runs every platform)" ;;
+          esac
           echo "windows: $win"
           case "$win" in
             skip*) echo "windows=false" >> "$GITHUB_OUTPUT" ;;
@@ -255,6 +286,12 @@ jobs:
       # Every share always reports. A failure in one is information about that
       # platform, not a reason to cancel the others and lose the answer.
       fail-fast: false
+      # Off main a run leaves room in the organisation's concurrent-job
+      # limit (small on the Free plan, shared by all its repositories and by
+      # every run of this one) for the runs of other branches and pull
+      # requests; main, push and nightly, is not held back, so a release does not slow down
+      # (adr-20261016-the-suite-runs-in-shares-on-every-platform).
+      max-parallel: ${{ github.ref == 'refs/heads/main' && 20 || 6 }}
       matrix: ${{ fromJSON(needs.scope.outputs.matrix_unix) }}
 
     steps:
@@ -348,7 +385,8 @@ jobs:
   # The whole suite on Windows under Git Bash, with the git settings a Windows
   # user gets out of the box: core.autocrlf=true and no native symlinks, so
   # `ln -s` copies and links fall back to junctions. Every process start is
-  # slow there, so the suite runs in ten shares at once (JIG_TEST_SHARD) and
+  # slow there, so the suite runs in up to ten shares (JIG_TEST_SHARD), five at a
+  # time off main (max-parallel), and
   # skips the one check that reads only this repository's own knowledge and says
   # nothing about the platform (JIG_TEST_SKIP; it still runs on Linux and macOS).
   #
@@ -361,7 +399,7 @@ jobs:
   # 1/n .. n/n.
   #
   # It runs on main (a release waits for every share), by hand, nightly, and on
-  # a pull request whose diff touches something Windows decides differently —
+  # a pull request or an epic-branch push whose diff touches something Windows decides differently —
   # line endings, MSYS path translation, directory links, a file that exists
   # only for Windows, a change that names the platform itself, or a release
   # (a change to JIG_VERSION), so a version is tested here before it merges. That
@@ -379,6 +417,8 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
+      # As for `test`: held to five shares at a time off main, free on main.
+      max-parallel: ${{ github.ref == 'refs/heads/main' && 20 || 5 }}
       matrix: ${{ fromJSON(needs.scope.outputs.matrix_windows) }}
     defaults:
       run:
@@ -649,6 +689,7 @@ jobs:
           WINDOWS: ${{ needs.scope.outputs.windows }}
           REUSE: ${{ needs.scope.outputs.reuse }}
           EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
           BASE_REF: ${{ github.base_ref }}
           HEAD_REF: ${{ github.head_ref }}
         run: |
