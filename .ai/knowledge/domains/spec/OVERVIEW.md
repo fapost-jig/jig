@@ -12,7 +12,7 @@ paths:
   - "templates/spec/**"
   - "skills/jig-idea/**"
   - "skills/jig-release/**"
-reviewed_at: 2026-11-16
+reviewed_at: 2026-11-18
 ---
 # Spec
 
@@ -141,7 +141,8 @@ an unreadable value answers 1 rather than making a report refuse (only a hand-ed
 can hold one: `jig config set` validates before it writes).
 
 `spec ship` takes its git steps from `common.sh` (`jig_ship_*`), the ones `task ship` takes, and keeps
-only its modes and their refusals here. It never writes a spec file: what it commits is what `spec epic`
+only its modes and their refusals here — among them, before the push, a branch that does not merge
+into the default branch without conflicts (`spec_ship_merges_cleanly`, adr-20260925-a-ship-refuses-before-it-sends). It never writes a spec file: what it commits is what `spec epic`
 and the agent left staged — and, in `remove`, the deletion of the spec's own directory, which it stages itself. It merges one thing, the epic's final pull request, at `agent.git: merge` and
 only when `autopilot.unattended` is set (adr-20260922-unattended-runs-ask-nothing-and-merge-on-green-ci):
 with a merge commit only, after `spec_ship_final_ready` finds the epic holding the freshest default, the
@@ -155,7 +156,7 @@ spec gone, no non-fog item unchecked (`spec_unchecked_items`) and no task cut fr
   `_spec_switch_to_existing_branch`, `_spec_refuse_dirty_tree`, `_spec_require_default_branch`,
   `spec_template`, `spec_list`, `spec_list_rows`,
   `spec_progress`, `spec_phase_counts`, `spec_merged_task_ids`, `spec_phase_items`, `_spec_list_json`, `spec_phase_rows`, `spec_plan`, `spec_list_state`, `spec_count`, `spec_done`, `spec_remove`, `spec_epic`,
-  `spec_epic_status`, `spec_close`, `spec_leftovers`, `spec_ship`, `spec_ship_final_ready`, `spec_release_check`,
+  `spec_epic_status`, `spec_close`, `spec_leftovers`, `spec_ship`, `spec_ship_merges_cleanly`, `spec_ship_final_ready`, `spec_release_check`,
   `spec_item` (its line arithmetic reads `spec_phase_items`, the one reader of the grammar, for each
   item's lines and handle).
 - `scripts/lib/owntree.sh` — the steps of a write in Jig's own tree, shared with `knowledge.sh`.
