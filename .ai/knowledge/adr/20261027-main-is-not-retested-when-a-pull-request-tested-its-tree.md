@@ -9,6 +9,7 @@ paths:
   - .github/scripts/ci-reuse.sh
   - .github/scripts/ci-ok.sh
   - .github/scripts/ci-nightly-tested.sh
+  - .github/scripts/ci-outputs.sh
 summary: Why a push to main skips the suite when a green pull-request run already tested its tree with everything the push needs (the whole suite, or a selected plan holding every filter of the push), how that tree is proved without the merge ref, and the risk left.
 reviewed_at: 2026-11-18
 ---
@@ -126,3 +127,5 @@ after the fact, which tree a pull-request run tested.
 > - *The nightly run is light on a tree already tested.* `ci-nightly-tested.sh` prints `tested` when the newest finished run of `ci` on `main` (a push or the nightly one; cancelled and skipped runs are looked past, a manual dispatch is not counted) succeeded and the newest successful `schedule` run's head commit has the tree of `HEAD`. `scope` then makes the nightly `light` (the knowledge check only); any other answer, an API that does not answer included, keeps it `full`. A manual dispatch stays full. A light nightly is green with no `report-*` artifacts, so the plan step takes durations from the newest of the last ten successful nightly runs that has reports, and `release` (whole suite only) and `red-main` (a light green leaves the issue open) stay as they were. The chain holds because a light nightly exists only on a tree an earlier nightly tested whole.
 >
 > Residual risk: the nightly no longer repeats a suite on an unchanged tree, so a flaky test or a changed runner image is found on the next tree that moves, not the next night; the whole suite still runs on every tree that reaches `main` through a push that needs it, and before every release. Reverting is one line in each script (ci-reuse: refuse `(selected)`; scope: drop the nightly question).
+
+> **Amendment (2026-11-18): a pull request that was behind `main` narrows instead of retesting everything.** When no run tested the pushed tree exactly, `ci-reuse.sh` may answer `narrow <commit>`: a whole-suite pull-request run recorded the merge it tested (`tested` in its `plan` artifact), the record is reproduced by `git merge-tree`, and `main` then tests only what differs from that tree. `scope` outputs `whole` and `release` reads it in place of `suite == all` (adr-20261118-main-tests-what-changed-since-a-full-pull-request-run).

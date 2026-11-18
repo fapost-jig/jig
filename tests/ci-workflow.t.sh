@@ -107,11 +107,70 @@ test_ci_workflow_test_job_names_carry_the_suite() {
     fail "the test-windows job's name must end in (\${{ needs.scope.outputs.suite }})"
 }
 
-# Only a run of the whole suite releases.
+# Only a run whose proof is the whole suite releases: scope's `whole`, which
+# is true for a run of the whole suite, a reuse of a pull request's run of it
+# and a narrow run on top of one. Not `suite`: a narrow run may test only the
+# difference and still be whole.
 test_ci_workflow_release_needs_the_whole_suite() {
+  local block
+  block=$(cw_job_block release)
   # shellcheck disable=SC2016
-  assert_contains "$(cw_job_block release)" "needs.scope.outputs.suite == 'all'" \
-    "release must tag only after a run of the whole suite"
+  assert_contains "$block" "needs.scope.outputs.whole == 'true'" \
+    "release must tag only after a run whose proof is the whole suite"
+  assert_not_contains "$block" "outputs.suite" \
+    "release must read scope's whole, not its suite"
+  # shellcheck disable=SC2016
+  assert_contains "$(cw_job_block scope)" 'whole: ${{ steps.scope.outputs.whole }}' \
+    "scope must publish whole"
+}
+
+# A pull request's run records the merge it tested, for the push that merges
+# it (ci-reuse.sh reads the file back from the `plan` artifact).
+test_ci_workflow_scope_records_the_tree_a_pull_request_tested() {
+  local block
+  block=$(cw_job_block scope)
+  assert_contains "$block" "git rev-parse --verify --quiet 'HEAD^2'" "scope must read the head parent"
+  assert_contains "$block" "git rev-parse --verify --quiet 'HEAD^{tree}'" "scope must read the tested tree"
+  # shellcheck disable=SC2016
+  assert_contains "$block" "'base=%s\\nhead=%s\\ntree=%s\\n' \"\$pr_base\" \"\$pr_head\" \"\$pr_tree\" > \"\$plan/tested\"" \
+    "scope must write base, head and tree to the tested file of the plan"
+  # Only a pull request writes it, and only when both parents resolved.
+  printf '%s\n' "$block" | awk '
+    /if \[ "\$EVENT" = pull_request \]; then/ { inpr = 1 }
+    inpr && /plan\/tested/ { found = 1 }
+    END { exit !found }
+  ' || fail "the tested file must be written inside the pull_request branch"
+  # shellcheck disable=SC2016
+  assert_contains "$block" 'if [ -n "$pr_base" ] && [ -n "$pr_head" ] && [ -n "$pr_tree" ]; then' \
+    "the tested file needs both parents and the tree"
+}
+
+# On `narrow <commit>` scope measures from that commit; what the outputs are
+# is decided by .github/scripts/ci-outputs.sh (tests/ci-outputs.t.sh holds the
+# rules), and written once, after the decisions, from its answer.
+test_ci_workflow_scope_handles_a_narrow_answer() {
+  local block
+  block=$(cw_job_block scope)
+  assert_contains "$block" 'narrow*)' "scope must handle the narrow answer of ci-reuse.sh"
+  # shellcheck disable=SC2016
+  assert_contains "$block" '.github/scripts/ci-scope.sh "$nbase"' "scope must measure a narrow push from its commit"
+  # shellcheck disable=SC2016
+  assert_contains "$block" '.github/scripts/ci-outputs.sh "$line" "$reuse" "$nline"' \
+    "scope must decide its outputs in ci-outputs.sh"
+  # shellcheck disable=SC2016
+  assert_contains "$block" '>> "$GITHUB_OUTPUT"' "scope writes its outputs"
+  # No output of the decision is written by the workflow itself.
+  assert_not_contains "$block" 'echo "suite=' "the suite is ci-outputs.sh's to decide"
+  assert_not_contains "$block" 'echo "whole=' "whole is ci-outputs.sh's to decide"
+  # shellcheck disable=SC2016
+  [ "$(printf '%s\n' "$block" | grep -c 'ci-outputs.sh "\$line"')" -eq 1 ] || fail "ci-outputs.sh must be asked once"
+  # The outputs are written after the narrow measurement, and the shares are
+  # planned from the final suite (step order: scope, then plan).
+  printf '%s\n' "$block" | awk '
+    /nbase=/ { n = NR }
+    /ci-outputs.sh "\$line"/ { w = NR }
+    END { exit !(n && w && n < w) }
+  ' || fail "outputs must be decided after the narrow measurement"
 }
 
 # A push is measured from the base .github/scripts/ci-green-base.sh names, read

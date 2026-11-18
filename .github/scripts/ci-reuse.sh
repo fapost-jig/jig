@@ -11,9 +11,17 @@
 #
 # Prints one line:
 #
-#   - reuse (<run url> ...): a successful run of `ci` on a pull request tested
-#     this tree, the whole suite on every platform. The suite is skipped and
-#     the run goes on to `release`;
+#   - reuse (<run url> ...; suite: <all|selected>): a successful run of `ci` on
+#     a pull request tested this tree, what the push needs of the suite, on
+#     every platform. The suite is skipped and the run goes on to `release`.
+#     The `suite:` marker says which kind it was, and the caller's `whole`
+#     (.github/scripts/ci-outputs.sh) is true only for `all`;
+#   - narrow <commit> (<why>): no run tested this very tree, but a pull
+#     request's run of the whole suite tested the tree main had when the pull
+#     request merged, minus what other pull requests landed meanwhile. <commit>
+#     is a local commit with that tree on top of the base the run was merged
+#     onto, and the caller measures the push from it, so only the difference
+#     is tested (adr-20261118-main-tests-what-changed-since-a-full-pull-request-run);
 #   - test (<why>): anything else. The suite runs as it always did.
 #
 # The pull request is the one GitHub records as having made HEAD: into main,
@@ -61,11 +69,45 @@
 # not count. Such a push does not release and does not close `red-main`;
 # both ask the scope for `all` themselves.
 #
+# Narrow. A pull request that was behind main when it merged fails the test
+# above, and that is the usual case: main moves while the pull request's own
+# run is going, so the merge main made is a tree nobody ran. What the run did
+# test is known exactly, though: its `scope` job records in the `plan`
+# artifact a file `tested` with the merge it checked out: `base` (B, main as
+# it was), `head` (P, the pull request's head) and `tree` (T). Here the whole
+# suite ran on T on every platform, Windows included. When B is an ancestor of
+# <before> (main only moves forward) and `git merge-tree --write-tree B P`
+# gives exactly T, the record is true of this repository, and HEAD differs
+# from T by what landed on main after B. The script prints `narrow` with a
+# commit that has tree T on top of B, so the caller's measurement is the one
+# it makes for any change: the files that differ between T and HEAD select the
+# tests. Why that is enough is the argument the map already rests on: a test
+# that no file of the difference reaches sees in HEAD the files it saw in T,
+# where it passed, and a mistake in the map is for the nightly run to find. A
+# selected run of a pull request never narrows: it tested part of T, and the
+# difference would then be measured from a tree whose tests are partly unrun.
+# Anything that cannot be measured — a missing artifact or record, a conflict,
+# a tree that differs, an ancestry that fails — leaves the run out of the
+# count. Exact reuse comes first: a run that tested this very tree is the
+# stronger claim, and a recorded tree equal to HEAD's (main moved, the tree did
+# not) is exact reuse too, answered before any narrowing. `git merge-tree --write-tree` needs git 2.38.
+#
+# Main red. Narrowing is refused while main is known to be red: an open GitHub
+# issue labelled `red-main`, the signal .github/scripts/red-main.sh keeps. A
+# release pull request merged onto a red main would otherwise be narrowed and
+# tagged with a failing test on HEAD, where main used to run the whole suite
+# on a release push. Exact reuse is unaffected (that tree was tested green), and
+# an issue query that fails leaves narrowing out too.
+#
 # Unmeasurable is never a reason to skip: a missing <before>, a commit that
 # cannot be read, a GitHub API that does not answer — each prints `test`.
 #
 # Environment: GITHUB_REPOSITORY (owner/name; set by Actions) and GH_TOKEN for
 # `gh`.
+#
+# The commit `narrow` names is made with an identity given for that one
+# command through the environment; no git configuration is touched and
+# nothing is pushed.
 #
 # Usage: .github/scripts/ci-reuse.sh <before> [<suite> <filters-file>]
 #   <before>        github.event.before: the tip of main before this push.
@@ -137,7 +179,8 @@ _cr_covers() {
 
 # _cr_full <run-id> — whether the run tested what this push needs, Windows
 # included, judged from its jobs (and, for selected tests, its plan). Status 1
-# when it did not or the jobs cannot be read; the reason goes to stdout.
+# when it did not or the jobs cannot be read; the reason goes to stdout. On
+# status 0 stdout says what the run ran, `all` or `selected`.
 _cr_full() {
   local jobs line conclusion name knowledge="" windows=0 unix=0 p q nall=0 nsel=0
   jobs=$(gh api -X GET "repos/$CR_SLUG/actions/runs/$1/jobs" -f per_page=100 \
@@ -201,8 +244,68 @@ EOF
   fi
   if [ "$nsel" -gt 0 ]; then
     _cr_covers "$1" || return 1
+    echo selected
+  else
+    echo all
   fi
   return 0
+}
+
+# _cr_narrow <run-id> <run-head> <before> — a local commit that has the tree a
+# pull request's run tested in full, on top of the base that run merged onto.
+# Prints `<commit> <tree>` and returns 0; returns 1 with the reason on stdout
+# when the run does not narrow. It needs the whole suite on every platform
+# whatever this push asks, because a narrow scope is measured from a tree that
+# was tested whole.
+_cr_narrow() {
+  local id="$1" runhead="$2" before="$3" dir base head tree merged commit suite why
+  suite=$CR_SUITE
+  CR_SUITE=all
+  if ! why=$(_cr_full "$id"); then
+    CR_SUITE=$suite
+    echo "$why"
+    return 1
+  fi
+  CR_SUITE=$suite
+  dir=$(mktemp -d 2>/dev/null) || { echo "no scratch directory for its plan"; return 1; }
+  if ! gh run download "$id" -R "$CR_SLUG" -n plan -D "$dir" >/dev/null 2>&1 \
+    || [ ! -r "$dir/tested" ]; then
+    rm -rf "$dir"
+    echo "its plan artifact has no record of the tree it tested"
+    return 1
+  fi
+  base=$(sed -n 's/^base=//p' "$dir/tested" | head -n 1)
+  head=$(sed -n 's/^head=//p' "$dir/tested" | head -n 1)
+  tree=$(sed -n 's/^tree=//p' "$dir/tested" | head -n 1)
+  rm -rf "$dir"
+  if [ -z "$base" ] || [ -z "$head" ] || [ -z "$tree" ]; then
+    echo "its record of the tested tree is incomplete"
+    return 1
+  fi
+  case "$base$head$tree" in
+    *[!0-9a-f]*) echo "its record of the tested tree is not readable"; return 1 ;;
+  esac
+  if [ "$head" != "$runhead" ]; then
+    echo "its record of the tested tree names another head than the run"
+    return 1
+  fi
+  _cr_have "$base" || { echo "the base $base it tested on cannot be read"; return 1; }
+  _cr_have "$head" || { echo "the head $head it tested cannot be read"; return 1; }
+  if ! git merge-base --is-ancestor "$base" "$before" 2>/dev/null; then
+    echo "the base $base it tested on is not in main's history up to $before"
+    return 1
+  fi
+  merged=$(git merge-tree --write-tree "$base" "$head" 2>/dev/null) \
+    || { echo "merging $head onto $base does not reproduce its tree"; return 1; }
+  if [ "$merged" != "$tree" ]; then
+    echo "merging $head onto $base gives tree $merged, not the $tree it recorded"
+    return 1
+  fi
+  commit=$(GIT_AUTHOR_NAME=ci-reuse GIT_AUTHOR_EMAIL=ci-reuse@localhost \
+    GIT_COMMITTER_NAME=ci-reuse GIT_COMMITTER_EMAIL=ci-reuse@localhost \
+    git commit-tree "$tree" -p "$base" -m 'tree a pull request tested' 2>/dev/null) \
+    || { echo "cannot make a commit of tree $tree"; return 1; }
+  printf '%s %s\n' "$commit" "$tree"
 }
 
 main() {
@@ -250,13 +353,47 @@ main() {
       continue
     fi
     if why=$(_cr_full "$id"); then
-      _cr_line reuse "$url tested tree $tree on every platform"
+      _cr_line reuse "$url tested tree $tree on every platform; suite: $why"
     fi
     echo "skipping $url: $why" >&2
   done <<EOF
 $runs
 EOF
 
+  # No run tested this very tree. A run of the whole suite on the merge of its
+  # pull request onto an older main still tells what main now holds but for
+  # what landed meanwhile.
+  # Main red, or unmeasurably so: the pull request's run cannot narrow it.
+  local red nonarrow=""
+  if red=$(gh issue list -R "$CR_SLUG" --label red-main --state open --limit 1 \
+    --json number --jq '.[0].number // empty' 2>/dev/null); then
+    if [ -n "$red" ]; then
+      nonarrow="main is red (#$red); a pull request's run cannot narrow it"
+    fi
+  else
+    nonarrow="main's state cannot be read (the red-main issue query failed); no narrowing"
+  fi
+  [ -z "$nonarrow" ] || echo "not narrowing: $nonarrow" >&2
+
+  while read -r id sha url; do
+    [ -n "${url:-}" ] || continue
+    [ -z "$nonarrow" ] || break
+    if why=$(_cr_narrow "$id" "$sha" "$before"); then
+      # The base moved, the tree did not (nothing landed while the run went):
+      # the run tested this very tree after all, in full.
+      if [ "${why#* }" = "$tree" ]; then
+        _cr_line reuse "$url tested tree $tree on every platform; suite: all; main moved, the tree did not"
+      fi
+      printf 'narrow %s (%s tested tree %s in full; main has moved since)\n' \
+        "${why%% *}" "$url" "${why#* }"
+      exit 0
+    fi
+    echo "not narrowing from $url: $why" >&2
+  done <<EOF
+$runs
+EOF
+
+  [ -z "$nonarrow" ] || _cr_line test "$nonarrow"
   if [ "$seen" -eq 1 ]; then
     _cr_line test "no green pull-request run tested what this push needs of tree $tree on top of $before"
   fi
