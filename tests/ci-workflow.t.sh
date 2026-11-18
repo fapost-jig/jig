@@ -135,3 +135,68 @@ test_ci_workflow_scope_measures_a_pull_request_from_its_merge_parent() {
     fail "the scope job must not read github.event.pull_request.base.sha: it is where the branch started, not what it merges into"
   fi
 }
+
+# An epic branch's first push has no successful run to measure from, and an
+# empty base ran the whole suite on every platform for a branch that differed
+# from main by spec files alone (nineteen jobs held the organisation's whole
+# concurrent-job limit and the other runs queued behind them). ci-push-base.sh picks the base (its
+# tests, tests/ci-push-base.t.sh, run it on real histories); what is left to
+# guard here is that the scope job asks it and acts on each of its answers.
+test_ci_workflow_push_scope_follows_ci_push_base() {
+  local block
+  block=$(cw_job_block scope)
+  # shellcheck disable=SC2016 # shell variables in a workflow, matched literally
+  printf '%s\n' "$block" | grep -qF '.github/scripts/ci-push-base.sh "$BRANCH" "$green"' ||
+    fail "a push must ask ci-push-base.sh for its base"
+  # shellcheck disable=SC2016
+  printf '%s\n' "$block" | grep -qF '.github/scripts/ci-scope.sh "$push_base"' ||
+    fail "a push must measure its scope from push_base"
+  printf '%s\n' "$block" | grep -qF 'line="light (epic holds nothing beyond its base' ||
+    fail "an epic holding nothing beyond its base must be light"
+  if printf '%s\n' "$block" | grep -qF 'origin/main'; then
+    fail "the base is ci-push-base.sh's to compute, not the workflow's"
+  fi
+}
+
+# A push to an epic asks ci-windows-scope.sh, with the base the scope used (or
+# skips when the epic holds nothing); main, the nightly run and a dispatch
+# keep running every platform.
+test_ci_workflow_epic_push_asks_the_windows_scope_with_the_same_base() {
+  local block
+  block=$(cw_job_block scope)
+  # shellcheck disable=SC2016
+  printf '%s\n' "$block" | grep -qF 'push:epic/*)' ||
+    fail "a push to an epic branch must be decided on its own"
+  # shellcheck disable=SC2016
+  printf '%s\n' "$block" | grep -qF 'win=$(.github/scripts/ci-windows-scope.sh "$push_base")' ||
+    fail "a push to an epic branch must ask ci-windows-scope.sh with push_base"
+  printf '%s\n' "$block" | grep -qF 'win="skip (epic holds nothing beyond its base' ||
+    fail "an epic holding nothing beyond its base must skip Windows"
+  # shellcheck disable=SC2016
+  printf '%s\n' "$block" | grep -qF '*) win="windows ($EVENT runs every platform)" ;;' ||
+    fail "every other event, main's push included, must keep running Windows"
+}
+
+# ci-ok needs the branch to hold Windows to every run but a pull request and an
+# epic push.
+test_ci_workflow_ci_ok_is_told_the_ref() {
+  # shellcheck disable=SC2016
+  cw_has "$(cw_job_block ci-ok)" 'REF_NAME: ${{ github.ref_name }}' ||
+    fail "ci-ok must pass github.ref_name to ci-ok.sh"
+}
+
+# Off main the matrices are held to a few shares at a time, so one run cannot
+# take the organisation's whole concurrent-job limit; main (push and nightly) is not
+# held back (adr-20261016-the-suite-runs-in-shares-on-every-platform).
+test_ci_workflow_matrices_are_limited_off_main_and_free_on_main() {
+  # shellcheck disable=SC2016
+  cw_has "$(cw_job_block test)" "max-parallel: \${{ github.ref == 'refs/heads/main' && 20 || 6 }}" ||
+    fail "test must run at most 6 shares at a time off main, and at least all of them on main"
+  # shellcheck disable=SC2016
+  cw_has "$(cw_job_block test-windows)" "max-parallel: \${{ github.ref == 'refs/heads/main' && 20 || 5 }}" ||
+    fail "test-windows must run at most 5 shares at a time off main, and at least all of them on main"
+  # The main limit must stay above every ceiling ci-matrix.sh has (4 and 10).
+  # shellcheck disable=SC2016
+  [ "$(grep -c "max-parallel: \${{ github.ref == 'refs/heads/main' && 20 ||" "$(cw_file)")" -eq 2 ] ||
+    fail "both matrix jobs must carry the limit"
+}
