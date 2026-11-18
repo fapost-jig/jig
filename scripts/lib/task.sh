@@ -1820,12 +1820,37 @@ _task_start_base() {
 
   if [ "$base" = "$default" ]; then
     jig_fetch_branches "task start" "$default"
+    [ -z "$spec" ] || _task_start_note_no_epic "$spec" "$default"
   else
     jig_fetch_branches "task start" "$default" "$base"
     [ -n "$(jig_base_ref "$base")" ] \
       || jig_die "task start: epic $base of spec $spec exists neither here nor on origin; push it, or create it with \`jig spec epic $spec\`"
   fi
   printf '%s\n' "$base"
+}
+
+# _task_start_note_no_epic <spec> <default> — a note, never a refusal, when a
+# task of a spec with no Epic: line is started while nothing of that spec has
+# merged yet: the last moment an epic can still hold the whole feature
+# (jig-idea §8 asks the person; this is the deterministic backstop for a spec
+# where the question was skipped). "Nothing merged" is read without spec.sh,
+# which task.sh never sources (ARCHITECTURE.md): no checked item in the
+# roadmap (schemas/spec.md), and no task linked to the spec closed here
+# (ADR-0030 closes a task only after its change landed). A task merged but not
+# yet closed is missed, and costs one needless note. On stderr: the caller's
+# stdout is the base branch.
+_task_start_note_no_epic() {
+  local spec="$1" default="$2" roadmap state dir link
+  roadmap="$JIG_PROJECT/$JIG_AI_DIR/specs/$spec/roadmap.md"
+  ! grep -Eq '^[[:space:]]*[-*][[:space:]]+\[[xX]\]' "$roadmap" 2>/dev/null || return 0
+  for state in "$JIG_PROJECT/$JIG_AI_DIR/workspace/tasks"/*/state; do
+    [ -f "$state" ] || continue
+    [ "$(sed -n 's/^status:[[:space:]]*//p' "$state" | head -n 1)" = consolidated ] || continue
+    dir=${state%/state}
+    link=$(jig_spec_link "$dir/task.md" 2>/dev/null) || continue
+    [ "$link" != "$spec" ] || return 0
+  done
+  jig_info "task start: spec $spec has no epic; its tasks will merge into $default"
 }
 
 # _task_start_branch <name> <base> — create <name> off the freshest <base>,
