@@ -450,6 +450,210 @@ test_spec_resume_open_epic_refuses_and_names_it() {
   assert_eq "main" "$(git symbolic-ref --short HEAD)"
 }
 
+# --- spec resume: a branch left behind is brought up to date (spec-branch-freshen) ---
+# A spec's branch outlives its merged pull request, here and on origin, while
+# main goes on changing the spec. Resumed as it was, the next pull request
+# conflicts with main, and GitHub runs no CI on it.
+
+# sresume_left <id> — sresume_merged with spec/<id> kept at the merged tip,
+# here and on origin, and main moved on past it, changing the spec.
+sresume_left() {
+  local id="$1"
+  sresume_merged "$id"
+  git branch "spec/$id"
+  printf -- '- [x] `T-9` — shipped since\n' >> ".ai/specs/$id/roadmap.md"
+  git commit -qam "spec done T-9"
+  git clone -q --bare . origin.git
+  git remote add origin "$PWD/origin.git"
+  git fetch -q origin
+}
+
+test_spec_resume_moves_a_merged_local_branch_to_main() {
+  sresume_left idea-x
+
+  run jig spec resume idea-x
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "spec resume: spec/idea-x is all in origin/main already; moved it there"
+  assert_contains "$OUT" "switched to spec/idea-x"
+  assert_eq "spec/idea-x" "$(git symbolic-ref --short HEAD)"
+  assert_eq "$(git rev-parse main)" "$(git rev-parse HEAD)"
+}
+
+test_spec_resume_moves_a_merged_branch_only_on_origin_to_main() {
+  sresume_left idea-x
+  git branch -D spec/idea-x >/dev/null
+
+  run jig spec resume idea-x
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "spec/idea-x is all in origin/main already; moved it there"
+  assert_eq "$(git rev-parse main)" "$(git rev-parse HEAD)"
+  assert_eq "origin/spec/idea-x" "$(git rev-parse --abbrev-ref 'spec/idea-x@{upstream}')"
+}
+
+test_spec_resume_without_origin_moves_a_merged_branch_to_local_main() {
+  sresume_merged idea-x
+  git branch spec/idea-x
+  printf -- '- [x] `T-9` — shipped since\n' >> .ai/specs/idea-x/roadmap.md
+  git commit -qam "spec done T-9"
+
+  run jig spec resume idea-x
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "spec/idea-x is all in main already; moved it there"
+  assert_eq "$(git rev-parse main)" "$(git rev-parse HEAD)"
+}
+
+test_spec_resume_fast_forwards_a_local_branch_behind_origin() {
+  sresume_merged idea-x
+  git switch --quiet -c spec/idea-x
+  printf 'more\n' >> .ai/specs/idea-x/spec.md
+  git commit -qam "more on the spec"
+  git clone -q --bare . origin.git
+  git remote add origin "$PWD/origin.git"
+  git fetch -q origin
+  git reset -q --hard HEAD~1
+  git switch --quiet main
+
+  run jig spec resume idea-x
+  assert_eq 0 "$RC"
+  assert_eq "switched to spec/idea-x" "$OUT"
+  assert_eq "$(git rev-parse origin/spec/idea-x)" "$(git rev-parse HEAD)"
+}
+
+test_spec_resume_keeps_unpushed_commits_ahead_of_origin() {
+  sresume_merged idea-x
+  git branch spec/idea-x
+  git clone -q --bare . origin.git
+  git remote add origin "$PWD/origin.git"
+  git fetch -q origin
+  git switch --quiet spec/idea-x
+  printf 'more\n' >> .ai/specs/idea-x/spec.md
+  git commit -qam "unpushed"
+  local tip
+  tip=$(git rev-parse HEAD)
+  git switch --quiet main
+
+  run jig spec resume idea-x
+  assert_eq 0 "$RC"
+  assert_eq "switched to spec/idea-x" "$OUT"
+  assert_eq "$tip" "$(git rev-parse HEAD)"
+}
+
+test_spec_resume_refuses_a_branch_diverged_from_origin() {
+  sresume_merged idea-x
+  git switch --quiet -c spec/idea-x
+  printf 'theirs\n' >> .ai/specs/idea-x/spec.md
+  git commit -qam "theirs"
+  git clone -q --bare . origin.git
+  git remote add origin "$PWD/origin.git"
+  git fetch -q origin
+  git reset -q --hard HEAD~1
+  printf 'ours\n' >> .ai/specs/idea-x/roadmap.md
+  git commit -qam "ours"
+  local tip
+  tip=$(git rev-parse HEAD)
+  git switch --quiet main
+
+  run jig spec resume idea-x
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "spec resume: spec/idea-x and origin/spec/idea-x have diverged; merge origin/spec/idea-x into spec/idea-x, then run again"
+  assert_eq main "$(git symbolic-ref --short HEAD)"
+  assert_eq "$tip" "$(git rev-parse spec/idea-x)"
+}
+
+# sresume_own <id> — spec/<id> with a commit of its own (spec.md), and main
+# moved on changing the roadmap.
+sresume_own() {
+  local id="$1"
+  sresume_merged "$id"
+  git switch --quiet -c "spec/$id"
+  printf 'own\n' >> ".ai/specs/$id/spec.md"
+  git commit -qam "own work"
+  git switch --quiet main
+  printf -- '- [x] `T-9` — shipped since\n' >> ".ai/specs/$id/roadmap.md"
+  git commit -qam "spec done T-9"
+}
+
+test_spec_resume_takes_main_into_a_branch_with_work_of_its_own() {
+  sresume_own idea-x
+  sship_cfg_local agent.git commit
+  local own
+  own=$(git rev-parse spec/idea-x)
+
+  run jig spec resume idea-x
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "spec resume: took main into spec/idea-x: it changed .ai/specs/idea-x/ after the branch was cut"
+  assert_eq "spec/idea-x" "$(git symbolic-ref --short HEAD)"
+  assert_eq "$own $(git rev-parse main)" "$(git log -1 --format=%P)"
+  assert_eq "Take main into spec/idea-x" "$(git log -1 --format=%s)"
+  grep -q 'T-9' .ai/specs/idea-x/roadmap.md || fail "main's roadmap was not taken in"
+  grep -q '^own$' .ai/specs/idea-x/spec.md || fail "the branch's own work was lost"
+}
+
+test_spec_resume_leaves_a_branch_alone_when_main_did_not_touch_the_spec() {
+  sresume_merged idea-x
+  sship_cfg_local agent.git commit
+  git switch --quiet -c spec/idea-x
+  printf 'own\n' >> .ai/specs/idea-x/spec.md
+  git commit -qam "own work"
+  local own
+  own=$(git rev-parse HEAD)
+  git switch --quiet main
+  printf 'elsewhere\n' >> README.md
+  git commit -qam "unrelated"
+
+  run jig spec resume idea-x
+  assert_eq 0 "$RC"
+  assert_eq "switched to spec/idea-x" "$OUT"
+  assert_eq "$own" "$(git rev-parse HEAD)"
+}
+
+test_spec_resume_at_git_level_none_names_the_merge_instead() {
+  sresume_own idea-x
+  sship_cfg_local agent.git none
+  local own
+  own=$(git rev-parse spec/idea-x)
+
+  run jig spec resume idea-x
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "spec resume: main changed .ai/specs/idea-x/ after spec/idea-x was cut; agent.git is none in this clone, so merge it yourself: git merge main"
+  assert_eq "spec/idea-x" "$(git symbolic-ref --short HEAD)"
+  assert_eq "$own" "$(git rev-parse HEAD)"
+}
+
+test_spec_resume_refuses_a_conflict_with_main_and_names_the_file() {
+  sresume_merged idea-x
+  sship_cfg_local agent.git commit
+  git switch --quiet -c spec/idea-x
+  printf -- '- [ ] ours\n' >> .ai/specs/idea-x/roadmap.md
+  git commit -qam "own work"
+  local own
+  own=$(git rev-parse HEAD)
+  git switch --quiet main
+  printf -- '- [x] theirs\n' >> .ai/specs/idea-x/roadmap.md
+  git commit -qam "spec done"
+
+  run jig spec resume idea-x
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "spec resume: spec/idea-x conflicts with main; switched back to main. Resolve it on the branch (git switch spec/idea-x && git merge main), commit, then run again. Conflicting:"
+  assert_contains "$OUT" "  .ai/specs/idea-x/roadmap.md"
+  assert_eq main "$(git symbolic-ref --short HEAD)"
+  assert_eq "$own" "$(git rev-parse spec/idea-x)"
+  assert_eq "" "$(git status --porcelain --untracked-files=no)"
+}
+
+test_spec_resume_refuses_a_branch_checked_out_in_another_worktree() {
+  sresume_merged idea-x
+  git branch spec/idea-x
+  git worktree add -q ../other-tree spec/idea-x
+
+  run jig spec resume idea-x
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "spec resume: spec/idea-x is checked out in "
+  assert_contains "$OUT" "work on the spec there, or switch that checkout to another branch and run again"
+  assert_eq main "$(git symbolic-ref --short HEAD)"
+  git worktree remove --force ../other-tree
+}
+
 # --- subcommand handling ------------------------------------------------------
 
 test_spec_list_rejects_extra_argument() {
@@ -953,9 +1157,9 @@ test_spec_drop_in_a_project_on_one_branch_is_not_refused() {
   grep -q '^- \[x\] `T-1`' .ai/specs/alpha/roadmap.md || fail "T-1's item was not closed"
 }
 
-# A `spec/<sid>` older than the item on the default branch closes nothing:
-# HEAD goes back, and the command says what to bring in first.
-test_spec_drop_with_a_stale_spec_branch_switches_back() {
+# A `spec/<sid>` older than the item on the default branch, and all in it
+# already, is moved to the default branch first: the item is there, and closes.
+test_spec_drop_moves_a_merged_spec_branch_to_main_first() {
   spec_drop_fixture
   printf -- '- [ ] `T-2` — other thing\n' > .ai/specs/alpha/roadmap.md
   git add -A >/dev/null && git commit -qm "spec" >/dev/null
@@ -964,14 +1168,52 @@ test_spec_drop_with_a_stale_spec_branch_switches_back() {
   git commit -qam "file T-1" >/dev/null
   run jig task abandon T-1 --reason "gone"
   assert_eq 0 "$RC"
+  assert_contains "$OUT" "spec drop: spec/alpha is all in main already; moved it there"
+  assert_contains "$OUT" "spec drop: switched to spec/alpha"
+  assert_eq spec/alpha "$(git symbolic-ref --short HEAD)"
+  grep -q '^- \[x\] `T-1`' .ai/specs/alpha/roadmap.md || fail "T-1's item was not closed"
+}
+
+# A `spec/<sid>` with work of its own and older than the item closes nothing
+# where jig may not take main in (agent.git none): HEAD goes back, and the
+# command says what to bring in first.
+test_spec_drop_with_a_stale_spec_branch_switches_back() {
+  spec_drop_fixture
+  printf -- '- [ ] `T-2` — other thing\n' > .ai/specs/alpha/roadmap.md
+  git add -A >/dev/null && git commit -qm "spec" >/dev/null
+  git switch --quiet -c spec/alpha
+  printf 'own\n' >> .ai/specs/alpha/spec.md
+  git commit -qam "own work" >/dev/null
+  git switch --quiet main
+  printf -- '- [ ] `T-1` — Sentry reporting\n' >> .ai/specs/alpha/roadmap.md
+  git commit -qam "file T-1" >/dev/null
+  run jig task abandon T-1 --reason "gone"
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "spec drop: main changed .ai/specs/alpha/ after spec/alpha was cut"
   assert_contains "$OUT" "spec drop: spec/alpha does not name T-1, main does; switched back to main. Merge main into spec/alpha, then run jig spec drop T-1 again"
   assert_eq main "$(git symbolic-ref --short HEAD)"
   assert_eq "" "$(git status --porcelain --untracked-files=no)"
-  git checkout -q spec/alpha && git merge -q --ff-only main && git checkout -q main
-  run jig spec drop T-1
+}
+
+# The same branch, where jig may commit: main is taken in, and the item closes.
+test_spec_drop_takes_main_into_a_spec_branch_with_work_of_its_own() {
+  spec_drop_fixture
+  printf -- '- [ ] `T-2` — other thing\n' > .ai/specs/alpha/roadmap.md
+  git add -A >/dev/null && git commit -qm "spec" >/dev/null
+  git switch --quiet -c spec/alpha
+  printf 'own\n' >> .ai/specs/alpha/spec.md
+  git commit -qam "own work" >/dev/null
+  git switch --quiet main
+  printf -- '- [ ] `T-1` — Sentry reporting\n' >> .ai/specs/alpha/roadmap.md
+  git commit -qam "file T-1" >/dev/null
+  sship_cfg_local agent.git commit
+  run jig task abandon T-1 --reason "gone"
   assert_eq 0 "$RC"
+  assert_contains "$OUT" "spec drop: took main into spec/alpha"
   assert_eq spec/alpha "$(git symbolic-ref --short HEAD)"
-  grep -q '^- \[x\] `T-1`' .ai/specs/alpha/roadmap.md || fail "T-1's item was not closed after the merge"
+  assert_eq "Close T-1 in the roadmap of alpha" "$(git log -1 --format=%s)"
+  assert_eq "Take main into spec/alpha" "$(git log -1 --skip=1 --format=%s)"
+  grep -q '^- \[x\] `T-1`' .ai/specs/alpha/roadmap.md || fail "T-1's item was not closed"
 }
 
 # The switch is `spec resume`'s: a dirty tree on the default branch is

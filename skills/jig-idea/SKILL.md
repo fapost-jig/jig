@@ -44,7 +44,12 @@ status; progress is read from its roadmap.
 
   It refuses a dirty tree by the same rule `task start` uses, then switches to `spec/<id>`
   — reusing the branch an earlier session shipped if it is still here, fetching it from
-  origin if only that has it, or cutting a fresh one otherwise. A spec with an open epic is
+  origin if only that has it, or cutting a fresh one otherwise. A reused branch is brought
+  up to date first, by the command, never by hand: moved to the default branch when all of
+  it is merged there, and the default branch merged in when it changed the spec since. Do
+  not delete a stale `spec/<id>` yourself; when `spec resume` refuses (a conflict, a
+  branch diverged from origin's or checked out in another worktree), do what it names and
+  run it again. A spec with an open epic is
   edited on the epic instead; `spec resume` says so and refuses, rather than cutting a
   `spec/<id>` nothing would ever ship — switch to the epic branch it names first. Only then
   read every file in the directory, starting from its open questions, its fog items and

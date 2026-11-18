@@ -113,3 +113,24 @@ in `task.sh`, reading `git status --porcelain` the same way `jig_tracked_changes
 > the conversation waits in a draft outside git, `.ai/workspace/ideas/<id>/draft.md`, and a
 > conversation cut short leaves that draft behind (adr-20261110-an-idea-draft-waits-outside-git).
 > Nothing about the spec's own branch changes.
+
+> **Amendment (2026-11-18).** A reused `spec/<id>` is brought up to date before the switch, not taken
+> as it is (`_spec_switch_to_existing_branch`, shared by `spec resume` and `spec drop`). A spec's
+> branch outlives its merged pull request, here and on origin, while the default branch goes on
+> changing the spec (`spec done` rewrites the roadmap); resumed as it was, the next pull request
+> conflicted with the default branch, GitHub ran no CI on it, and agents deleted the local branch by
+> hand only to have it recreated from the same stale `origin/spec/<id>`. Now both branches are fetched;
+> a branch checked out in another worktree is refused; behind origin's copy it is fast-forwarded, ahead
+> it keeps its unpushed commits, diverged it is refused; all of it in the default branch (origin's,
+> else this clone's), it is moved to the default branch's tip; with commits of its own, the default
+> branch is merged in with one merge commit only when it changed the spec's directory since they
+> forked — as adr-20261115-the-decisions-branch-takes-in-the-base takes in the base — never at
+> `agent.git` `none`, where a line names the merge instead; a conflict is aborted and refused, naming
+> the files, with HEAD back on the default branch. Every move is a fast-forward or a merge: nothing is
+> reset. Rejected: predicting the conflict with `git merge-tree --write-tree` (needs git 2.38, as two
+> other ADRs found); merging the default branch in whenever it moved (a merge commit for changes that
+> cannot conflict with the spec); a conflict guard in `spec ship` (most of its value is gone once the
+> branch is freshened where a session starts, and it would need a trial merge in the tree at ship
+> time). A project that squash-merges never sees its spec branch as merged: once the default branch
+> changes the spec again, it gets the merge instead, which can conflict and is then refused, naming
+> the files.
