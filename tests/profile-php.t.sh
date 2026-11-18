@@ -16,6 +16,7 @@ _PHP_VERIFY=".ai/profiles/php/verify.sh"
 _php_install() {
   fixture_repo
   jig init --from "$JIG_HOME" --profiles php >/dev/null
+  profile_checks_env .ai/profiles/php
   printf '{}\n' > composer.json
 }
 
@@ -155,10 +156,10 @@ test_profile_php_full_mode_skips_every_check_without_toolchain() {
   # Every check skipped, so the run checked nothing and says so, exit 3
   # (adr-20260925-one-test-run-per-clone-and-a-dead-run-is-not-a-pass).
   assert_eq 3 "$RC" "$OUT"
-  assert_contains "$OUT" "php: phpunit: skip (not found in vendor/bin)"
-  assert_contains "$OUT" "php: phpstan: skip (not found in vendor/bin)"
-  assert_contains "$OUT" "php: pint: skip (not found in vendor/bin)"
-  assert_contains "$OUT" "php: composer validate: skip (composer not found in PATH)"
+  assert_contains "$OUT" "php: tests (phpunit): skip (not found in vendor/bin)"
+  assert_contains "$OUT" "php: static (phpstan): skip (not found in vendor/bin)"
+  assert_contains "$OUT" "php: style (pint): skip (not found in vendor/bin)"
+  assert_contains "$OUT" "php: manifest (composer validate): skip (composer not found in PATH)"
   assert_contains "$OUT" "RESULT php: skip"
 }
 
@@ -169,12 +170,12 @@ test_profile_php_phpunit_pass_and_fail_report_version() {
   _php_stub_tool phpunit 9.9.9 0 phpunit.log
   run jig verify --profile php
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "php: phpunit: pass (9.9.9)"
+  assert_contains "$OUT" "php: tests (phpunit): pass (9.9.9)"
 
   _php_stub_tool phpunit 9.9.9 1 phpunit.log
   run jig verify --profile php
   assert_eq 1 "$RC"
-  assert_contains "$OUT" "php: phpunit: fail (9.9.9)"
+  assert_contains "$OUT" "php: tests (phpunit): fail (9.9.9)"
 }
 
 test_profile_php_pest_fallback_when_phpunit_absent() {
@@ -182,8 +183,8 @@ test_profile_php_pest_fallback_when_phpunit_absent() {
   _php_stub_tool pest 3.1.0 0 pest.log
   run jig verify --profile php
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "php: pest: pass (3.1.0)"
-  assert_not_contains "$OUT" "php: phpunit:"
+  assert_contains "$OUT" "php: tests (pest): pass (3.1.0)"
+  assert_not_contains "$OUT" "php: tests (phpunit):"
 }
 
 test_profile_php_phpstan_pass_and_fail_report_version() {
@@ -191,12 +192,12 @@ test_profile_php_phpstan_pass_and_fail_report_version() {
   _php_stub_tool phpstan 1.10.0 0 phpstan.log
   run jig verify --profile php
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "php: phpstan: pass (1.10.0)"
+  assert_contains "$OUT" "php: static (phpstan): pass (1.10.0)"
 
   _php_stub_tool phpstan 1.10.0 1 phpstan.log
   run jig verify --profile php
   assert_eq 1 "$RC"
-  assert_contains "$OUT" "php: phpstan: fail (1.10.0)"
+  assert_contains "$OUT" "php: static (phpstan): fail (1.10.0)"
 }
 
 test_profile_php_pint_pass_and_fail_report_version() {
@@ -204,12 +205,12 @@ test_profile_php_pint_pass_and_fail_report_version() {
   _php_stub_tool pint 1.0.0 0 pint.log
   run jig verify --profile php
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "php: pint: pass (1.0.0)"
+  assert_contains "$OUT" "php: style (pint): pass (1.0.0)"
 
   _php_stub_tool pint 1.0.0 1 pint.log
   run jig verify --profile php
   assert_eq 1 "$RC"
-  assert_contains "$OUT" "php: pint: fail (1.0.0)"
+  assert_contains "$OUT" "php: style (pint): fail (1.0.0)"
 }
 
 test_profile_php_composer_validate_pass_and_fail_report_version() {
@@ -217,12 +218,12 @@ test_profile_php_composer_validate_pass_and_fail_report_version() {
   _composer_stub 2.7.0 0 composer.log
   run jig verify --profile php
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "php: composer validate: pass (2.7.0)"
+  assert_contains "$OUT" "php: manifest (composer validate): pass (2.7.0)"
 
   _composer_stub 2.7.0 1 composer.log
   run jig verify --profile php
   assert_eq 1 "$RC"
-  assert_contains "$OUT" "php: composer validate: fail (2.7.0)"
+  assert_contains "$OUT" "php: manifest (composer validate): fail (2.7.0)"
 }
 
 test_profile_php_composer_validate_always_runs_in_full_mode() {
@@ -232,7 +233,7 @@ test_profile_php_composer_validate_always_runs_in_full_mode() {
   _composer_stub 2.7.0 0 composer.log
   run jig verify --profile php
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "php: composer validate: pass"
+  assert_contains "$OUT" "php: manifest (composer validate): pass"
   assert_file_contains composer.log "validate"
 }
 
@@ -248,7 +249,7 @@ test_profile_php_phpstan_narrowed_to_changed_php_files() {
 
   _php_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "php: phpstan: pass (1.10.0, scope: 1 files)"
+  assert_contains "$OUT" "php: static (phpstan): pass (1.10.0, scope: 1 files)"
   assert_file_contains phpstan.log "src/Foo.php"
   assert_not_contains "$(cat phpstan.log)" "src/Bar.txt"
 }
@@ -260,7 +261,7 @@ test_profile_php_phpstan_skips_when_no_changed_php_files() {
 
   _php_scoped "$files"
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "php: phpstan: skip (scope: no changed .php files)"
+  assert_contains "$OUT" "php: static (phpstan): skip (scope: no changed .php files)"
   assert_no_file phpstan.log
 }
 
@@ -273,7 +274,7 @@ test_profile_php_pint_narrowed_to_changed_php_files() {
 
   _php_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "php: pint: pass (1.0.0, scope: 1 files)"
+  assert_contains "$OUT" "php: style (pint): pass (1.0.0, scope: 1 files)"
   assert_file_contains pint.log "src/Foo.php"
 }
 
@@ -284,7 +285,7 @@ test_profile_php_pint_skips_when_no_changed_php_files() {
 
   _php_scoped "$files"
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "php: pint: skip (scope: no changed .php files)"
+  assert_contains "$OUT" "php: style (pint): skip (scope: no changed .php files)"
 }
 
 # --- always-ALL triggers (D4) --------------------------------------------------
@@ -297,7 +298,7 @@ test_profile_php_phpstan_runs_full_when_its_config_changed() {
   _php_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" \
-    "php: phpstan: pass (1.10.0, scope: phpstan configuration changed, whole project)"
+    "php: static (phpstan): pass (1.10.0, scope: phpstan configuration changed, whole project)"
   assert_file_contains phpstan.log "analyse --no-progress"
   assert_not_contains "$(cat phpstan.log)" ".php"
 }
@@ -309,7 +310,7 @@ test_profile_php_tests_run_full_when_phpunit_xml_changed() {
 
   _php_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "php: phpunit: pass (9.9.9, scope: phpunit.xml.dist can affect any test, ran full set)"
+  assert_contains "$OUT" "php: tests (phpunit): pass (9.9.9, scope: phpunit.xml.dist can affect any test, ran full set)"
 }
 
 test_profile_php_composer_json_change_runs_composer_validate_and_full_tests() {
@@ -326,10 +327,10 @@ test_profile_php_composer_json_change_runs_composer_validate_and_full_tests() {
 
   _php_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "php: composer validate: pass"
-  assert_contains "$OUT" "php: phpunit: pass (9.9.9, scope: composer.json can affect any test, ran full set)"
-  assert_contains "$OUT" "php: phpstan: skip (scope: no changed .php files)"
-  assert_contains "$OUT" "php: pint: skip (scope: no changed .php files)"
+  assert_contains "$OUT" "php: manifest (composer validate): pass"
+  assert_contains "$OUT" "php: tests (phpunit): pass (9.9.9, scope: composer.json can affect any test, ran full set)"
+  assert_contains "$OUT" "php: static (phpstan): skip (scope: no changed .php files)"
+  assert_contains "$OUT" "php: style (pint): skip (scope: no changed .php files)"
 }
 
 test_profile_php_composer_validate_skips_when_unchanged_in_scoped_run() {
@@ -341,7 +342,7 @@ test_profile_php_composer_validate_skips_when_unchanged_in_scoped_run() {
 
   _php_scoped "$files"
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "php: composer validate: skip (scope: composer.json/composer.lock not changed)"
+  assert_contains "$OUT" "php: manifest (composer validate): skip (scope: composer.json/composer.lock not changed)"
   assert_no_file composer.log
 }
 
@@ -356,7 +357,7 @@ test_profile_php_changed_test_file_maps_to_itself() {
 
   _php_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "php: phpunit: pass (9.9.9, scope: 1 test files)"
+  assert_contains "$OUT" "php: tests (phpunit): pass (9.9.9, scope: 1 test files)"
   assert_file_contains phpunit.log "tests/FooTest.php"
 }
 
@@ -370,7 +371,7 @@ test_profile_php_changed_source_maps_to_named_test_under_tests() {
 
   _php_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "php: phpunit: pass (9.9.9, scope: 1 test files)"
+  assert_contains "$OUT" "php: tests (phpunit): pass (9.9.9, scope: 1 test files)"
   assert_file_contains phpunit.log "tests/FooTest.php"
 }
 
@@ -383,7 +384,7 @@ test_profile_php_unmapped_source_runs_full_tests() {
 
   _php_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "php: phpunit: pass (9.9.9, scope: no test is named after src/Orphan.php, ran full set)"
+  assert_contains "$OUT" "php: tests (phpunit): pass (9.9.9, scope: no test is named after src/Orphan.php, ran full set)"
 }
 
 test_profile_php_doc_only_change_skips_tests() {
@@ -393,7 +394,7 @@ test_profile_php_doc_only_change_skips_tests() {
 
   _php_scoped "$files"
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "php: phpunit: skip (scope: no changed file maps to a test)"
+  assert_contains "$OUT" "php: tests (phpunit): skip (scope: no changed file maps to a test)"
   assert_no_file phpunit.log
 }
 
@@ -410,7 +411,7 @@ test_profile_php_missing_selected_test_falls_back_to_full() {
   _php_scoped "$files" "$mapped"
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" \
-    "php: phpunit: pass (9.9.9, scope: filter 'tests/GoneTest.php' selects no tests, ran full set)"
+    "php: tests (phpunit): pass (9.9.9, scope: filter 'tests/GoneTest.php' selects no tests, ran full set)"
 }
 
 # --- glob-list regression: an always-ALL glob must not be expanded against -
@@ -428,7 +429,7 @@ test_profile_php_phpunit_xml_glob_not_masked_by_sibling_on_disk() {
 
   _php_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "php: phpunit: pass (9.9.9, scope: phpunit.xml.dist can affect any test, ran full set)"
+  assert_contains "$OUT" "php: tests (phpunit): pass (9.9.9, scope: phpunit.xml.dist can affect any test, ran full set)"
 }
 
 # --- IFS regression: a map decision naming two filters on one line must ----
@@ -453,7 +454,7 @@ test_profile_php_phpunit_map_decision_with_two_filters_splits_into_two_args() {
 
   _php_scoped "$files" "$mapped"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "php: phpunit: pass (9.9.9, scope: 2 test files)"
+  assert_contains "$OUT" "php: tests (phpunit): pass (9.9.9, scope: 2 test files)"
   assert_file_contains phpunit.log "tests/FooATest.php"
   assert_file_contains phpunit.log "tests/FooBTest.php"
 }
@@ -485,7 +486,7 @@ test_profile_php_map_dash_means_no_test() {
 
   _php_scoped "$files" "$mapped"
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "php: phpunit: skip (scope: no changed file maps to a test)"
+  assert_contains "$OUT" "php: tests (phpunit): skip (scope: no changed file maps to a test)"
 }
 
 test_profile_php_map_question_mark_falls_back_to_builtin() {
@@ -503,7 +504,7 @@ test_profile_php_map_question_mark_falls_back_to_builtin() {
 }
 
 # --- front end: what can and cannot change the result of the test run --------
-# The same cut as the laravel profile, for the same reason: phpunit runs PHP
+# The cut is made for one reason: phpunit runs PHP
 # and neither bundles a front-end source nor serves it, while the build that
 # produces the assets a browser test loads is a different matter. Both halves
 # are asserted, because a rule that cannot tell them apart is too wide.
@@ -530,7 +531,7 @@ test_profile_php_front_end_script_change_runs_no_test() {
 
   _php_scoped "$files"
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "php: phpunit: skip (scope: no changed file maps to a test)"
+  assert_contains "$OUT" "php: tests (phpunit): skip (scope: no changed file maps to a test)"
   assert_no_file phpunit.log
 }
 
@@ -547,9 +548,9 @@ test_profile_php_front_end_change_skips_every_check() {
 
   _php_scoped "$files"
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "php: phpunit: skip (scope: no changed file maps to a test)"
-  assert_contains "$OUT" "php: phpstan: skip (scope: no changed .php files)"
-  assert_contains "$OUT" "php: pint: skip (scope: no changed .php files)"
+  assert_contains "$OUT" "php: tests (phpunit): skip (scope: no changed file maps to a test)"
+  assert_contains "$OUT" "php: static (phpstan): skip (scope: no changed .php files)"
+  assert_contains "$OUT" "php: style (pint): skip (scope: no changed .php files)"
   assert_no_file phpunit.log
   assert_no_file phpstan.log
   assert_no_file pint.log
@@ -564,7 +565,7 @@ test_profile_php_package_json_change_runs_full_tests() {
   _php_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" \
-    "php: phpunit: pass (9.9.9, scope: package.json changes the asset build, which browser tests load, ran full set)"
+    "php: tests (phpunit): pass (9.9.9, scope: package.json changes the asset build, which browser tests load, ran full set)"
 }
 
 # vite.config.ts also matches the front-end extension list; the build list is
@@ -617,7 +618,7 @@ test_profile_php_front_end_beside_php_runs_only_the_named_test() {
 
   _php_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "php: phpunit: pass (9.9.9, scope: 1 test files)"
+  assert_contains "$OUT" "php: tests (phpunit): pass (9.9.9, scope: 1 test files)"
   assert_file_contains phpunit.log "tests/FooTest.php"
 }
 
@@ -632,7 +633,7 @@ test_profile_php_explain_front_end_change_maps_to_no_test() {
 
   _php_explain "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "PLAN php: phpunit: skip (no changed file maps to this check)"
+  assert_contains "$OUT" "PLAN php: tests (phpunit): skip (no changed file maps to this check)"
   assert_no_file phpunit.log
 }
 
@@ -645,7 +646,7 @@ test_profile_php_explain_names_the_path_that_forces_the_full_set() {
   _php_explain "$files"
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" \
-    "PLAN php: phpunit: full (package.json changes the asset build, which browser tests load)"
+    "PLAN php: tests (phpunit): full (package.json changes the asset build, which browser tests load)"
   assert_no_file phpunit.log
 }
 
@@ -658,7 +659,7 @@ test_profile_php_explain_says_no_test_is_named_after_the_file() {
 
   _php_explain "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "PLAN php: phpunit: full (no test is named after src/Orphan.php)"
+  assert_contains "$OUT" "PLAN php: tests (phpunit): full (no test is named after src/Orphan.php)"
 }
 
 # --- verify.full_run: ci leaves the full set to CI ---------------------------
@@ -673,7 +674,7 @@ test_profile_php_full_run_ci_leaves_a_phpunit_xml_change_to_ci() {
   _php_scoped "$files"
   unset JIG_VERIFY_FULL_RUN
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "php: phpunit: skip (scope: phpunit.xml.dist can affect any test, full set left to CI)"
+  assert_contains "$OUT" "php: tests (phpunit): skip (scope: phpunit.xml.dist can affect any test, full set left to CI)"
   assert_no_file phpunit.log
 }
 
@@ -689,7 +690,7 @@ test_profile_php_full_run_ci_runs_the_named_test_beside_a_phpunit_xml_change() {
   _php_scoped "$files"
   unset JIG_VERIFY_FULL_RUN
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "php: phpunit: pass (9.9.9, scope: 1 test files, full set left to CI)"
+  assert_contains "$OUT" "php: tests (phpunit): pass (9.9.9, scope: 1 test files, full set left to CI)"
   assert_eq "tests/FooTest.php" "$(cat phpunit.log)"
 }
 
@@ -705,7 +706,7 @@ test_profile_php_full_run_ci_leaves_an_unmapped_source_change_to_ci() {
   _php_scoped "$files"
   unset JIG_VERIFY_FULL_RUN
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "php: phpunit: skip (scope: no test is named after src/Orphan.php, full set left to CI)"
+  assert_contains "$OUT" "php: tests (phpunit): skip (scope: no test is named after src/Orphan.php, full set left to CI)"
   assert_no_file phpunit.log
 }
 
@@ -720,7 +721,7 @@ test_profile_php_full_run_ci_leaves_a_phpstan_config_change_to_ci() {
   export JIG_VERIFY_FULL_RUN
   _php_scoped "$files"
   unset JIG_VERIFY_FULL_RUN
-  assert_contains "$OUT" "php: phpstan: skip (scope: phpstan configuration changed, full set left to CI)"
+  assert_contains "$OUT" "php: static (phpstan): skip (scope: phpstan configuration changed, full set left to CI)"
   assert_no_file phpstan.log
 }
 
@@ -736,8 +737,8 @@ test_profile_php_full_run_ci_still_runs_phpstan_and_pint_on_changed_files() {
   export JIG_VERIFY_FULL_RUN
   _php_scoped "$files"
   unset JIG_VERIFY_FULL_RUN
-  assert_contains "$OUT" "php: phpstan: pass (1.10.0, scope: 1 files)"
-  assert_contains "$OUT" "php: pint: pass (1.0.0, scope: 1 files)"
+  assert_contains "$OUT" "php: static (phpstan): pass (1.10.0, scope: 1 files)"
+  assert_contains "$OUT" "php: style (pint): pass (1.0.0, scope: 1 files)"
   assert_file_contains phpstan.log "src/Foo.php"
   assert_file_contains pint.log "--test src/Foo.php"
 }
@@ -751,7 +752,7 @@ test_profile_php_full_run_ci_explain_leaves_a_phpstan_config_change_to_ci() {
   export JIG_VERIFY_FULL_RUN
   _php_explain "$files"
   unset JIG_VERIFY_FULL_RUN
-  assert_contains "$OUT" "PLAN php: phpstan: skip (scope: phpstan configuration changed, full set left to CI)"
+  assert_contains "$OUT" "PLAN php: static (phpstan): skip (scope: phpstan configuration changed, full set left to CI)"
   assert_no_file phpstan.log
 }
 
@@ -761,7 +762,7 @@ test_profile_php_without_full_run_ci_explain_keeps_phpstan_full() {
   files=$(_files_list phpstan.neon)
 
   _php_explain "$files"
-  assert_contains "$OUT" "PLAN php: phpstan: full (phpstan configuration changed)"
+  assert_contains "$OUT" "PLAN php: static (phpstan): full (phpstan configuration changed)"
 }
 
 # --- a covered test check (JIG_VERIFY_COVERED) --------------------------------
@@ -775,14 +776,14 @@ test_profile_php_hands_pest_over_when_its_tests_are_covered() {
   JIG_VERIFY_COVERED="tests=upper"
   export JIG_VERIFY_COVERED
   run bash "$_PHP_VERIFY"
-  assert_contains "$OUT" "php: pest: skip (scope: covered by upper, php:tests)"
+  assert_contains "$OUT" "php: tests (pest): skip (scope: covered by upper, php:tests)"
   assert_no_file pest.log
 
   JIG_VERIFY_EXPLAIN=1
   export JIG_VERIFY_EXPLAIN
   run bash "$_PHP_VERIFY"
   unset JIG_VERIFY_EXPLAIN JIG_VERIFY_COVERED
-  assert_contains "$OUT" "PLAN php: pest: skip (scope: covered by upper, php:tests)"
+  assert_contains "$OUT" "PLAN php: tests (pest): skip (scope: covered by upper, php:tests)"
 }
 
 test_profile_php_hands_its_tests_over_even_without_a_runner() {
@@ -793,8 +794,8 @@ test_profile_php_hands_its_tests_over_even_without_a_runner() {
   unset JIG_VERIFY_COVERED
   # The suite is the covering profile's now: a missing phpunit here is not
   # a gap of php's.
-  assert_contains "$OUT" "php: phpunit: skip (scope: covered by upper, php:tests)"
-  assert_not_contains "$OUT" "php: phpunit: skip (not found"
+  assert_contains "$OUT" "php: tests (phpunit): skip (scope: covered by upper, php:tests)"
+  assert_not_contains "$OUT" "php: tests (phpunit): skip (not found"
 }
 
 test_profile_php_runs_its_tests_when_another_check_is_covered() {
@@ -804,13 +805,305 @@ test_profile_php_runs_its_tests_when_another_check_is_covered() {
   export JIG_VERIFY_COVERED
   run bash "$_PHP_VERIFY"
   unset JIG_VERIFY_COVERED
-  assert_contains "$OUT" "php: phpunit: pass (9.9.9)"
+  assert_contains "$OUT" "php: tests (phpunit): pass (9.9.9)"
   assert_file phpunit.log
 }
 
 test_profile_php_source_names_no_profile_above_it() {
   # php names its own check; the profile that covers it is declared there,
-  # in that profile's `covers` (laravel's profile.yaml), never here.
+  # in that profile's `covers`, never here.
   run grep -n -i -e laravel -e artisan "$JIG_HOME/profiles/php/verify.sh"
   assert_eq 1 "$RC" "$OUT"
+}
+
+# --- the check table (adr-20261117-a-profile-declares-its-checks-in-a-table) --
+
+# The command line of every check, exactly, in a full and in a narrowed run:
+# the table carries what verify.sh used to write, so nothing a project runs
+# changes. Each stub logs its arguments as one line.
+test_profile_php_check_table_keeps_every_command_line() {
+  _php_install
+  mkdir -p src tests
+  : > src/Foo.php
+  : > tests/FooTest.php
+  _php_stub_tool phpunit 9.9.9 0 phpunit.log
+  _php_stub_tool phpstan 1.10.0 0 phpstan.log
+  _php_stub_tool pint 1.0.0 0 pint.log
+  _composer_stub 2.7.0 0 composer.log
+
+  run bash "$_PHP_VERIFY"
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "" "$(cat phpunit.log)"
+  assert_eq "analyse --no-progress" "$(cat phpstan.log)"
+  assert_eq "--test" "$(cat pint.log)"
+  assert_eq "validate --no-check-publish" "$(cat composer.log)"
+
+  rm -f phpunit.log phpstan.log pint.log composer.log
+  files=$(_files_list src/Foo.php tests/FooTest.php composer.json)
+  _php_scoped "$files"
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "" "$(cat phpunit.log)" "composer.json widens the tests to the full set"
+  assert_eq "analyse --no-progress src/Foo.php tests/FooTest.php" "$(cat phpstan.log)"
+  assert_eq "--test src/Foo.php tests/FooTest.php" "$(cat pint.log)"
+  assert_eq "validate --no-check-publish" "$(cat composer.log)"
+
+  rm -f phpunit.log
+  files=$(_files_list src/Foo.php)
+  _php_scoped "$files"
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "tests/FooTest.php" "$(cat phpunit.log)"
+}
+
+# The table is what runs: a changed row changes the command line, and the
+# selection lands where `{selection}` stands.
+test_profile_php_check_table_rows_shape_the_command() {
+  _php_install
+  mkdir -p src
+  : > src/Foo.php
+  _php_stub_tool phpstan 1.10.0 0 phpstan.log
+  sed -e 's/^checks.static.narrowed: .*/checks.static.narrowed: analyse {selection} --level 9/' \
+    .ai/profiles/php/profile.yaml > profile.tmp
+  rm -f .ai/profiles/php/profile.yaml
+  cp profile.tmp .ai/profiles/php/profile.yaml
+  profile_checks_env .ai/profiles/php
+  files=$(_files_list src/Foo.php)
+  _php_scoped "$files"
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "analyse src/Foo.php --level 9" "$(cat phpstan.log)"
+}
+
+# A profile.yaml from before the table (kept by `upgrade` as modified) beside
+# this verify.sh fails each check it would run, loudly, instead of running
+# another command in silence; --explain names the gap without a verdict.
+test_profile_php_check_table_missing_fails_loudly() {
+  _php_install
+  _php_stub_tool phpunit 9.9.9 0 phpunit.log
+  _php_stub_tool phpstan 1.10.0 0 phpstan.log
+  unset JIG_VERIFY_CHECKS
+  run bash "$_PHP_VERIFY"
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "php: tests (phpunit): fail (profile.yaml names no check 'tests'; jig upgrade restores it)"
+  assert_contains "$OUT" "php: static (phpstan): fail (profile.yaml names no check 'static'; jig upgrade restores it)"
+  assert_no_file phpunit.log
+  assert_no_file phpstan.log
+
+  JIG_VERIFY_EXPLAIN=1 run bash "$_PHP_VERIFY"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN php: tests (phpunit): skip (profile.yaml names no check 'tests'; jig upgrade restores it)"
+  assert_contains "$OUT" "PLAN php: static (phpstan): skip (profile.yaml names no check 'static'; jig upgrade restores it)"
+}
+
+# Every role the profile lists in `checks:` can be taken over by another
+# profile (`covers: [php:<role>]`): the check prints jp_covered's line and
+# runs no tool.
+test_profile_php_every_role_can_be_covered() {
+  _php_install
+  _php_stub_tool phpunit 9.9.9 0 phpunit.log
+  _php_stub_tool phpstan 1.10.0 0 phpstan.log
+  _php_stub_tool pint 1.0.0 0 pint.log
+  _composer_stub 2.7.0 0 composer.log
+  JIG_VERIFY_COVERED="tests=other static=other style=other manifest=other"
+  export JIG_VERIFY_COVERED
+  run bash "$_PHP_VERIFY"
+  assert_eq 2 "$RC" "$OUT"
+  assert_contains "$OUT" "php: tests (phpunit): skip (scope: covered by other, php:tests)"
+  assert_contains "$OUT" "php: static (phpstan): skip (scope: covered by other, php:static)"
+  assert_contains "$OUT" "php: style (pint): skip (scope: covered by other, php:style)"
+  assert_contains "$OUT" "php: manifest (composer validate): skip (scope: covered by other, php:manifest)"
+  assert_no_file phpunit.log
+  assert_no_file phpstan.log
+  assert_no_file pint.log
+  assert_no_file composer.log
+
+  JIG_VERIFY_EXPLAIN=1 run bash "$_PHP_VERIFY"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN php: tests (phpunit): skip (scope: covered by other, php:tests)"
+  assert_contains "$OUT" "PLAN php: static (phpstan): skip (scope: covered by other, php:static)"
+  assert_contains "$OUT" "PLAN php: style (pint): skip (scope: covered by other, php:style)"
+  assert_contains "$OUT" "PLAN php: manifest (composer validate): skip (scope: covered by other, php:manifest)"
+  assert_no_file phpunit.log
+  assert_no_file phpstan.log
+  assert_no_file pint.log
+  assert_no_file composer.log
+  unset JIG_VERIFY_COVERED
+}
+
+# --- what a PHP framework loads on every request -----------------------------
+# routes/, config/, database/ and bootstrap/ are read by every test and no test
+# is named after them, so a change there runs the full set. The php profile
+# draws the line by directory and names no framework.
+
+# _php_all_for <path> — a scoped run over <path> alone runs the full set, and
+# says which path forced it.
+_php_all_for() {
+  _php_install
+  _php_stub_tool phpunit 9.9.9 0 phpunit.log
+  files=$(_files_list "$1")
+  _php_scoped "$files"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "php: tests (phpunit): pass (9.9.9, scope: $1 can affect any test, ran full set)"
+  assert_file_contains phpunit.log '^$'
+}
+
+test_profile_php_tests_run_full_when_routes_changed() {
+  _php_all_for routes/web.php
+}
+
+test_profile_php_tests_run_full_when_config_changed() {
+  _php_all_for config/app.php
+}
+
+test_profile_php_tests_run_full_when_database_changed() {
+  _php_all_for database/migrations/2024_01_01_create_foo_table.php
+}
+
+test_profile_php_tests_run_full_when_bootstrap_changed() {
+  _php_all_for bootstrap/providers.php
+}
+
+# The globs stay literal patterns: with pathname expansion on, "config/*" would
+# expand to whichever sibling sits on disk and stop matching the changed path,
+# and the run would fall through to the named-test lookup.
+test_profile_php_deleted_config_file_runs_full_despite_sibling_on_disk() {
+  _php_install
+  mkdir -p config tests
+  : > config/database.php
+  : > tests/appTest.php
+  _php_stub_tool phpunit 9.9.9 0 phpunit.log
+  # config/app.php itself is never created on disk: the change deleted it.
+  files=$(_files_list config/app.php)
+
+  _php_scoped "$files"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "php: tests (phpunit): pass (9.9.9, scope: config/app.php can affect any test, ran full set)"
+  assert_file_contains phpunit.log '^$'
+  assert_not_contains "$(cat phpunit.log)" "tests/appTest.php"
+}
+
+test_profile_php_nested_config_file_runs_full_despite_sibling_on_disk() {
+  _php_install
+  mkdir -p config tests
+  : > config/app.php
+  : > tests/extraTest.php
+  _php_stub_tool phpunit 9.9.9 0 phpunit.log
+  files=$(_files_list config/nested/extra.php)
+
+  _php_scoped "$files"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "php: tests (phpunit): pass (9.9.9, scope: config/nested/extra.php can affect any test, ran full set)"
+  assert_file_contains phpunit.log '^$'
+  assert_not_contains "$(cat phpunit.log)" "tests/extraTest.php"
+}
+
+test_profile_php_front_end_component_and_style_change_runs_no_test() {
+  _php_install
+  mkdir -p resources/js/Pages resources/css
+  : > resources/js/Pages/Dashboard.vue
+  : > resources/css/app.css
+  _php_stub_tool phpunit 9.9.9 0 phpunit.log
+  files=$(_files_list resources/js/Pages/Dashboard.vue resources/css/app.css)
+
+  _php_scoped "$files"
+  assert_eq 2 "$RC" "$OUT"
+  assert_contains "$OUT" "php: tests (phpunit): skip (scope: no changed file maps to a test)"
+  assert_no_file phpunit.log
+}
+
+test_profile_php_lock_file_change_runs_full_tests() {
+  _php_install
+  printf '{}\n' > package-lock.json
+  _php_stub_tool phpunit 9.9.9 0 phpunit.log
+  files=$(_files_list package-lock.json)
+
+  _php_scoped "$files"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" \
+    "php: tests (phpunit): pass (9.9.9, scope: package-lock.json changes the asset build, which browser tests load, ran full set)"
+  assert_file_contains phpunit.log '^$'
+}
+
+test_profile_php_blade_template_change_runs_full_tests() {
+  _php_install
+  mkdir -p resources/views
+  : > resources/views/dashboard.blade.php
+  _php_stub_tool phpunit 9.9.9 0 phpunit.log
+  files=$(_files_list resources/views/dashboard.blade.php)
+
+  _php_scoped "$files"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" \
+    "scope: no test is named after resources/views/dashboard.blade.php, ran full set"
+}
+
+test_profile_php_explain_names_a_routes_change_as_the_reason_for_the_full_set() {
+  _php_install
+  _php_stub_tool phpunit 9.9.9 0 phpunit.log
+  files=$(_files_list routes/web.php)
+
+  _php_explain "$files"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN php: tests (phpunit): full (routes/web.php can affect any test)"
+  assert_no_file phpunit.log
+}
+
+test_profile_php_full_run_ci_leaves_a_filter_that_selects_nothing_to_ci() {
+  # A narrowing that selects nothing falls back to the full set, and under
+  # `verify.full_run: ci` that full set is CI's.
+  _php_install
+  mkdir -p src
+  : > src/Foo.php
+  _php_stub_tool phpunit 9.9.9 0 phpunit.log
+  files=$(_files_list src/Foo.php)
+  mapped=$(_mapped_file "$(printf 'src/Foo.php\ttests/GoneTest.php')")
+
+  JIG_VERIFY_FULL_RUN=ci
+  export JIG_VERIFY_FULL_RUN
+  _php_scoped "$files" "$mapped"
+  unset JIG_VERIFY_FULL_RUN
+  assert_eq 2 "$RC" "$OUT"
+  assert_contains "$OUT" \
+    "php: tests (phpunit): skip (scope: filter 'tests/GoneTest.php' selects no tests, full set left to CI)"
+  assert_no_file phpunit.log
+}
+
+test_profile_php_full_run_ci_leaves_a_routes_change_to_ci() {
+  _php_install
+  _php_stub_tool phpunit 9.9.9 0 phpunit.log
+  files=$(_files_list routes/web.php)
+
+  JIG_VERIFY_FULL_RUN=ci
+  export JIG_VERIFY_FULL_RUN
+  _php_scoped "$files"
+  unset JIG_VERIFY_FULL_RUN
+  assert_eq 2 "$RC" "$OUT"
+  assert_contains "$OUT" \
+    "php: tests (phpunit): skip (scope: routes/web.php can affect any test, full set left to CI)"
+  assert_no_file phpunit.log
+
+  JIG_VERIFY_FULL_RUN=ci
+  export JIG_VERIFY_FULL_RUN
+  _php_explain "$files"
+  unset JIG_VERIFY_FULL_RUN
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" \
+    "PLAN php: tests (phpunit): skip (scope: routes/web.php can affect any test, full set left to CI)"
+  assert_no_file phpunit.log
+}
+
+test_profile_php_full_run_ci_runs_the_named_test_beside_a_migration() {
+  _php_install
+  mkdir -p src tests database/migrations
+  : > tests/FooTest.php
+  : > src/Foo.php
+  : > database/migrations/2024_01_01_create_foo_table.php
+  _php_stub_tool phpunit 9.9.9 0 phpunit.log
+  files=$(_files_list src/Foo.php database/migrations/2024_01_01_create_foo_table.php)
+
+  JIG_VERIFY_FULL_RUN=ci
+  export JIG_VERIFY_FULL_RUN
+  _php_scoped "$files"
+  unset JIG_VERIFY_FULL_RUN
+  # The migration needs the full set, which CI runs; the named test runs here.
+  assert_contains "$OUT" "php: tests (phpunit): pass (9.9.9, scope: 1 test files, full set left to CI)"
+  assert_eq "tests/FooTest.php" "$(cat phpunit.log)"
 }

@@ -155,6 +155,17 @@ _upgrade_build_staged() {
 
 # --- shared helpers (both modes) --------------------------------------------
 
+# _upgrade_stack_v <var> <source> <then> — the profiles this run installs into
+# <var>: `profiles:` closed over `extends`, a stock profile's extends read from
+# <source>. A base is installed, kept up to date and never deleted while a layer
+# reaches it, though `profiles:` names only the layer (upgrade still never edits
+# `profiles:`). A stack that does not resolve is a refusal here, before either
+# mode places a file; <then> says what that left behind.
+_upgrade_stack_v() {
+  profiles_stack_v "$1" --stock-root "$2/profiles" \
+    || jig_die "upgrade: the profiles do not resolve: $PROFILES_STACK_ERROR. $3"
+}
+
 # _upgrade_source_version <source> — the framework version a source checkout
 # declares in scripts/lib/version.sh, falling back to the running
 # dispatcher's own $JIG_VERSION when it cannot be read. Mirrors init.sh's
@@ -1214,17 +1225,20 @@ $untracked
 EOF
 }
 
-# _upgrade_custom_profiles — active profile names (profiles_active) that are
+# _upgrade_custom_profiles — profile names of the stack (profiles_stack_v) that are
 # not part of the checkout a plain upgrade reads from (upgrade_source): a profile
 # somebody wrote themselves rather than one the framework ships. `generic` is
 # never included: it is the framework's own fallback and already declares
 # `verifies: nothing`. Silent (prints nothing) when the source cannot be
 # read, rather than guessing.
 _upgrade_custom_profiles() {
-  local source p
+  local source p names
   source=$(upgrade_source) || source=""
   [ -n "$source" ] || return 0
-  for p in $(profiles_active); do
+  # The stack, not the list: a project's own layer over a base is as custom as
+  # one named in `profiles:`, and a base it extends is never custom.
+  profiles_stack_v names --stock-root "$source/profiles" || return 0
+  for p in $names; do
     [ "$p" != generic ] || continue
     [ -f "$source/profiles/$p/profile.yaml" ] && continue
     printf '%s\n' "$p"
@@ -2133,7 +2147,7 @@ _upgrade_install() {
   local source="$1" in_tree="$2" dry_run="$3" to_version="$4" to_label="$5"
   local active_profiles active_adapters from_version
   # The branch may hold another config; read what this run installs there.
-  active_profiles=$(cfg_list profiles generic)
+  _upgrade_stack_v active_profiles "$source" "No framework file was placed"
   active_adapters=$(cfg_list adapters "claude codex")
   from_version=$(manifest_header_get jig.version)
   _UPGRADE_J_MODE=copy
@@ -2159,7 +2173,7 @@ _upgrade_install() {
     elif [ -n "$ignored" ]; then
       _upgrade_tree_fall_back "$source" "$to_version" "$to_label" "$ignored"
       in_tree=0
-      active_profiles=$(cfg_list profiles generic)
+      _upgrade_stack_v active_profiles "$source" "No framework file was placed"
       active_adapters=$(cfg_list adapters "claude codex")
       from_version=$(manifest_header_get jig.version)
       _UPGRADE_J_FROM=$from_version
@@ -2297,7 +2311,7 @@ _upgrade_run() {
   _UPGRADE_DELETE_ROOTS=".ai$_UPGRADE_DELETE_ROOTS"
 
   local active_profiles active_adapters
-  active_profiles=$(cfg_list profiles generic)
+  _upgrade_stack_v active_profiles "$source" "Nothing was changed"
   active_adapters=$(cfg_list adapters "claude codex")
 
   local mode

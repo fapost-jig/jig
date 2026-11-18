@@ -10,6 +10,7 @@ paths:
   - scripts/lib/init.sh
   - scripts/lib/profiles.sh
 summary: Why a first jig init without --profiles activates the detected profiles, never widens an existing choice, and skips dependency directories when detecting.
+reviewed_at: 2026-11-18
 ---
 # A first `jig init` activates the profiles it detects
 
@@ -28,7 +29,8 @@ jig's own `.ai/scripts/*.sh`: every installed project looked like a shell projec
 
 - **A first `jig init` without `--profiles`, in a project without `.ai/config.yaml`, writes
   `generic` and every detected profile into `profiles:`** (with the `requires` closure — `artisan`
-  brings `laravel` and `php`) and prints `detected profiles: …`.
+  brings `laravel` and `php`; since adr-20261118-laravel-builds-on-php `laravel` extends `php`, and only `laravel` is
+  written) and prints `detected profiles: …`.
 - **A choice already made is never widened.** With `--profiles`, or on a re-run against an
   existing config, detection only suggests, as before. `upgrade` never activates a profile.
 - **Detection skips what is not the project's own code:** `.git`, `node_modules`, `vendor`,
@@ -61,3 +63,9 @@ jig's own `.ai/scripts/*.sh`: every installed project looked like a shell projec
 > This strengthens the decision rather than changing it: activating what is detected is still
 > how a project gets checks, and the state it rescues people from is now audible instead of
 > silently green.
+
+> **Amendment (2026-11-17).** "`upgrade` never activates a profile" still holds for
+> `profiles:`, which neither `init` nor `upgrade` edits. But listing a layer now activates its
+> stack: `upgrade` installs, updates and keeps every base the listed layers reach through
+> `extends`, and a first `init` writes only the top layers it detected, never a base of another
+> detected profile (adr-20261117-profiles-lists-top-layers-and-jig-resolves-the-stack).

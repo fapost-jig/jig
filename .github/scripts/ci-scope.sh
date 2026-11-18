@@ -52,9 +52,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CI_LIB="$(cd "$SCRIPT_DIR/../../scripts/lib" && pwd)"
 # shellcheck source=../../scripts/lib/verify.sh
 . "$CI_LIB/verify.sh"
+# shellcheck source=../../scripts/lib/profiles.sh
+. "$CI_LIB/profiles.sh"
 
 MAP=".ai/verify/shell.map"
-CI_PROFILE="$SCRIPT_DIR/../../profiles/shell/verify.sh"
+CI_PROFILE_DIR="$SCRIPT_DIR/../../profiles/shell"
+CI_PROFILE="$CI_PROFILE_DIR/verify.sh"
 CI_KNOWLEDGE_TEST="knowledge::test_real_repository_knowledge_passes_with_no_failures"
 # Temporary files, removed by the EXIT trap; script-global for that reason.
 CI_SCOPE_TMP=""
@@ -82,21 +85,26 @@ _select() {
   else
     : > "$all"
   fi
+  # The profile's check table, handed down as `jig verify` hands it
+  # (profiles_check_handdown): without it the profile's checks cannot build
+  # their command lines and the plan would name no test.
+  profiles_check_handdown "$CI_PROFILE_DIR" > "$all.checks" || return 1
   plan=$(JIG_VERIFY_EXPLAIN=1 JIG_VERIFY_SCOPE=changed JIG_VERIFY_FILES="$files" \
     JIG_VERIFY_BASE="$CI_SCOPE_BASE" JIG_VERIFY_FULL_RUN=local \
     JIG_VERIFY_MAPPED="$mapped" JIG_VERIFY_MAPPED_ALL="$all" \
+    JIG_VERIFY_CHECKS="$all.checks" \
     bash "$CI_PROFILE" 2>/dev/null) || return 1
   line=""
   while IFS= read -r l; do
-    case "$l" in "PLAN shell: tests/run.sh: "*) line=$l ;; esac
+    case "$l" in "PLAN shell: tests (tests/run.sh): "*) line=$l ;; esac
   done <<EOF
 $plan
 EOF
   case "$line" in
-    "PLAN shell: tests/run.sh: filtered (test filters: "*")") ;;
+    "PLAN shell: tests (tests/run.sh): filtered (test filters: "*")") ;;
     *) return 1 ;;
   esac
-  filters=${line#"PLAN shell: tests/run.sh: filtered (test filters: "}
+  filters=${line#"PLAN shell: tests (tests/run.sh): filtered (test filters: "}
   filters=${filters%)}
   [ -n "$filters" ] || return 1
   # A filter is a test name or a prefix of one; anything else is a plan this
@@ -129,7 +137,7 @@ main() {
   files=$(mktemp "${TMPDIR:-/tmp}/ci-scope-files.XXXXXX")
   mapped=$(mktemp "${TMPDIR:-/tmp}/ci-scope-mapped.XXXXXX")
   all=$(mktemp "${TMPDIR:-/tmp}/ci-scope-all.XXXXXX")
-  CI_SCOPE_TMP="$files $mapped $all $all.list"
+  CI_SCOPE_TMP="$files $mapped $all $all.list $all.checks"
   CI_SCOPE_BASE="$base"
   # shellcheck disable=SC2086 # a list of mktemp paths, split on purpose
   trap 'rm -f $CI_SCOPE_TMP' EXIT

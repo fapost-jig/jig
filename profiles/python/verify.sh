@@ -1,7 +1,17 @@
 #!/usr/bin/env bash
 # Verification for the python profile. Called by `jig verify` from the
 # repository root. Exit 0 = pass, 1 = fail, 2 = skip (no check could run).
-# Prints one line per check: "python: <check>: pass|fail|skip (<note>)".
+# Prints one line per check: "python: <check>: pass|fail|skip (<note>)". A check
+# is named by its role and the tool inside it: `lint (ruff)`,
+# `typecheck (mypy)`, `tests (pytest)`.
+#
+# Checks by role (`checks:` in profile.yaml): lint (ruff), typecheck (mypy),
+# tests (pytest). Every command line comes from the profile's check table
+# through jp_check_cmd (schemas/profile.md, Check table): the words below are
+# the defaults the table leaves to this script — the path of each tool in the
+# project's environment — and mypy's `--exclude`, whose pattern the table's
+# word grammar cannot carry. Every fallback to the full set is a `full`
+# command line.
 #
 # Tools come from the project's own environment only (adr-20260918-profiles-narrow-per-check-with-project-tools): the active
 # $VIRTUAL_ENV, then .venv/ or venv/ (bin/ on Unix, Scripts/ on Windows),
@@ -204,9 +214,33 @@ _py_mypy_configured() {
   return 1
 }
 
+LINT_LABEL="lint (ruff)"
+TYPECHECK_LABEL="typecheck (mypy)"
+TEST_LABEL="tests (pytest)"
+
+# _py_explain_cmd <role> <label> <selection> <default-cmd>... — under
+# `--explain`, exit 0 when the check table can build the command line the
+# planned run would use: `narrowed` for a selection of files in a scoped run,
+# `full` otherwise. When it cannot, jp_check_cmd has printed the check's PLAN
+# line.
+_py_explain_cmd() {
+  local role="$1" label="$2" selection="$3"
+  shift 3
+  if jp_scoped && [ -n "$selection" ] && [ "$selection" != ALL ]; then
+    jp_check_cmd "$role" "$label" narrowed "$@"
+  else
+    jp_check_cmd "$role" "$label" full "$@"
+  fi
+}
+
 if [ "${JIG_VERIFY_EXPLAIN:-}" = 1 ]; then
   for check in ruff mypy pytest; do
-    if [ "$check" = pytest ] && jp_covered tests pytest; then
+    case "$check" in
+      ruff) role=lint; label=$LINT_LABEL ;;
+      mypy) role=typecheck; label=$TYPECHECK_LABEL ;;
+      pytest) role=tests; label=$TEST_LABEL ;;
+    esac
+    if jp_covered "$role" "$label"; then
       continue
     fi
     tool=$(_py_tool "$check")
@@ -215,9 +249,9 @@ if [ "${JIG_VERIFY_EXPLAIN:-}" = 1 ]; then
         # Under `ci` no check here can run a full set: nothing to be possible.
         possible="; full set possible"
         if jp_ci_runs_full; then possible=""; fi
-        jp_plan "$check" conditional "poetry environment needs a tool query$possible"
+        jp_plan "$label" conditional "poetry environment needs a tool query$possible"
       else
-        jp_plan "$check" skip "$PY_WHERE"
+        jp_plan "$label" skip "$PY_WHERE"
       fi
       continue
     fi
@@ -225,30 +259,34 @@ if [ "${JIG_VERIFY_EXPLAIN:-}" = 1 ]; then
       if _py_mypy_configured; then
         if jp_ci_runs_full; then
           if jp_changed_any mypy.ini .mypy.ini pyproject.toml setup.cfg; then
-            jp_plan_full mypy "mypy configuration changed"
+            if jp_check_cmd "$role" "$label" full "$tool"; then
+              jp_plan_full "$label" "mypy configuration changed"
+            fi
           elif [ -z "$(jp_changed py)" ]; then
-            jp_plan mypy skip "no changed .py files"
-          else
-            jp_plan mypy filtered "changed .py files: $(jp_changed py | paste -sd, -), full set left to CI"
+            jp_plan "$label" skip "no changed .py files"
+          elif jp_check_cmd "$role" "$label" narrowed "$tool"; then
+            jp_plan "$label" filtered "changed .py files: $(jp_changed py | paste -sd, -), full set left to CI"
           fi
-        else
-          jp_plan mypy full "mypy is not narrowed by file"
+        elif jp_check_cmd "$role" "$label" full "$tool"; then
+          jp_plan "$label" full "mypy is not narrowed by file"
         fi
       else
-        jp_plan mypy skip "mypy not configured"
+        jp_plan "$label" skip "mypy not configured"
       fi
     elif [ "$check" = ruff ]; then
       if jp_scoped && jp_changed_any pyproject.toml ruff.toml .ruff.toml; then
-        jp_plan_full ruff "ruff configuration changed"
+        if jp_check_cmd "$role" "$label" full "$tool"; then
+          jp_plan_full "$label" "ruff configuration changed"
+        fi
       elif jp_scoped; then
         files=$(jp_changed py)
         if [ -z "$files" ]; then
-          jp_plan ruff skip "no changed .py files"
-        else
-          jp_plan ruff filtered "changed .py files: $(printf '%s\n' "$files" | paste -sd, -)"
+          jp_plan "$label" skip "no changed .py files"
+        elif jp_check_cmd "$role" "$label" narrowed "$tool"; then
+          jp_plan "$label" filtered "changed .py files: $(printf '%s\n' "$files" | paste -sd, -)"
         fi
-      else
-        jp_plan ruff full "full scope"
+      elif jp_check_cmd "$role" "$label" full "$tool"; then
+        jp_plan "$label" full "full scope"
       fi
     else
       jp_select _py_builtin
@@ -266,7 +304,11 @@ EOF
       else
         why=
       fi
-      jp_plan_select pytest "$filters" "test files" "$why"
+      if jp_scoped && [ -z "$filters" ]; then
+        jp_plan_select "$label" "$filters" "test files" "$why"
+      elif _py_explain_cmd "$role" "$label" "$filters" "$tool"; then
+        jp_plan_select "$label" "$filters" "test files" "$why"
+      fi
     fi
   done
   exit 0
@@ -274,15 +316,16 @@ fi
 
 # --- ruff --------------------------------------------------------------------
 
-ruff=$(_py_tool ruff)
-if [ -z "$ruff" ]; then
-  jp_skip "ruff" "$PY_WHERE"
+if jp_covered lint "$LINT_LABEL"; then
+  :
+elif ruff=$(_py_tool ruff); [ -z "$ruff" ]; then
+  jp_skip "$LINT_LABEL" "$PY_WHERE"
 else
   v=$(jp_version "$ruff" --version)
   if jp_scoped && ! jp_changed_any pyproject.toml ruff.toml .ruff.toml; then
     files=$(jp_changed py)
     if [ -z "$files" ]; then
-      jp_skip "ruff" "scope: no changed .py files"
+      jp_skip "$LINT_LABEL" "scope: no changed .py files"
     else
       n=$(printf '%s\n' "$files" | grep -c .)
       # One argument per line, so a path with a space stays one path.
@@ -293,13 +336,17 @@ else
       set -- $files
       set +f
       IFS=$' \t\n'
-      jp_run "ruff" "$v, scope: $n files" "$ruff" check "$@"
+      if jp_check_cmd lint "$LINT_LABEL" narrowed "$ruff" -- "$@"; then
+        jp_run "$LINT_LABEL" "$v, scope: $n files" "${JP_CMD[@]}"
+      fi
     fi
   elif jp_scoped; then
-    jp_full_left_to_ci "ruff" "ruff configuration changed" \
-      || jp_run "ruff" "$v, scope: ruff configuration changed, whole project" "$ruff" check .
-  else
-    jp_run "ruff" "$v" "$ruff" check .
+    jp_full_left_to_ci "$LINT_LABEL" "ruff configuration changed" \
+      || if jp_check_cmd lint "$LINT_LABEL" full "$ruff"; then
+        jp_run "$LINT_LABEL" "$v, scope: ruff configuration changed, whole project" "${JP_CMD[@]}"
+      fi
+  elif jp_check_cmd lint "$LINT_LABEL" full "$ruff"; then
+    jp_run "$LINT_LABEL" "$v" "${JP_CMD[@]}"
   fi
 fi
 
@@ -307,23 +354,24 @@ fi
 
 # mypy runs only where the project configured it: without a configuration it
 # reports on code nobody asked it to type-check.
-mypy=$(_py_tool mypy)
-if [ -z "$mypy" ]; then
-  jp_skip "mypy" "$PY_WHERE"
+if jp_covered typecheck "$TYPECHECK_LABEL"; then
+  :
+elif mypy=$(_py_tool mypy); [ -z "$mypy" ]; then
+  jp_skip "$TYPECHECK_LABEL" "$PY_WHERE"
 elif ! _py_mypy_configured; then
-  jp_skip "mypy" "not configured: no mypy.ini, .mypy.ini, [tool.mypy] or [mypy] in setup.cfg"
+  jp_skip "$TYPECHECK_LABEL" "not configured: no mypy.ini, .mypy.ini, [tool.mypy] or [mypy] in setup.cfg"
 else
   v=$(jp_version "$mypy" --version)
   note="$v"
   if jp_scoped; then note="$v, scope: not narrowable, ran full set"; fi
   if jp_ci_runs_full && jp_changed_any mypy.ini .mypy.ini pyproject.toml setup.cfg; then
-    jp_full_left_to_ci "mypy" "mypy configuration changed"
+    jp_full_left_to_ci "$TYPECHECK_LABEL" "mypy configuration changed"
   elif jp_ci_runs_full; then
     # Under `ci` mypy checks the changed files and leaves the whole tree to CI:
     # what a changed file breaks in code that calls it is CI's to find.
     files=$(jp_changed py)
     if [ -z "$files" ]; then
-      jp_skip "mypy" "scope: no changed .py files"
+      jp_skip "$TYPECHECK_LABEL" "scope: no changed .py files"
     else
       n=$(printf '%s\n' "$files" | grep -c .)
       IFS='
@@ -333,49 +381,54 @@ else
       set -- $files
       set +f
       IFS=$' \t\n'
-      jp_run "mypy" "$v, scope: $n files, full set left to CI" "$mypy" "$@"
+      if jp_check_cmd typecheck "$TYPECHECK_LABEL" narrowed "$mypy" -- "$@"; then
+        jp_run "$TYPECHECK_LABEL" "$v, scope: $n files, full set left to CI" "${JP_CMD[@]}"
+      fi
     fi
-  else
-    # The virtualenv lives inside the project; mypy would otherwise walk it.
-    jp_run "mypy" "$note" "$mypy" . --exclude '(^|/)(\.venv|venv)/'
+  # The virtualenv lives inside the project; mypy would otherwise walk it. The
+  # pattern holds a backslash, which the table's word grammar forbids, so the
+  # exclusion follows the table's words here.
+  elif jp_check_cmd typecheck "$TYPECHECK_LABEL" full "$mypy"; then
+    jp_run "$TYPECHECK_LABEL" "$note" "${JP_CMD[@]}" --exclude '(^|/)(\.venv|venv)/'
   fi
 fi
 
 # --- pytest ------------------------------------------------------------------
 
-# _py_pytest <note> [<path>...] — pytest, with exit 5 ("no tests collected")
-# reported as a skip: a run that collected nothing proved nothing.
+# _py_pytest full|narrowed <note> [<path>...] — pytest, with exit 5 ("no tests
+# collected") reported as a skip: a run that collected nothing proved nothing.
 _py_pytest() {
-  local note="$1" rc=0
-  shift
-  jp_exec "$pytest" "$@" || rc=$?
-  case "$rc" in
-    0) jp_pass "pytest" "$note" ;;
-    5) jp_skip "pytest" "no tests collected${note:+; $note}" ;;
-    *) jp_fail "pytest" "$note" ;;
-  esac
+  local mode="$1" note="$2" rc=0
+  shift 2
+  if jp_check_cmd tests "$TEST_LABEL" "$mode" "$pytest" -- "$@"; then
+    jp_exec "${JP_CMD[@]}" || rc=$?
+    case "$rc" in
+      0) jp_pass "$TEST_LABEL" "$note" ;;
+      5) jp_skip "$TEST_LABEL" "no tests collected${note:+; $note}" ;;
+      *) jp_fail "$TEST_LABEL" "$note" ;;
+    esac
+  fi
 }
 
 # pytest answers to `tests` (`checks: [tests]`): a profile in the same run
 # that declares `covers: [python:tests]` takes it over.
-pytest=$(_py_tool pytest)
-if jp_covered tests pytest; then
+if jp_covered tests "$TEST_LABEL"; then
   :
-elif [ -z "$pytest" ]; then
-  jp_skip "pytest" "$PY_WHERE"
+elif pytest=$(_py_tool pytest); [ -z "$pytest" ]; then
+  jp_skip "$TEST_LABEL" "$PY_WHERE"
 else
   v=$(jp_version "$pytest" --version)
   if ! jp_scoped; then
-    _py_pytest "$v"
+    _py_pytest full "$v"
   else
     jp_select _py_builtin
     filters=$JP_SELECTION
     if [ -z "$filters" ]; then
-      jp_skip "pytest" "scope: no changed file maps to a test"
+      jp_skip "$TEST_LABEL" "scope: no changed file maps to a test"
     elif [ "$filters" = ALL ]; then
       why=$(_py_all_reason "$(jp_decide_cause _py_builtin)")
-      jp_full_left_to_ci "pytest" "$why" \
-        || _py_pytest "$v, scope: $why, ran full set"
+      jp_full_left_to_ci "$TEST_LABEL" "$why" \
+        || _py_pytest full "$v, scope: $why, ran full set"
     else
       IFS='
 '
@@ -385,10 +438,10 @@ else
       set +f
       IFS=$' \t\n'
       if missing=$(jp_first_missing "$@"); then
-        jp_full_left_to_ci "pytest" "filter '$missing' selects no tests" \
-          || _py_pytest "$v, scope: filter '$missing' selects no tests, ran full set"
+        jp_full_left_to_ci "$TEST_LABEL" "filter '$missing' selects no tests" \
+          || _py_pytest full "$v, scope: filter '$missing' selects no tests, ran full set"
       else
-        _py_pytest "$v, scope: $# test files$JP_SELECTION_NOTE" "$@"
+        _py_pytest narrowed "$v, scope: $# test files$JP_SELECTION_NOTE" "$@"
       fi
     fi
   fi

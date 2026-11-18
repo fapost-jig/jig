@@ -157,13 +157,14 @@ test_profile_go_detect_by_go_mod() {
 
 test_profile_go_skip_without_toolchain() {
   fixture_repo
+  profile_checks_env "$JIG_HOME/profiles/go"
   run_no_tools bash "$JIG_HOME/profiles/go/verify.sh"
   assert_eq 2 "$RC" "$OUT"
   # Literal text, not an expansion.
   # shellcheck disable=SC2016
-  assert_contains "$OUT" 'go: vet: skip (go not found in $PATH)'
+  assert_contains "$OUT" 'go: static (go vet): skip (go not found in $PATH)'
   # shellcheck disable=SC2016
-  assert_contains "$OUT" 'go: test: skip (go not found in $PATH)'
+  assert_contains "$OUT" 'go: tests (go test): skip (go not found in $PATH)'
 }
 
 # --- full (unscoped) run -----------------------------------------------------
@@ -174,10 +175,12 @@ test_profile_go_full_run_passes_and_names_version() {
   printf 'package foo\n' > internal/foo/foo.go
   go_stub 1.22.1 0 0
 
+  profile_checks_env "$JIG_HOME/profiles/go"
+
   run bash "$JIG_HOME/profiles/go/verify.sh"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "go: vet: pass (go version go1.22.1 darwin/arm64)"
-  assert_contains "$OUT" "go: test: pass (go version go1.22.1 darwin/arm64)"
+  assert_contains "$OUT" "go: static (go vet): pass (go version go1.22.1 darwin/arm64)"
+  assert_contains "$OUT" "go: tests (go test): pass (go version go1.22.1 darwin/arm64)"
   assert_file_contains go-calls.log "vet ./..."
   assert_file_contains go-calls.log "test ./..."
 }
@@ -186,10 +189,12 @@ test_profile_go_full_run_fails_on_vet_and_test_failure() {
   fixture_repo
   go_stub 1.22.1 1 1
 
+  profile_checks_env "$JIG_HOME/profiles/go"
+
   run bash "$JIG_HOME/profiles/go/verify.sh"
   assert_eq 1 "$RC" "$OUT"
-  assert_contains "$OUT" "go: vet: fail (go version go1.22.1 darwin/arm64)"
-  assert_contains "$OUT" "go: test: fail (go version go1.22.1 darwin/arm64)"
+  assert_contains "$OUT" "go: static (go vet): fail (go version go1.22.1 darwin/arm64)"
+  assert_contains "$OUT" "go: tests (go test): fail (go version go1.22.1 darwin/arm64)"
 }
 
 # --- narrowing: vet by package (D4) ------------------------------------------
@@ -202,9 +207,11 @@ test_profile_go_vet_narrows_to_changed_package() {
   go_stub 1.22.1 0 0
   set_go_scope internal/foo/foo.go
 
+  profile_checks_env "$JIG_HOME/profiles/go"
+
   run bash "$JIG_HOME/profiles/go/verify.sh"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "go: vet: pass (go version go1.22.1 darwin/arm64, scope: 1 packages)"
+  assert_contains "$OUT" "go: static (go vet): pass (go version go1.22.1 darwin/arm64, scope: 1 packages)"
   assert_file_contains go-calls.log "vet ./internal/foo"
   assert_not_contains "$(cat go-calls.log)" "vet ./..."
 }
@@ -220,9 +227,11 @@ test_profile_go_testdata_file_narrows_to_its_package() {
   go_stub 1.22.1 0 0
   set_go_scope internal/foo/testdata/golden.txt
 
+  profile_checks_env "$JIG_HOME/profiles/go"
+
   run bash "$JIG_HOME/profiles/go/verify.sh"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "go: vet: pass (go version go1.22.1 darwin/arm64, scope: 1 packages)"
+  assert_contains "$OUT" "go: static (go vet): pass (go version go1.22.1 darwin/arm64, scope: 1 packages)"
   assert_file_contains go-calls.log "vet ./internal/foo"
 }
 
@@ -242,13 +251,15 @@ test_profile_go_test_narrows_to_changed_and_importing_packages() {
   go_stub 1.22.1 0 0 "$imp" "$dep"
   set_go_scope internal/foo/foo.go
 
+  profile_checks_env "$JIG_HOME/profiles/go"
+
   run bash "$JIG_HOME/profiles/go/verify.sh"
   assert_eq 0 "$RC" "$OUT"
   # vet never adds importers: only the package the change is in.
-  assert_contains "$OUT" "go: vet: pass (go version go1.22.1 darwin/arm64, scope: 1 packages)"
+  assert_contains "$OUT" "go: static (go vet): pass (go version go1.22.1 darwin/arm64, scope: 1 packages)"
   assert_file_contains go-calls.log "vet ./internal/foo"
   # test adds cmd/bar, which imports internal/foo, transitively through Deps.
-  assert_contains "$OUT" "go: test: pass (go version go1.22.1 darwin/arm64, scope: 2 packages)"
+  assert_contains "$OUT" "go: tests (go test): pass (go version go1.22.1 darwin/arm64, scope: 2 packages)"
   assert_file_contains go-calls.log "test ./cmd/bar ./internal/foo"
 }
 
@@ -261,10 +272,12 @@ test_profile_go_gomod_change_forces_full_run() {
   go_stub 1.22.1 0 0
   set_go_scope go.mod
 
+  profile_checks_env "$JIG_HOME/profiles/go"
+
   run bash "$JIG_HOME/profiles/go/verify.sh"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "go: vet: pass (go version go1.22.1 darwin/arm64, scope: module-wide file changed, whole project)"
-  assert_contains "$OUT" "go: test: pass (go version go1.22.1 darwin/arm64, scope: module-wide file changed, whole project)"
+  assert_contains "$OUT" "go: static (go vet): pass (go version go1.22.1 darwin/arm64, scope: module-wide file changed, whole project)"
+  assert_contains "$OUT" "go: tests (go test): pass (go version go1.22.1 darwin/arm64, scope: module-wide file changed, whole project)"
   assert_file_contains go-calls.log "vet ./..."
   assert_file_contains go-calls.log "test ./..."
 }
@@ -274,10 +287,12 @@ test_profile_go_gosum_change_forces_full_run() {
   go_stub 1.22.1 0 0
   set_go_scope go.sum
 
+  profile_checks_env "$JIG_HOME/profiles/go"
+
   run bash "$JIG_HOME/profiles/go/verify.sh"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "go: vet: pass (go version go1.22.1 darwin/arm64, scope: module-wide file changed, whole project)"
-  assert_contains "$OUT" "go: test: pass (go version go1.22.1 darwin/arm64, scope: module-wide file changed, whole project)"
+  assert_contains "$OUT" "go: static (go vet): pass (go version go1.22.1 darwin/arm64, scope: module-wide file changed, whole project)"
+  assert_contains "$OUT" "go: tests (go test): pass (go version go1.22.1 darwin/arm64, scope: module-wide file changed, whole project)"
 }
 
 test_profile_go_gowork_change_forces_full_run() {
@@ -285,10 +300,12 @@ test_profile_go_gowork_change_forces_full_run() {
   go_stub 1.22.1 0 0
   set_go_scope go.work
 
+  profile_checks_env "$JIG_HOME/profiles/go"
+
   run bash "$JIG_HOME/profiles/go/verify.sh"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "go: vet: pass (go version go1.22.1 darwin/arm64, scope: module-wide file changed, whole project)"
-  assert_contains "$OUT" "go: test: pass (go version go1.22.1 darwin/arm64, scope: module-wide file changed, whole project)"
+  assert_contains "$OUT" "go: static (go vet): pass (go version go1.22.1 darwin/arm64, scope: module-wide file changed, whole project)"
+  assert_contains "$OUT" "go: tests (go test): pass (go version go1.22.1 darwin/arm64, scope: module-wide file changed, whole project)"
 }
 
 # --- zero selection is not a pass (RULES.md, ADR-0041) -----------------------
@@ -298,10 +315,12 @@ test_profile_go_doc_only_change_skips_both_checks() {
   go_stub 1.22.1 0 0
   set_go_scope README.md
 
+  profile_checks_env "$JIG_HOME/profiles/go"
+
   run bash "$JIG_HOME/profiles/go/verify.sh"
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "go: vet: skip (scope: no changed file maps to a package)"
-  assert_contains "$OUT" "go: test: skip (scope: no changed file maps to a package)"
+  assert_contains "$OUT" "go: static (go vet): skip (scope: no changed file maps to a package)"
+  assert_contains "$OUT" "go: tests (go test): skip (scope: no changed file maps to a package)"
 }
 
 # --- deleted package (D4) -----------------------------------------------------
@@ -324,10 +343,12 @@ test_profile_go_deleted_package_forces_full_run() {
   go_stub 1.22.1 0 0 "$imp" "$dep"
   set_go_scope internal/dead/x.go
 
+  profile_checks_env "$JIG_HOME/profiles/go"
+
   run bash "$JIG_HOME/profiles/go/verify.sh"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "go: vet: pass (go version go1.22.1 darwin/arm64, scope: package './internal/dead' has no .go files, ran full set)"
-  assert_contains "$OUT" "go: test: pass (go version go1.22.1 darwin/arm64, scope: package './internal/dead' has no .go files, ran full set)"
+  assert_contains "$OUT" "go: static (go vet): pass (go version go1.22.1 darwin/arm64, scope: package './internal/dead' has no .go files, ran full set)"
+  assert_contains "$OUT" "go: tests (go test): pass (go version go1.22.1 darwin/arm64, scope: package './internal/dead' has no .go files, ran full set)"
   assert_file_contains go-calls.log "vet ./..."
   assert_file_contains go-calls.log "test ./..."
 }
@@ -341,11 +362,13 @@ test_profile_go_go_list_failure_forces_full_test_run() {
   go_stub 1.22.1 0 0
   set_go_scope internal/foo/foo.go
 
+  profile_checks_env "$JIG_HOME/profiles/go"
+
   run bash "$JIG_HOME/profiles/go/verify.sh"
   assert_eq 0 "$RC" "$OUT"
   # vet needs no importer graph, so it still narrows.
-  assert_contains "$OUT" "go: vet: pass (go version go1.22.1 darwin/arm64, scope: 1 packages)"
-  assert_contains "$OUT" "go: test: pass (go version go1.22.1 darwin/arm64, scope: go list failed, ran full set)"
+  assert_contains "$OUT" "go: static (go vet): pass (go version go1.22.1 darwin/arm64, scope: 1 packages)"
+  assert_contains "$OUT" "go: tests (go test): pass (go version go1.22.1 darwin/arm64, scope: go list failed, ran full set)"
   assert_file_contains go-calls.log "test ./..."
 }
 
@@ -359,9 +382,11 @@ test_profile_go_map_filter_narrows_to_named_package() {
   set_go_scope unrelated.txt
   set_go_mapped "$(printf 'unrelated.txt\t./internal/foo')"
 
+  profile_checks_env "$JIG_HOME/profiles/go"
+
   run bash "$JIG_HOME/profiles/go/verify.sh"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "go: vet: pass (go version go1.22.1 darwin/arm64, scope: 1 packages)"
+  assert_contains "$OUT" "go: static (go vet): pass (go version go1.22.1 darwin/arm64, scope: 1 packages)"
   assert_file_contains go-calls.log "vet ./internal/foo"
 }
 
@@ -371,9 +396,11 @@ test_profile_go_map_filter_missing_package_forces_full_run() {
   set_go_scope unrelated.txt
   set_go_mapped "$(printf 'unrelated.txt\t./internal/nope')"
 
+  profile_checks_env "$JIG_HOME/profiles/go"
+
   run bash "$JIG_HOME/profiles/go/verify.sh"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "go: vet: pass (go version go1.22.1 darwin/arm64, scope: package './internal/nope' has no .go files, ran full set)"
+  assert_contains "$OUT" "go: static (go vet): pass (go version go1.22.1 darwin/arm64, scope: package './internal/nope' has no .go files, ran full set)"
 }
 
 test_profile_go_map_decision_all_forces_full_run() {
@@ -382,9 +409,11 @@ test_profile_go_map_decision_all_forces_full_run() {
   set_go_scope unrelated.txt
   set_go_mapped "$(printf 'unrelated.txt\tALL')"
 
+  profile_checks_env "$JIG_HOME/profiles/go"
+
   run bash "$JIG_HOME/profiles/go/verify.sh"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "go: vet: pass (go version go1.22.1 darwin/arm64, scope: module-wide file changed, whole project)"
+  assert_contains "$OUT" "go: static (go vet): pass (go version go1.22.1 darwin/arm64, scope: module-wide file changed, whole project)"
 }
 
 test_profile_go_map_decision_dash_excludes_path() {
@@ -393,10 +422,12 @@ test_profile_go_map_decision_dash_excludes_path() {
   set_go_scope README.md
   set_go_mapped "$(printf 'README.md\t-')"
 
+  profile_checks_env "$JIG_HOME/profiles/go"
+
   run bash "$JIG_HOME/profiles/go/verify.sh"
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "go: vet: skip (scope: no changed file maps to a package)"
-  assert_contains "$OUT" "go: test: skip (scope: no changed file maps to a package)"
+  assert_contains "$OUT" "go: static (go vet): skip (scope: no changed file maps to a package)"
+  assert_contains "$OUT" "go: tests (go test): skip (scope: no changed file maps to a package)"
 }
 
 # --- verify.full_run: ci leaves the full set to CI ----------------------------
@@ -408,13 +439,14 @@ test_profile_go_full_run_ci_leaves_a_gomod_change_to_ci() {
 
   JIG_VERIFY_FULL_RUN=ci
   export JIG_VERIFY_FULL_RUN
+  profile_checks_env "$JIG_HOME/profiles/go"
   run bash "$JIG_HOME/profiles/go/verify.sh"
   unset JIG_VERIFY_FULL_RUN
   # Nothing ran, so the profile exits 2.
   assert_eq 2 "$RC" "$OUT"
   # vet is left to CI like the tests.
-  assert_contains "$OUT" "go: vet: skip (scope: module-wide file changed, whole project, full set left to CI)"
-  assert_contains "$OUT" "go: test: skip (scope: module-wide file changed, whole project, full set left to CI)"
+  assert_contains "$OUT" "go: static (go vet): skip (scope: module-wide file changed, whole project, full set left to CI)"
+  assert_contains "$OUT" "go: tests (go test): skip (scope: module-wide file changed, whole project, full set left to CI)"
   assert_not_contains "$(cat go-calls.log)" "vet"
   assert_not_contains "$(cat go-calls.log)" "test"
 }
@@ -432,11 +464,119 @@ test_profile_go_full_run_ci_runs_the_named_packages_beside_a_gomod_change() {
 
   JIG_VERIFY_FULL_RUN=ci
   export JIG_VERIFY_FULL_RUN
+  profile_checks_env "$JIG_HOME/profiles/go"
   run bash "$JIG_HOME/profiles/go/verify.sh"
   unset JIG_VERIFY_FULL_RUN
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "go: vet: pass (go version go1.22.1 darwin/arm64, scope: 1 packages, full set left to CI)"
-  assert_contains "$OUT" "go: test: pass (go version go1.22.1 darwin/arm64, scope: 1 packages, full set left to CI)"
+  assert_contains "$OUT" "go: static (go vet): pass (go version go1.22.1 darwin/arm64, scope: 1 packages, full set left to CI)"
+  assert_contains "$OUT" "go: tests (go test): pass (go version go1.22.1 darwin/arm64, scope: 1 packages, full set left to CI)"
   assert_file_contains go-calls.log "vet ./internal/foo"
   assert_file_contains go-calls.log "test ./internal/foo"
+}
+
+# --- the check table ---------------------------------------------------------
+
+# _go_calls — the vet and test command lines the stub logged, one per line.
+_go_calls() {
+  grep -E '^(vet|test) ' go-calls.log
+}
+
+# The table carries what verify.sh used to write, so nothing a project runs
+# changes: the argv of each check in a full run, a narrowed run, and a
+# narrowed run that falls back to the full set.
+test_profile_go_check_table_keeps_every_command_line() {
+  fixture_repo
+  mkdir -p internal/foo cmd/bar
+  printf 'package foo\n' > internal/foo/foo.go
+  printf 'package bar\n' > cmd/bar/bar.go
+  imp="$PWD/list-imp.txt"
+  dep="$PWD/list-dep.txt"
+  printf 'example.com/x/internal/foo %s/internal/foo\n' "$PWD" > "$imp"
+  printf 'example.com/x/cmd/bar %s/cmd/bar\n' "$PWD" >> "$imp"
+  printf '%s/internal/foo std/fmt\n' "$PWD" > "$dep"
+  printf '%s/cmd/bar example.com/x/internal/foo std/fmt\n' "$PWD" >> "$dep"
+  go_stub 1.22.1 0 0 "$imp" "$dep"
+  profile_checks_env "$JIG_HOME/profiles/go"
+
+  run bash "$JIG_HOME/profiles/go/verify.sh"
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "vet ./...
+test ./..." "$(_go_calls)"
+
+  rm -f go-calls.log
+  set_go_scope internal/foo/foo.go
+  run bash "$JIG_HOME/profiles/go/verify.sh"
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "vet ./internal/foo
+test ./cmd/bar ./internal/foo" "$(_go_calls)"
+
+  rm -f go-calls.log
+  set_go_scope internal/foo/foo.go go.mod
+  run bash "$JIG_HOME/profiles/go/verify.sh"
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "vet ./...
+test ./..." "$(_go_calls)" "a module-wide file falls back to the full set"
+}
+
+# The table is what runs: a changed row changes the command line, and the
+# selection lands where `{selection}` stands.
+test_profile_go_check_table_rows_shape_the_command() {
+  fixture_repo
+  mkdir -p internal/foo prof/go
+  printf 'package foo\n' > internal/foo/foo.go
+  go_stub 1.22.1 0 0
+  sed -e 's/^checks.static.narrowed: .*/checks.static.narrowed: vet -tags x {selection}/' \
+    "$JIG_HOME/profiles/go/profile.yaml" > prof/go/profile.yaml
+  profile_checks_env prof/go
+  set_go_scope internal/foo/foo.go
+  run bash "$JIG_HOME/profiles/go/verify.sh"
+  assert_eq 0 "$RC" "$OUT"
+  assert_file_contains go-calls.log "vet -tags x ./internal/foo"
+}
+
+# A profile.yaml from before the table (kept by `upgrade` as modified) beside
+# this verify.sh fails each check it would run, loudly, instead of running
+# another command in silence; --explain names the gap without a verdict.
+test_profile_go_check_table_missing_fails_loudly() {
+  fixture_repo
+  mkdir -p internal/foo
+  printf 'package foo\n' > internal/foo/foo.go
+  go_stub 1.22.1 0 0
+  unset JIG_VERIFY_CHECKS
+  run bash "$JIG_HOME/profiles/go/verify.sh"
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "go: static (go vet): fail (profile.yaml names no check 'static'; jig upgrade restores it)"
+  assert_contains "$OUT" "go: tests (go test): fail (profile.yaml names no check 'tests'; jig upgrade restores it)"
+  assert_eq "" "$(_go_calls || true)" "no vet or test ran"
+
+  JIG_VERIFY_EXPLAIN=1 run bash "$JIG_HOME/profiles/go/verify.sh"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN go: static (go vet): skip (profile.yaml names no check 'static'; jig upgrade restores it)"
+  assert_contains "$OUT" "PLAN go: tests (go test): skip (profile.yaml names no check 'tests'; jig upgrade restores it)"
+}
+
+# Every role the profile lists in `checks:` can be taken over by another
+# profile (`covers: [go:<role>]`): the check prints jp_covered's line, runs no
+# tool, and the profile has nothing left to run.
+test_profile_go_every_role_can_be_covered() {
+  fixture_repo
+  mkdir -p internal/foo
+  printf 'package foo\n' > internal/foo/foo.go
+  go_stub 1.22.1 0 0
+  profile_checks_env "$JIG_HOME/profiles/go"
+  JIG_VERIFY_COVERED="static=other tests=other"
+  export JIG_VERIFY_COVERED
+
+  run bash "$JIG_HOME/profiles/go/verify.sh"
+  assert_eq 2 "$RC" "$OUT"
+  assert_contains "$OUT" "go: static (go vet): skip (scope: covered by other, go:static)"
+  assert_contains "$OUT" "go: tests (go test): skip (scope: covered by other, go:tests)"
+  assert_eq "" "$(_go_calls || true)" "no go ran"
+
+  JIG_VERIFY_EXPLAIN=1 run bash "$JIG_HOME/profiles/go/verify.sh"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN go: static (go vet): skip (scope: covered by other, go:static)"
+  assert_contains "$OUT" "PLAN go: tests (go test): skip (scope: covered by other, go:tests)"
+  assert_eq "" "$(_go_calls || true)" "no go ran under explain"
+  unset JIG_VERIFY_COVERED
 }

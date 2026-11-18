@@ -517,6 +517,32 @@ _doctor_check_config_local() {
   fi
 }
 
+# Only when .ai/profiles exists: a profile installed there that profiles: in
+# .ai/config.yaml does not reach, directly or through `extends`, never runs.
+# profiles.sh decides what is reached. A stack that does not resolve is named
+# with its reason, and then nothing is called unreached: what it would reach is
+# unknown.
+_doctor_check_profiles() {
+  # shellcheck disable=SC2034 # the stack itself is profiles_unreached's to read
+  local names stack
+  # shellcheck source=lib/profiles.sh
+  . "$JIG_LIB/profiles.sh"
+  [ -d "$(profiles_installed_dir)" ] || return 0
+  if ! profiles_stack_v stack 2>/dev/null; then
+    _doctor_warn "profiles" "the profile stack does not resolve: $PROFILES_STACK_ERROR" \
+      "fix extends: or profiles: (jig verify refuses until then)"
+    return 0
+  fi
+  names=$(profiles_unreached 2>/dev/null) || return 0
+  if [ -z "$names" ]; then
+    _doctor_ok "profiles" "every profile under .ai/profiles is active"
+    return 0
+  fi
+  names=$(printf '%s\n' "$names" | paste -sd, - | sed 's/,/, /g')
+  _doctor_warn "profiles" "$names under .ai/profiles not reached by profiles: or extends, never run" \
+    "add it to profiles: in .ai/config.yaml, or remove .ai/profiles/<name>"
+}
+
 # Whether .ai/config.yaml still describes the set of keys this version reads.
 # Not a fault, and never a fail: an absent key takes its default and
 # everything works, which is the design (schemas/config.md). But that file is
@@ -695,6 +721,7 @@ cmd_doctor() {
       _doctor_check_notify_hooks
       _doctor_check_instructions
       _doctor_check_config_local
+      _doctor_check_profiles
       _doctor_check_config_keys
       _doctor_check_git_flow
       _doctor_check_agent_git

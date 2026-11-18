@@ -17,7 +17,7 @@ paths:
   - schemas/profile.md
   - scripts/lib/runenv.sh
   - scripts/lib/hostruntime.sh
-reviewed_at: 2026-11-11
+reviewed_at: 2026-11-18
 ---
 # Verify
 
@@ -27,7 +27,7 @@ it actually did.
 ## Responsibility
 
 - The profile contract: `profile.yaml` (`name`, `description`, `detect`, `requires`,
-  `scope`, `covers`, `checks`) and `verify.sh` with its four exit codes — 0 pass, 1 fail, **2 skip**,
+  `extends`, `scope`, `covers`, `checks`, the check table `checks.<role>.<field>`) and `verify.sh` with its four exit codes — 0 pass, 1 fail, **2 skip**,
   **3 incomplete**: a check that started and did not finish, which is neither a pass nor a
   fail and means run it again. A profile killed by a signal (128+N) says the same without
   knowing it. `jig verify` itself exits 3 for a run that produced no verdict at all — one
@@ -36,7 +36,14 @@ it actually did.
 - Which profiles are active: explicit activation in `.ai/config.yaml`, and detection from
   root manifests (`profiles_detect`), which a first `jig init` turns into activation
   (adr-20260918-init-activates-detected-profiles). Detection skips dependency directories
-  and `.ai/`.
+  and `.ai/`. What the active set reaches is decided in one place, `profiles_reached`, which is
+  the stack below; `jig doctor` and `jig status` name an installed profile it does not reach
+  (`profiles_unreached`), since such a profile never runs.
+- Which profiles run: the stack, `profiles:` closed over `extends` (`profiles_stack_v`, the one
+  resolver; a layer before its base). A stack that does not resolve (a missing base, a cycle,
+  a project profile under a stock name) is refused before any profile runs; a layer with no
+  `verify.sh` is not run and says its checks run in its bases
+  (adr-20261117-profiles-lists-top-layers-and-jig-resolves-the-stack).
 - The profile library `scripts/lib/profile.sh` and the thirteen shipped profiles: where each
   finds its tools and how it narrows each check
   (adr-20260918-profiles-narrow-per-check-with-project-tools).
@@ -68,7 +75,21 @@ it actually did.
   profile's `checks`, among the profiles the run starts and where the covering profile
   applies (`_verify_covers`). The covered profile gets `JIG_VERIFY_COVERED` and prints the
   skip with `jp_covered`; the covered profile's map goes with its tests to the covering one.
-  laravel covers `php:tests`, so a Laravel project runs its suite once.
+  A cover reaches its role down the named profile's `extends` chain (`covers: [laravel:tests]`
+  covers `php:tests`). Stock `laravel` is a pure layer over `php` that overrides `php:tests`
+  with `php artisan test`, so a Laravel project runs its suite once, and a pure layer's
+  `.ai/verify/<layer>.map` follows the tests to the profile that runs them
+  (adr-20261118-laravel-builds-on-php).
+- The check table: `profiles_check_table` lints a profile's `checks.<role>.<field>` lines
+  before it runs (a bad table fails the profile), `profiles_check_rows` turns them into rows,
+  and the rows reach a profile that has them as `JIG_VERIFY_CHECKS`, read by `jp_check_cmd`.
+- Layer overrides: a layer's `checks.<role>.<field>` rows (and `drop: true`) address the nearest
+  profile of its `extends` chain that lists the role. `profiles_check_layers` lints every layer
+  of the stack before anything runs (a bad layer table refuses the run),
+  `profiles_check_merged` overlays the layers' fields on the base's own rows, top layer winning,
+  and is the one producer of `JIG_VERIFY_CHECKS`. `jig verify` prints
+  `verify: <base>:<role>: <fields> from <layer>`; a dropped check is skipped by `jp_covered` as
+  `scope: dropped by <layer>` (adr-20261118-a-layer-overrides-its-bases-checks-by-role).
 
 ## Boundaries
 
@@ -90,7 +111,9 @@ contract. A change to how profiles are *copied* still belongs to `install`.
 
 - `scripts/lib/verify.sh` — `cmd_verify`, `_verify_changed_files`, `_verify_map_check`,
   `_verify_map_apply`.
-- `scripts/lib/profile.sh` — `jp_begin`, `jp_covered`, `jp_changed`, `jp_changed_any`, `jp_decide`,
+- `scripts/lib/profiles.sh` — `profiles_check_table`, `profiles_check_rows` (the check table),
+  `profiles_check_layers`, `profiles_check_overrides_v`, `profiles_check_merged` (layer overrides), `profiles_layer_maps_v` (a pure layer's map follows the tests).
+- `scripts/lib/profile.sh` — `jp_begin`, `jp_covered`, `jp_check_cmd`, `jp_changed`, `jp_changed_any`, `jp_decide`,
   `jp_path_matches`, `jp_is_doc`, `jp_first_missing`, `jp_files`, `jp_version`, `jp_run`,
   `jp_exec`, `jp_have`, `jp_skip`, `jp_end`; under `verify.full_run: ci`, `jp_select`,
   `jp_full_left_to_ci`, `jp_plan_full`, `jp_plan_select`.
@@ -101,7 +124,8 @@ contract. A change to how profiles are *copied* still belongs to `install`.
   comment states where its tools come from and how it narrows.
 - `profiles/shell/verify.sh` — `_shell_builtin_filters`, the reference for what a shipped
   profile may know about a project (nothing beyond its stack's conventions).
-- `scripts/lib/profiles.sh` — `profiles_active`, `profiles_detect`, `profiles_supports`,
-  `profiles_check_requires`.
+- `scripts/lib/profiles.sh` — `profiles_active`, `profiles_reached`, `profiles_unreached`,
+  `profiles_stack_v`, `profiles_is_stock`,
+  `profiles_detect`, `profiles_supports`, `profiles_check_requires`.
 - `profiles/<stack>/profile.yaml` — the one place the mapping "root manifest → stack" is
   written down; its keys are described in `schemas/profile.md`.

@@ -564,6 +564,38 @@ test_doctor_config_local_warns_when_not_gitignored() {
   assert_contains "$OUT" "fix: jig init"
 }
 
+# --- profiles (a directory profiles: does not reach) ---------------------------
+
+test_doctor_profiles_ok_after_fresh_init() {
+  fixture_jig_repo
+  run jig doctor
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "ok    profiles: every profile under .ai/profiles is active"
+}
+
+test_doctor_profiles_warns_on_an_unreached_directory() {
+  fixture_jig_repo
+  mkdir -p .ai/profiles/warehouse
+  printf 'name: warehouse\n' > .ai/profiles/warehouse/profile.yaml
+
+  run jig doctor
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "warn  profiles: warehouse under .ai/profiles not reached by profiles: or extends, never run"
+  assert_contains "$OUT" "fix: add it to profiles: in .ai/config.yaml, or remove .ai/profiles/<name>"
+}
+
+test_doctor_profiles_names_a_stack_that_does_not_resolve_and_nothing_unreached() {
+  fixture_jig_repo
+  mkdir -p .ai/profiles/warehouse .ai/profiles/stray
+  printf 'name: warehouse\nextends: missing\n' > .ai/profiles/warehouse/profile.yaml
+  printf 'name: stray\n' > .ai/profiles/stray/profile.yaml
+  sed 's/^profiles:.*/profiles: [generic, warehouse]/' .ai/config.yaml > c.tmp && mv c.tmp .ai/config.yaml
+
+  run jig doctor
+  assert_contains "$OUT" "warn  profiles: the profile stack does not resolve: warehouse: extends 'missing', which is not installed (run jig upgrade)"
+  assert_not_contains "$OUT" "stray under .ai/profiles"
+}
+
 # --- config keys (the drift report) -------------------------------------------
 
 test_doctor_config_keys_silent_when_the_template_mentions_everything() {

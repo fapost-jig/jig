@@ -15,7 +15,7 @@ paths:
   - tests/run.sh
   - scripts/lib/profile.sh
   - scripts/lib/runenv.sh
-reviewed_at: 2026-11-07
+reviewed_at: 2026-11-18
 ---
 # Verify rules
 
@@ -79,10 +79,35 @@ the global `RULES.md` (ADR-0013). What follows binds changes inside this domain.
 
 - A new capability gets a name in `profile.yaml`'s `scope` list and is passed only to
   profiles that name it. Adding a capability that older profiles could observe by default
-  would break profiles written before it existed. One capability is declared per check
-  instead: `JIG_VERIFY_COVERED` reaches a profile only for a check it lists under `checks`,
+  would break profiles written before it existed. Two capabilities are declared per check
+  instead — `JIG_VERIFY_CHECKS` by the check table's rows (below), and this one: `JIG_VERIFY_COVERED` reaches a profile only for a check it lists under `checks`,
   because what it honours is a named check, not the whole protocol, and the name is what a
   cover is validated against (adr-20261107-a-profile-covers-a-check-of-another).
+- **A profile's check table is handed down, and its rows are the declaration.** `jig verify`
+  lints the `checks.<role>.<field>` lines of a profile's installed `profile.yaml`, and a table
+  with a problem is `RESULT <p>: fail (profile.yaml:<line>: <reason>)` (`PLAN <p>: error (…)`
+  under `--explain`) without the profile running: an unknown key is otherwise ignored in
+  silence. It writes the rows to a file and hands its path as `JIG_VERIFY_CHECKS` only to a
+  profile that has rows; every other profile runs with it unset, so a caller's own value never
+  reaches one, and `scope` has no word for it. A profile's `verify.sh` reads the table through
+  `jp_check_cmd`, never `profile.yaml` itself, so a merged table of a later layer changes what
+  `jig verify` writes and no profile; a role or field the table lacks fails the check (a PLAN skip
+  under `--explain`), never a skip a passing sibling check would hide and never a quiet command
+  of the profile's own
+  (adr-20261117-a-profile-declares-its-checks-in-a-table).
+- **A layer's override never does nothing in silence.** A layer's `checks.<role>.<field>` rows and
+  `drop: true` address the nearest profile of its `extends` chain that lists the role; a layer's
+  own role shadows a base's role of the same name. `jig verify` lints every layer of the stack
+  before any profile runs, and refuses the run (`FAIL <layer>: profile.yaml:<line>: …`) for a role
+  no profile of the chain lists, a base with no check table of its own, a `narrowed` the base never
+  reads, a non-empty `checks:` on a pure layer, a bad `drop`, a field or a drop over a role a layer
+  below already dropped, and two branches over one base touching one role. The merge is `jig verify`'s (`profiles_check_merged`, top layer wins field by
+  field), and every overridden check is named with its layer (`verify: <base>:<role>: <fields>
+  from <layer>`). A dropped check is skipped with `scope: dropped by <layer>`, by `jp_covered`
+  first and `jp_check_cmd` as a safety net, and a cover whose covering role is dropped does not
+  hold. A profile whose every check is dropped is named as such (decided from the merged table,
+  not the profile's output); the wording changes, the run's exit code does not
+  (adr-20261118-a-layer-overrides-its-bases-checks-by-role).
 - `jig verify --explain` asks a profile for a plan only when it declares `scope: [..., explain]`.
   A profile in this mode MUST name every check as full, filtered, skipped or conditional;
   a conditional answer MUST name a possible full run. It MUST NOT run a project tool,
@@ -189,13 +214,19 @@ the global `RULES.md` (ADR-0013). What follows binds changes inside this domain.
   gates the run applies), the covering one applies to the project (`profiles_applies`, its
   `detect`), and the covered one names the check — otherwise a warning, and the check runs.
   Covers chain to the profile that finally runs the check, and a circle of covers is
-  dropped. A covered check's map goes with it: `<lower>.map` is read for that profile after
+  dropped. A cover names a profile but reaches the role down its `extends` chain, as a layer's
+  row does (`covers: [laravel:tests]` covers `php:tests`), so a role that moved down a stack
+  never leaves a cover dropped in silence. A covered check's map goes with it: `<lower>.map` is read for that profile after
   its own, and a covering profile that cannot read maps does not take tests whose map would
-  be dropped. The skip starts `scope:` (`scope: covered by laravel, php:tests`): the check's
+  be dropped. A pure layer's `.ai/verify/<layer>.map` follows the tests the same way, to the
+  profile that owns `tests` in its chain, topmost layer first, before that profile's own map
+  (adr-20261118-laravel-builds-on-php). A profile jig placed with neither a `verify.sh` nor an
+  `extends` fails the run rather than skipping: its checks run nowhere, and a base would run them
+  its own way. The skip starts `scope:` (`scope: covered by myapp, php:tests`): the check's
   tools are fine and the work is someone else's, so a run where everything else narrowed
   away is not read as a gap in coverage.
 - **A test suite run by a narrowed profile must not pass the scope on.** `tests/run.sh`
-  unsets `JIG_VERIFY_SCOPE`, `JIG_VERIFY_FILES`, `JIG_VERIFY_MAPPED`, `JIG_VERIFY_EXPLAIN`, `JIG_VERIFY_COVERED`, `JIG_VERIFY_BUSY_HELD`
+  unsets `JIG_VERIFY_SCOPE`, `JIG_VERIFY_FILES`, `JIG_VERIFY_MAPPED`, `JIG_VERIFY_EXPLAIN`, `JIG_VERIFY_COVERED`, `JIG_VERIFY_CHECKS`, `JIG_VERIFY_BUSY_HELD`
   and `CI` for every test:
   a test that runs a profile directly otherwise takes the scope of the run that started the
   suite.

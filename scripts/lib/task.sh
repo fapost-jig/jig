@@ -7933,12 +7933,14 @@ task_artifact() {
 #
 # Nothing here may fail the ship: every path that cannot answer gives up.
 _task_ship_unverified_notice() {
-  local installed p pdir covered=0
+  local installed p pdir covered=0 names
   # shellcheck source=lib/profiles.sh
   . "$JIG_LIB/profiles.sh" 2>/dev/null || return 0
   installed=$(profiles_installed_dir 2>/dev/null) || return 0
   [ -n "$installed" ] || return 0
-  for p in $(profiles_active 2>/dev/null); do
+  # The stack, so a base counts; one that does not resolve reads as the list.
+  profiles_stack_v names 2>/dev/null || names=$(profiles_active 2>/dev/null) || names=""
+  for p in $names; do
     pdir=$(profiles_dir "$installed" "$p" 2>/dev/null) || continue
     [ -d "$pdir" ] || continue
     if ! profiles_is_fallback "$pdir"; then

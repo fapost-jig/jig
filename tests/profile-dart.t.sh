@@ -105,6 +105,7 @@ dart_mapped() {
 }
 
 dart_verify() {
+  profile_checks_env "$JIG_HOME/profiles/dart"
   run bash "$JIG_HOME/profiles/dart/verify.sh"
 }
 
@@ -137,9 +138,9 @@ test_profile_dart_skips_everything_without_toolchain() {
   bin=$(dart_notools_path)
   PATH="$bin" dart_verify
   assert_eq 2 "$RC"
-  assert_contains "$OUT" "dart: analyze: skip (dart not found on PATH)"
-  assert_contains "$OUT" "dart: format: skip (dart not found on PATH)"
-  assert_contains "$OUT" "dart: test: skip (dart not found on PATH)"
+  assert_contains "$OUT" "dart: static (dart analyze): skip (dart not found on PATH)"
+  assert_contains "$OUT" "dart: style (dart format): skip (dart not found on PATH)"
+  assert_contains "$OUT" "dart: tests (dart test): skip (dart not found on PATH)"
 }
 
 # --- flutter detection (sdk: flutter) --------------------------------------
@@ -151,9 +152,9 @@ test_profile_dart_flutter_project_uses_flutter_and_skips_format_without_dart() {
   dart_stub_tool flutter 0 0 0
   PATH="$PWD/stub-bin:$bin" dart_verify
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "dart: analyze: pass (flutter stub-version)"
-  assert_contains "$OUT" "dart: format: skip (dart not found on PATH)"
-  assert_contains "$OUT" "dart: test: pass (flutter stub-version)"
+  assert_contains "$OUT" "dart: static (flutter analyze): pass (flutter stub-version)"
+  assert_contains "$OUT" "dart: style (dart format): skip (dart not found on PATH)"
+  assert_contains "$OUT" "dart: tests (flutter test): pass (flutter stub-version)"
 }
 
 # --- analyze / format / test: pass, fail, version in the verdict ----------
@@ -163,12 +164,12 @@ test_profile_dart_analyze_pass_and_fail_name_version() {
   dart_stub_tool dart 0 0 0
   dart_verify
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "dart: analyze: pass (dart stub-version)"
+  assert_contains "$OUT" "dart: static (dart analyze): pass (dart stub-version)"
 
   dart_stub_tool dart 1 0 0
   dart_verify
   assert_eq 1 "$RC"
-  assert_contains "$OUT" "dart: analyze: fail (dart stub-version)"
+  assert_contains "$OUT" "dart: static (dart analyze): fail (dart stub-version)"
 }
 
 test_profile_dart_format_pass_and_fail_name_version() {
@@ -176,13 +177,13 @@ test_profile_dart_format_pass_and_fail_name_version() {
   dart_stub_tool dart 0 0 0
   dart_verify
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "dart: format: pass (dart stub-version)"
+  assert_contains "$OUT" "dart: style (dart format): pass (dart stub-version)"
   assert_eq "--output=none --set-exit-if-changed ." "$(cat dart-format.args)"
 
   dart_stub_tool dart 0 1 0
   dart_verify
   assert_eq 1 "$RC"
-  assert_contains "$OUT" "dart: format: fail (dart stub-version)"
+  assert_contains "$OUT" "dart: style (dart format): fail (dart stub-version)"
 }
 
 test_profile_dart_test_pass_and_fail_name_version() {
@@ -190,12 +191,12 @@ test_profile_dart_test_pass_and_fail_name_version() {
   dart_stub_tool dart 0 0 0
   dart_verify
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "dart: test: pass (dart stub-version)"
+  assert_contains "$OUT" "dart: tests (dart test): pass (dart stub-version)"
 
   dart_stub_tool dart 0 0 1
   dart_verify
   assert_eq 1 "$RC"
-  assert_contains "$OUT" "dart: test: fail (dart stub-version)"
+  assert_contains "$OUT" "dart: tests (dart test): fail (dart stub-version)"
 }
 
 # --- analyze / format narrowing (D4: changed .dart files as arguments) ----
@@ -208,9 +209,9 @@ test_profile_dart_analyze_and_format_narrow_to_changed_dart_files() {
   dart_scope "$(printf 'lib/math.dart\nREADME.md\n')"
   dart_verify
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "dart: analyze: pass (dart stub-version, scope: 1 files)"
+  assert_contains "$OUT" "dart: static (dart analyze): pass (dart stub-version, scope: 1 files)"
   assert_eq "lib/math.dart" "$(cat dart-analyze.args)"
-  assert_contains "$OUT" "dart: format: pass (dart stub-version, scope: 1 files)"
+  assert_contains "$OUT" "dart: style (dart format): pass (dart stub-version, scope: 1 files)"
   assert_eq "--output=none --set-exit-if-changed lib/math.dart" "$(cat dart-format.args)"
 }
 
@@ -221,9 +222,9 @@ test_profile_dart_analyze_and_format_scope_selects_nothing_skips() {
   dart_scope "README.md"
   dart_verify
   assert_eq 2 "$RC"
-  assert_contains "$OUT" "dart: analyze: skip (scope: no changed .dart files)"
-  assert_contains "$OUT" "dart: format: skip (scope: no changed .dart files)"
-  assert_contains "$OUT" "dart: test: skip (scope: no changed file maps to a test)"
+  assert_contains "$OUT" "dart: static (dart analyze): skip (scope: no changed .dart files)"
+  assert_contains "$OUT" "dart: style (dart format): skip (scope: no changed .dart files)"
+  assert_contains "$OUT" "dart: tests (dart test): skip (scope: no changed file maps to a test)"
 }
 
 test_profile_dart_full_run_when_pubspec_changes() {
@@ -232,11 +233,11 @@ test_profile_dart_full_run_when_pubspec_changes() {
   dart_scope "pubspec.yaml"
   dart_verify
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "dart: analyze: pass (dart stub-version, scope: pubspec or analysis options changed, whole project)"
+  assert_contains "$OUT" "dart: static (dart analyze): pass (dart stub-version, scope: pubspec or analysis options changed, whole project)"
   assert_eq "" "$(cat dart-analyze.args)"
-  assert_contains "$OUT" "dart: format: pass (dart stub-version, scope: pubspec or analysis options changed, whole project)"
+  assert_contains "$OUT" "dart: style (dart format): pass (dart stub-version, scope: pubspec or analysis options changed, whole project)"
   assert_eq "--output=none --set-exit-if-changed ." "$(cat dart-format.args)"
-  assert_contains "$OUT" "dart: test: pass (dart stub-version, scope: pubspec.yaml can affect any test, ran full set)"
+  assert_contains "$OUT" "dart: tests (dart test): pass (dart stub-version, scope: pubspec.yaml can affect any test, ran full set)"
   assert_eq "" "$(cat dart-test.args)"
 }
 
@@ -251,7 +252,7 @@ test_profile_dart_test_narrows_lib_file_to_matching_test_file() {
   dart_scope "lib/math.dart"
   dart_verify
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "dart: test: pass (dart stub-version, scope: 1 test files)"
+  assert_contains "$OUT" "dart: tests (dart test): pass (dart stub-version, scope: 1 test files)"
   assert_eq "test/math_test.dart" "$(cat dart-test.args)"
 }
 
@@ -272,7 +273,7 @@ test_profile_dart_test_missing_target_falls_back_to_full_run() {
   dart_scope "lib/nomatch.dart"
   dart_verify
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "dart: test: pass (dart stub-version, scope: filter 'test/nomatch_test.dart' selects no tests, ran full set)"
+  assert_contains "$OUT" "dart: tests (dart test): pass (dart stub-version, scope: filter 'test/nomatch_test.dart' selects no tests, ran full set)"
   assert_eq "" "$(cat dart-test.args)"
 }
 
@@ -304,7 +305,7 @@ test_profile_dart_test_full_after_analyze_and_format_file_list_path() {
   dart_scope "$(printf 'lib/a.dart\npubspec.yaml\n')"
   dart_verify
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "dart: test: pass (dart stub-version, scope: pubspec.yaml can affect any test, ran full set)"
+  assert_contains "$OUT" "dart: tests (dart test): pass (dart stub-version, scope: pubspec.yaml can affect any test, ran full set)"
 }
 
 # A map decision naming two filters on one line, after analyze took the
@@ -324,8 +325,8 @@ test_profile_dart_test_map_decision_two_filters_after_analyze_file_list_path() {
   dart_mapped "$(printf 'lib/math.dart\ttest/math_a_test.dart test/math_b_test.dart')"
   dart_verify
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "dart: analyze: pass (dart stub-version, scope: 1 files)"
-  assert_contains "$OUT" "dart: test: pass (dart stub-version, scope: 2 test files)"
+  assert_contains "$OUT" "dart: static (dart analyze): pass (dart stub-version, scope: 1 files)"
+  assert_contains "$OUT" "dart: tests (dart test): pass (dart stub-version, scope: 2 test files)"
   assert_eq "test/math_a_test.dart test/math_b_test.dart" "$(cat dart-test.args)"
 }
 
@@ -337,7 +338,7 @@ test_profile_dart_map_dash_selects_nothing_skips() {
   dart_mapped "$(printf 'lib/math.dart\t-')"
   dart_verify
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "dart: test: skip (scope: no changed file maps to a test)"
+  assert_contains "$OUT" "dart: tests (dart test): skip (scope: no changed file maps to a test)"
 }
 
 # --- front end: what can and cannot change the result of the test run --------
@@ -358,6 +359,7 @@ dart_explain() {
   JIG_VERIFY_EXPLAIN=1
   export JIG_VERIFY_SCOPE JIG_VERIFY_FILES JIG_VERIFY_EXPLAIN
   unset JIG_VERIFY_MAPPED
+  profile_checks_env "$JIG_HOME/profiles/dart"
   run bash "$JIG_HOME/profiles/dart/verify.sh"
   unset JIG_VERIFY_SCOPE JIG_VERIFY_FILES JIG_VERIFY_EXPLAIN
 }
@@ -371,7 +373,7 @@ test_profile_dart_web_change_runs_no_test() {
   dart_scope "web/index.html"
   dart_verify
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "dart: test: skip (scope: no changed file maps to a test)"
+  assert_contains "$OUT" "dart: tests (flutter test): skip (scope: no changed file maps to a test)"
   assert_no_file dart-test.args
   assert_no_file flutter-test.args
 }
@@ -388,9 +390,9 @@ test_profile_dart_web_change_skips_every_check() {
   dart_scope "web/style.css"
   dart_verify
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "dart: analyze: skip (scope: no changed .dart files)"
-  assert_contains "$OUT" "dart: format: skip (scope: no changed .dart files)"
-  assert_contains "$OUT" "dart: test: skip (scope: no changed file maps to a test)"
+  assert_contains "$OUT" "dart: static (flutter analyze): skip (scope: no changed .dart files)"
+  assert_contains "$OUT" "dart: style (dart format): skip (scope: no changed .dart files)"
+  assert_contains "$OUT" "dart: tests (flutter test): skip (scope: no changed file maps to a test)"
 }
 
 test_profile_dart_web_beside_dart_runs_only_the_named_test() {
@@ -404,7 +406,7 @@ test_profile_dart_web_beside_dart_runs_only_the_named_test() {
   dart_scope "$(printf 'web/index.html\nlib/math.dart\n')"
   dart_verify
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "dart: test: pass (flutter stub-version, scope: 1 test files)"
+  assert_contains "$OUT" "dart: tests (flutter test): pass (flutter stub-version, scope: 1 test files)"
   assert_eq "test/math_test.dart" "$(cat flutter-test.args)"
 }
 
@@ -418,7 +420,7 @@ test_profile_dart_explain_web_change_maps_to_no_test() {
   : > web/index.html
   dart_explain "web/index.html"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "PLAN dart: test: skip (no changed file maps to this check)"
+  assert_contains "$OUT" "PLAN dart: tests (flutter test): skip (no changed file maps to this check)"
   assert_no_file dart-test.args
   assert_no_file flutter-test.args
 }
@@ -429,7 +431,7 @@ test_profile_dart_explain_names_the_path_that_forces_the_full_set() {
   dart_stub_tool dart 0 0 0
   dart_explain "pubspec.yaml"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "PLAN dart: test: full (pubspec.yaml can affect any test)"
+  assert_contains "$OUT" "PLAN dart: tests (flutter test): full (pubspec.yaml can affect any test)"
   assert_no_file dart-test.args
   assert_no_file flutter-test.args
 }
@@ -444,9 +446,9 @@ test_profile_dart_full_run_ci_leaves_a_pubspec_change_to_ci() {
   export JIG_VERIFY_FULL_RUN
   dart_verify
   unset JIG_VERIFY_FULL_RUN
-  assert_contains "$OUT" "dart: test: skip (scope: pubspec.yaml can affect any test, full set left to CI)"
-  assert_contains "$OUT" "dart: analyze: skip (scope: pubspec or analysis options changed, full set left to CI)"
-  assert_contains "$OUT" "dart: format: skip (scope: pubspec or analysis options changed, full set left to CI)"
+  assert_contains "$OUT" "dart: tests (dart test): skip (scope: pubspec.yaml can affect any test, full set left to CI)"
+  assert_contains "$OUT" "dart: static (dart analyze): skip (scope: pubspec or analysis options changed, full set left to CI)"
+  assert_contains "$OUT" "dart: style (dart format): skip (scope: pubspec or analysis options changed, full set left to CI)"
   assert_no_file dart-test.args
 }
 
@@ -461,6 +463,119 @@ test_profile_dart_full_run_ci_runs_the_named_test_beside_a_pubspec_change() {
   dart_verify
   unset JIG_VERIFY_FULL_RUN
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "dart: test: pass (dart stub-version, scope: 1 test files, full set left to CI)"
+  assert_contains "$OUT" "dart: tests (dart test): pass (dart stub-version, scope: 1 test files, full set left to CI)"
   assert_eq "test/math_test.dart" "$(cat dart-test.args)"
+}
+
+# --- the check table ---------------------------------------------------------
+
+# The table carries what verify.sh used to write, so nothing a project runs
+# changes: the argv of each check in a full run, a narrowed run, a narrowed
+# run that falls back to the full set, and a Flutter project's runner.
+test_profile_dart_check_table_keeps_every_command_line() {
+  dart_fixture
+  dart_stub_tool dart 0 0 0
+  printf 'int add(int a, int b) => a + b;\n' > lib/math.dart
+  : > test/math_test.dart
+
+  dart_verify
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "" "$(cat dart-analyze.args)"
+  assert_eq "--output=none --set-exit-if-changed ." "$(cat dart-format.args)"
+  assert_eq "" "$(cat dart-test.args)"
+
+  rm -f dart-*.args
+  dart_scope "lib/math.dart"
+  dart_verify
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "lib/math.dart" "$(cat dart-analyze.args)"
+  assert_eq "--output=none --set-exit-if-changed lib/math.dart" "$(cat dart-format.args)"
+  assert_eq "test/math_test.dart" "$(cat dart-test.args)"
+
+  rm -f dart-*.args
+  dart_scope "$(printf 'lib/math.dart\npubspec.yaml\n')"
+  dart_verify
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "" "$(cat dart-analyze.args)" "a changed pubspec falls back to the full set"
+  assert_eq "--output=none --set-exit-if-changed ." "$(cat dart-format.args)"
+  assert_eq "" "$(cat dart-test.args)"
+
+  rm -rf dart-*.args stub-bin pubspec.yaml
+  dart_fixture flutter
+  dart_stub_tool flutter 0 0 0
+  dart_stub_tool dart 0 0 0
+  dart_scope "lib/math.dart"
+  dart_verify
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "lib/math.dart" "$(cat flutter-analyze.args)"
+  assert_eq "--output=none --set-exit-if-changed lib/math.dart" "$(cat dart-format.args)"
+  assert_eq "test/math_test.dart" "$(cat flutter-test.args)"
+}
+
+# The table is what runs: a changed row changes the command line, and the
+# selection lands where `{selection}` stands.
+test_profile_dart_check_table_rows_shape_the_command() {
+  dart_fixture
+  dart_stub_tool dart 0 0 0
+  mkdir -p prof/dart
+  printf 'int add(int a, int b) => a + b;\n' > lib/math.dart
+  : > test/math_test.dart
+  sed -e 's/^checks.tests.narrowed: .*/checks.tests.narrowed: test --concurrency=1 {selection}/' \
+    "$JIG_HOME/profiles/dart/profile.yaml" > prof/dart/profile.yaml
+  dart_scope "lib/math.dart"
+  profile_checks_env prof/dart
+  run bash "$JIG_HOME/profiles/dart/verify.sh"
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "--concurrency=1 test/math_test.dart" "$(cat dart-test.args)"
+}
+
+# A profile.yaml from before the table (kept by `upgrade` as modified) beside
+# this verify.sh fails each check it would run, loudly, instead of running
+# another command in silence; --explain names the gap without a verdict.
+test_profile_dart_check_table_missing_fails_loudly() {
+  dart_fixture
+  dart_stub_tool dart 0 0 0
+  unset JIG_VERIFY_CHECKS
+  run bash "$JIG_HOME/profiles/dart/verify.sh"
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "dart: static (dart analyze): fail (profile.yaml names no check 'static'; jig upgrade restores it)"
+  assert_contains "$OUT" "dart: style (dart format): fail (profile.yaml names no check 'style'; jig upgrade restores it)"
+  assert_contains "$OUT" "dart: tests (dart test): fail (profile.yaml names no check 'tests'; jig upgrade restores it)"
+  assert_no_file dart-analyze.args
+  assert_no_file dart-format.args
+  assert_no_file dart-test.args
+
+  JIG_VERIFY_EXPLAIN=1 run bash "$JIG_HOME/profiles/dart/verify.sh"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN dart: static (dart analyze): skip (profile.yaml names no check 'static'; jig upgrade restores it)"
+  assert_contains "$OUT" "PLAN dart: style (dart format): skip (profile.yaml names no check 'style'; jig upgrade restores it)"
+  assert_contains "$OUT" "PLAN dart: tests (dart test): skip (profile.yaml names no check 'tests'; jig upgrade restores it)"
+}
+
+# Every role the profile lists in `checks:` can be taken over by another
+# profile (`covers: [dart:<role>]`): the check prints jp_covered's line and
+# runs no tool.
+test_profile_dart_every_role_can_be_covered() {
+  dart_fixture
+  dart_stub_tool dart 0 0 0
+  JIG_VERIFY_COVERED="static=other style=other tests=other"
+  export JIG_VERIFY_COVERED
+  dart_verify
+  assert_eq 2 "$RC" "$OUT"
+  assert_contains "$OUT" "dart: static (dart analyze): skip (scope: covered by other, dart:static)"
+  assert_contains "$OUT" "dart: style (dart format): skip (scope: covered by other, dart:style)"
+  assert_contains "$OUT" "dart: tests (dart test): skip (scope: covered by other, dart:tests)"
+  assert_no_file dart-analyze.args
+  assert_no_file dart-format.args
+  assert_no_file dart-test.args
+
+  JIG_VERIFY_EXPLAIN=1 run bash "$JIG_HOME/profiles/dart/verify.sh"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN dart: static (dart analyze): skip (scope: covered by other, dart:static)"
+  assert_contains "$OUT" "PLAN dart: style (dart format): skip (scope: covered by other, dart:style)"
+  assert_contains "$OUT" "PLAN dart: tests (dart test): skip (scope: covered by other, dart:tests)"
+  assert_no_file dart-analyze.args
+  assert_no_file dart-format.args
+  assert_no_file dart-test.args
+  unset JIG_VERIFY_COVERED
 }

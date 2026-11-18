@@ -411,7 +411,7 @@ test_profile_lib_jp_end_exits_1_after_a_failure() {
 # verify.sh in the framework source, a copy-mode install (.ai/scripts/lib/)
 # and a link-mode install (design.md predisposition 5). Both are exercised
 # through the real `jig init` / `jig verify` path, with no tool in the
-# project's environment, so a bare `python: ruff: skip` line (rather than a
+# project's environment, so a bare `python: lint (ruff): skip` line (rather than a
 # shell "No such file" or "syntax error") is the proof the relative
 # `../../scripts/lib/profile.sh` resolved correctly in each install mode.
 # The python profile never searches the bare PATH for ruff/mypy/pytest
@@ -426,9 +426,9 @@ test_profile_lib_resolves_from_copy_mode_install() {
   # Every check skipped, so the run checked nothing and says so, exit 3
   # (adr-20260925-one-test-run-per-clone-and-a-dead-run-is-not-a-pass).
   assert_eq 3 "$RC" "$OUT"
-  assert_contains "$OUT" "python: ruff: skip"
-  assert_contains "$OUT" "python: mypy: skip"
-  assert_contains "$OUT" "python: pytest: skip"
+  assert_contains "$OUT" "python: lint (ruff): skip"
+  assert_contains "$OUT" "python: typecheck (mypy): skip"
+  assert_contains "$OUT" "python: tests (pytest): skip"
   assert_contains "$OUT" "RESULT python: skip"
   assert_not_contains "$OUT" "No such file"
   assert_not_contains "$OUT" "syntax error"
@@ -443,9 +443,9 @@ test_profile_lib_resolves_from_link_mode_install() {
   # Every check skipped, so the run checked nothing and says so, exit 3
   # (adr-20260925-one-test-run-per-clone-and-a-dead-run-is-not-a-pass).
   assert_eq 3 "$RC" "$OUT"
-  assert_contains "$OUT" "python: ruff: skip"
-  assert_contains "$OUT" "python: mypy: skip"
-  assert_contains "$OUT" "python: pytest: skip"
+  assert_contains "$OUT" "python: lint (ruff): skip"
+  assert_contains "$OUT" "python: typecheck (mypy): skip"
+  assert_contains "$OUT" "python: tests (pytest): skip"
   assert_contains "$OUT" "RESULT python: skip"
   assert_not_contains "$OUT" "No such file"
   assert_not_contains "$OUT" "syntax error"
@@ -607,4 +607,261 @@ test_profile_lib_jp_decide_cause_survives_an_answer_longer_than_a_pipe_buffer() 
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" "src/a/deliberately/long/directory/path/that/pads/each/line/well/past/a/few/bytes/module_0000.py"
   assert_contains "$OUT" "reached-the-next-line"
+}
+
+# --- jp_check_cmd --------------------------------------------------------------
+
+# _lib_checks <row>... — a JIG_VERIFY_CHECKS file and the variable pointing at
+# it; each <row> is "<role> <field> <value>" with a blank between role and
+# field, and between field and value (the value may hold blanks and glob
+# characters; `-` stands for no value). Rows are written TAB-separated, the
+# way `jig verify` writes them.
+_lib_checks() {
+  local f="${JIG_TEST_TMP}.libchecks" row role field value
+  : > "$f"
+  for row in "$@"; do
+    role=${row%% *}
+    row=${row#* }
+    field=${row%% *}
+    value=${row#"$field"}
+    value=${value# }
+    [ "$value" != "-" ] || value=""
+    printf '%s\t%s\t%s\n' "$role" "$field" "$value" >> "$f"
+  done
+  JIG_VERIFY_CHECKS="$f"
+  export JIG_VERIFY_CHECKS
+}
+
+# _lib_cmd <script> — run <script> with JP_CMD printed one argument per line,
+# between `[` and `]` so an argument with blanks is plain to see.
+_lib_cmd() {
+  _lib_run 'set -euo pipefail; jp_begin t; '"$1"'; for a in ${JP_CMD[@]+"${JP_CMD[@]}"}; do printf "[%s]\n" "$a"; done'
+}
+
+test_profile_lib_jp_check_cmd_full_uses_the_default_command_and_no_arguments() {
+  unset JIG_VERIFY_EXPLAIN
+  _lib_checks "tests listed -"
+  _lib_cmd 'jp_check_cmd tests "x" full phpunit --colors'
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "[phpunit]
+[--colors]" "$OUT"
+}
+
+test_profile_lib_jp_check_cmd_the_table_command_replaces_the_default() {
+  unset JIG_VERIFY_EXPLAIN
+  _lib_checks "tests command composer" "tests full validate --strict"
+  _lib_cmd 'jp_check_cmd tests "x" full phpunit'
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "[composer]
+[validate]
+[--strict]" "$OUT"
+}
+
+test_profile_lib_jp_check_cmd_narrowed_selection_goes_at_the_end() {
+  unset JIG_VERIFY_EXPLAIN
+  _lib_checks "static listed -" "static narrowed analyse --no-progress {selection}"
+  _lib_cmd 'jp_check_cmd static "x" narrowed phpstan -- a.php b.php'
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "[phpstan]
+[analyse]
+[--no-progress]
+[a.php]
+[b.php]" "$OUT"
+}
+
+test_profile_lib_jp_check_cmd_narrowed_selection_goes_in_the_middle() {
+  unset JIG_VERIFY_EXPLAIN
+  _lib_checks "lint narrowed clippy --all-targets {selection} -- -D warnings"
+  _lib_cmd 'jp_check_cmd lint "x" narrowed cargo -- -p one -p two'
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "[cargo]
+[clippy]
+[--all-targets]
+[-p]
+[one]
+[-p]
+[two]
+[--]
+[-D]
+[warnings]" "$OUT"
+}
+
+test_profile_lib_jp_check_cmd_narrowed_selection_goes_before_the_goal() {
+  unset JIG_VERIFY_EXPLAIN
+  _lib_checks "tests narrowed {selection} test"
+  _lib_cmd 'jp_check_cmd tests "x" narrowed mvn -- -pl a,b -am'
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "[mvn]
+[-pl]
+[a,b]
+[-am]
+[test]" "$OUT"
+}
+
+test_profile_lib_jp_check_cmd_narrowed_selection_can_replace_the_full_target() {
+  unset JIG_VERIFY_EXPLAIN
+  _lib_checks "static full vet ./..." "static narrowed vet {selection}"
+  _lib_cmd 'jp_check_cmd static "x" narrowed go -- ./a ./b'
+  assert_eq "[go]
+[vet]
+[./a]
+[./b]" "$OUT"
+  _lib_cmd 'jp_check_cmd static "x" full go'
+  assert_eq "[go]
+[vet]
+[./...]" "$OUT"
+}
+
+test_profile_lib_jp_check_cmd_a_selection_item_with_a_blank_stays_one_argument() {
+  unset JIG_VERIFY_EXPLAIN
+  _lib_checks "tests narrowed {selection}"
+  _lib_cmd 'jp_check_cmd tests "x" narrowed runner -- "dir with space/a test.php" b.php'
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "[runner]
+[dir with space/a test.php]
+[b.php]" "$OUT"
+}
+
+test_profile_lib_jp_check_cmd_an_empty_selection_drops_the_token() {
+  unset JIG_VERIFY_EXPLAIN
+  _lib_checks "tests narrowed run {selection}"
+  _lib_cmd 'jp_check_cmd tests "x" narrowed runner --'
+  assert_eq "[runner]
+[run]" "$OUT"
+}
+
+test_profile_lib_jp_check_cmd_empty_list_is_no_words() {
+  unset JIG_VERIFY_EXPLAIN
+  _lib_checks "tests full []"
+  _lib_cmd 'jp_check_cmd tests "x" full phpunit'
+  assert_eq "[phpunit]" "$OUT"
+}
+
+test_profile_lib_jp_check_cmd_never_globs_table_words() {
+  unset JIG_VERIFY_EXPLAIN
+  _lib_checks "tests full --filter=*.php **/*.sh [ab]?"
+  mkdir -p globdir && : > globdir/a.php
+  _lib_cmd 'cd globdir; jp_check_cmd tests "x" full runner'
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "[runner]
+[--filter=*.php]
+[**/*.sh]
+[[ab]?]" "$OUT"
+}
+
+test_profile_lib_jp_check_cmd_is_independent_of_ifs_and_noglob_state() {
+  unset JIG_VERIFY_EXPLAIN
+  _lib_checks "tests narrowed a {selection}"
+  _lib_cmd 'IFS=,; jp_check_cmd tests "x" narrowed "my tool" -- "p q"'
+  assert_eq "[my tool]
+[a]
+[p q]" "$OUT"
+  _lib_run 'set -f; jp_begin t; jp_check_cmd tests "x" narrowed tool -- x; case $- in *f*) echo NOGLOB_KEPT;; esac'
+  assert_contains "$OUT" "NOGLOB_KEPT"
+}
+
+test_profile_lib_jp_check_cmd_a_role_the_table_lacks_fails_loudly() {
+  unset JIG_VERIFY_EXPLAIN
+  _lib_checks "other listed -"
+  _lib_run 'jp_begin demo; jp_check_cmd tests "phpunit" full phpunit && echo RAN || echo "RC=$?"'
+  assert_contains "$OUT" "demo: phpunit: fail (profile.yaml names no check 'tests'; jig upgrade restores it)"
+  assert_contains "$OUT" "RC=1"
+  assert_not_contains "$OUT" "skip (scope:"
+}
+
+test_profile_lib_jp_check_cmd_no_table_at_all_fails_loudly() {
+  unset JIG_VERIFY_EXPLAIN JIG_VERIFY_CHECKS
+  _lib_run 'jp_begin demo; jp_check_cmd tests "phpunit" full phpunit || echo "RC=$?"'
+  assert_contains "$OUT" "fail (profile.yaml names no check 'tests'"
+  assert_contains "$OUT" "RC=1"
+  JIG_VERIFY_CHECKS="${JIG_TEST_TMP}.no-such-file"
+  export JIG_VERIFY_CHECKS
+  _lib_run 'jp_begin demo; jp_check_cmd tests "phpunit" full phpunit || echo "RC=$?"'
+  assert_contains "$OUT" "RC=1"
+}
+
+test_profile_lib_jp_check_cmd_narrowed_without_a_narrowed_field_fails_loudly() {
+  unset JIG_VERIFY_EXPLAIN
+  _lib_checks "tests listed -" "tests full -x"
+  _lib_run 'jp_begin demo; jp_check_cmd tests "phpunit" narrowed phpunit -- a || echo "RC=$?"'
+  assert_contains "$OUT" "demo: phpunit: fail (profile.yaml has no checks.tests.narrowed; jig upgrade restores it)"
+  assert_contains "$OUT" "RC=1"
+  assert_not_contains "$OUT" "skip (scope:"
+}
+
+test_profile_lib_jp_check_cmd_under_explain_prints_a_plan_line() {
+  JIG_VERIFY_EXPLAIN=1
+  export JIG_VERIFY_EXPLAIN
+  _lib_checks "other listed -"
+  _lib_run 'jp_begin demo; jp_check_cmd tests "phpunit" full phpunit || echo "RC=$?"'
+  assert_contains "$OUT" "PLAN demo: phpunit: skip (profile.yaml names no check 'tests'"
+  assert_contains "$OUT" "RC=1"
+  unset JIG_VERIFY_EXPLAIN
+}
+
+test_profile_lib_jp_check_cmd_runs_through_jp_run() {
+  unset JIG_VERIFY_EXPLAIN
+  _lib_checks "tests narrowed --only {selection}"
+  _lib_run 'jp_begin demo; jp_check_cmd tests "echoer" narrowed echo -- "a b" c && jp_run echoer "n" "${JP_CMD[@]}"'
+  assert_contains "$OUT" "--only a b c"
+  assert_contains "$OUT" "demo: echoer: pass (n)"
+}
+
+# --- a dropped check (adr-20261118-a-layer-overrides-its-bases-checks-by-role) ---
+
+test_profile_lib_jp_covered_a_dropped_role_prints_a_scoped_skip_and_returns_0() {
+  unset JIG_VERIFY_EXPLAIN JIG_VERIFY_COVERED
+  _lib_checks "tests listed -" "lint listed -" "lint drop warehouse"
+  _lib_run 'jp_begin php; jp_covered lint "lint (phpcs)" && echo "RC=0"; jp_covered tests "tests (phpunit)" || echo "RC=$?"'
+  assert_eq "php: lint (phpcs): skip (scope: dropped by warehouse, php:lint)
+RC=0
+RC=1" "$OUT"
+}
+
+test_profile_lib_jp_covered_a_dropped_role_is_a_plan_skip_under_explain() {
+  JIG_VERIFY_EXPLAIN=1
+  export JIG_VERIFY_EXPLAIN
+  unset JIG_VERIFY_COVERED
+  _lib_checks "lint listed -" "lint drop warehouse"
+  _lib_run 'jp_begin php; jp_covered lint "lint (phpcs)"'
+  unset JIG_VERIFY_EXPLAIN
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "PLAN php: lint (phpcs): skip (scope: dropped by warehouse, php:lint)" "$OUT"
+}
+
+test_profile_lib_jp_covered_a_cover_wins_over_a_drop_and_no_table_drops_nothing() {
+  unset JIG_VERIFY_EXPLAIN
+  JIG_VERIFY_COVERED="lint=laravel"
+  export JIG_VERIFY_COVERED
+  _lib_checks "lint listed -" "lint drop warehouse"
+  _lib_run 'jp_begin php; jp_covered lint "lint (phpcs)"'
+  assert_eq "php: lint (phpcs): skip (scope: covered by laravel, php:lint)" "$OUT"
+  unset JIG_VERIFY_COVERED JIG_VERIFY_CHECKS
+  _lib_run 'jp_begin php; jp_covered lint "lint (phpcs)" || echo "RC=$?"'
+  assert_eq "RC=1" "$OUT"
+}
+
+test_profile_lib_jp_check_cmd_a_dropped_role_prints_the_skip_and_returns_1() {
+  unset JIG_VERIFY_EXPLAIN
+  _lib_checks "tests listed -" "tests full --x" "tests drop warehouse"
+  _lib_run 'jp_begin php; jp_check_cmd tests "tests (phpunit)" full phpunit || echo "RC=$?"; echo "JP_CMD=${JP_CMD[*]-unset}"'
+  assert_eq "php: tests (phpunit): skip (scope: dropped by warehouse, php:tests)
+RC=1
+JP_CMD=unset" "$OUT"
+
+  JIG_VERIFY_EXPLAIN=1
+  export JIG_VERIFY_EXPLAIN
+  _lib_run 'jp_begin php; jp_check_cmd tests "tests (phpunit)" full phpunit || echo "RC=$?"'
+  unset JIG_VERIFY_EXPLAIN
+  assert_eq "PLAN php: tests (phpunit): skip (scope: dropped by warehouse, php:tests)
+RC=1" "$OUT"
+}
+
+test_profile_lib_jp_check_cmd_drops_only_the_role_the_row_names() {
+  unset JIG_VERIFY_EXPLAIN
+  _lib_checks "tests listed -" "lint listed -" "lint drop warehouse" "tests full --x"
+  _lib_cmd 'jp_check_cmd tests "x" full phpunit'
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "[phpunit]
+[--x]" "$OUT"
 }

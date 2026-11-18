@@ -3,8 +3,22 @@ name: python
 description: Python projects (ruff, mypy, pytest from the project's own environment).
 detect: [pyproject.toml, requirements.txt, setup.py, setup.cfg, Pipfile]
 scope: [changed, map, explain, environment]
-# Checks another profile can take over by name (`covers: [python:tests]`).
-checks: [tests]
+# The checks of this profile by role, and the index of its check table
+# (schemas/profile.md, Check table). Another profile can take one over by name
+# (`covers: [python:tests]`).
+checks: [lint, typecheck, tests]
+# lint: ruff, from the project's environment (verify.sh finds its path, so the
+# table names no command); a narrowed run checks the changed .py files.
+checks.lint.full: check .
+checks.lint.narrowed: check {selection}
+# typecheck: mypy; a narrowed run (only under verify.full_run: ci) checks the
+# changed .py files. A full run also excludes the project's virtualenv, which
+# the word grammar cannot write (a backslash): verify.sh appends that.
+checks.typecheck.full: .
+checks.typecheck.narrowed: {selection}
+# tests: pytest, from the project's environment; a narrowed run passes the test
+# files it selected.
+checks.tests.narrowed: {selection}
 # No `carry`: a virtualenv is not relocatable. Copied to another path its
 # console scripts (pip, pytest, ruff) keep an absolute shebang into the
 # original .venv, so they run against the other tree's interpreter and

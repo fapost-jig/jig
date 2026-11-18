@@ -123,6 +123,13 @@ if [ "\$1" = artisan ] && [ "\$2" = test ]; then printf 'ran\n' >> "$PWD/artisan
 exit 127
 STUB
   chmod +x stub-bin/php
+  # laravel is a layer over php: the suite is php's, run through artisan, and
+  # php runs it only where a runner is installed.
+  mkdir -p vendor/bin
+  printf '#!/usr/bin/env bash\nprintf "PHPUnit 11.0.0\\n"\n' > vendor/bin/phpunit
+  chmod +x vendor/bin/phpunit
+  printf '#!/usr/bin/env bash\n[ "$1" = --version ] && echo "Composer 2.8.0"\nexit 0\n' > stub-bin/composer
+  chmod +x stub-bin/composer
 }
 
 # _env_sail_project — a Laravel project on Sail: the launcher, and the
@@ -543,9 +550,10 @@ test_runenv_verify_runs_laravel_through_sail() {
   run jig verify --profile laravel
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" "verify: checks run in docker compose exec -T -u sail -w /var/www/html laravel.test (Laravel Sail, detected)"
-  assert_contains "$OUT" "laravel: artisan test: pass (PHP 8.4.0)"
+  assert_contains "$OUT" "verify: php:tests: command from laravel"
+  assert_contains "$OUT" "php: tests (phpunit): pass (PHPUnit 11.0.0)"
   assert_contains "$(cat docker.log)" "compose exec -T -u sail -w /var/www/html laravel.test php artisan test"
-  assert_contains "$(cat docker.log)" "compose exec -T -u sail -w /var/www/html laravel.test php --version"
+  assert_contains "$(cat docker.log)" "compose exec -T -u sail -w /var/www/html laravel.test vendor/bin/phpunit --version"
 }
 
 test_runenv_verify_refuses_with_exit_3_and_runs_nothing() {
@@ -587,7 +595,7 @@ test_runenv_verify_never_runs_an_unadapted_profile_on_the_host() {
   printf '#!/usr/bin/env bash\ntouch hostonly.ran\nexit 0\n' > .ai/profiles/hostonly/verify.sh
   run jig verify --profile laravel,hostonly
   assert_contains "$OUT" "RESULT hostonly: skip (not adapted to run in docker compose exec -T -u sail -w /var/www/html laravel.test (Laravel Sail, detected); its checks were not run on the host)"
-  assert_contains "$OUT" "RESULT laravel: pass"
+  assert_contains "$OUT" "RESULT php: pass"
   [ ! -f hostonly.ran ] || fail "the unadapted profile ran"
 }
 

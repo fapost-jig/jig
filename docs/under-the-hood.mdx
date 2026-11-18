@@ -122,7 +122,7 @@ it waits for and why, and a pause asked of it that it has not honoured yet.
   never a pass; when every check is skipped, the run still exits successfully, and the report says
 what was skipped. - **`jig task start --worktree`**, and **`jig task bootstrap`**, which repeats it,
 carry into the worktree whatever your project's checks need that Git does not track — `vendor/`,
-`node_modules`, `.env` — as declared by the active profiles' `carry` and the project's own
+`node_modules`, `.env` — as declared by the profiles' `carry` (the listed ones and the bases they `extends`) and the project's own
 `worktree.carry` in `.ai/config.yaml`. A folder named in `worktree.share` is not copied: the
 worktree gets a real folder of that name whose entries are links to this checkout's, and `jig task
 bootstrap` links in entries added since. Only a path the worktree does not already have is touched;

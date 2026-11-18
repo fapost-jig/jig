@@ -1,7 +1,16 @@
 #!/usr/bin/env bash
 # Verification for the ruby profile. Called by `jig verify` from the
 # repository root. Exit 0 = pass, 1 = fail, 2 = skip (no check could run).
-# Prints one line per check: "ruby: <check>: pass|fail|skip (<note>)".
+# Prints one line per check: "ruby: <check>: pass|fail|skip (<note>)". A check
+# is named by its role and the tool inside it: `lint (rubocop)`,
+# `tests (rspec)` or `tests (minitest)`.
+#
+# Checks by role (`checks:` in profile.yaml): lint (rubocop) and tests (rspec
+# or minitest). Every command line comes from the profile's check table
+# through jp_check_cmd (schemas/profile.md, Check table): rubocop's is in the
+# table; the test runner is chosen on the fly, so its words are the defaults
+# the table leaves to this script. Every fallback to the full set is a `full`
+# command line.
 #
 # Tools come from `bundle exec` only, and only when the project's own
 # Gemfile.lock names them (adr-20260918-profiles-narrow-per-check-with-project-tools): a global rubocop or rspec runs with
@@ -92,46 +101,78 @@ _rb_test_check_name() {
 
 RB_TEST=$(_rb_test_check_name)
 
+LINT_LABEL="lint (rubocop)"
+# With neither runner no tool was chosen, and the check's lines name the role
+# alone.
+case "$RB_TEST" in
+  test) TEST_LABEL="tests" ;;
+  *) TEST_LABEL="tests ($RB_TEST)" ;;
+esac
+
+# The words of the test command the check table leaves to this script: the
+# runner depends on the project.
+RB_TEST_CMD=(bundle exec rspec)
+if [ "$RB_TEST" = minitest ]; then
+  if _rb_minitest_via_rails; then
+    RB_TEST_CMD=(bin/rails test)
+  else
+    RB_TEST_CMD=(bundle exec rake test)
+  fi
+fi
+
+# A check another profile took over (jp_covered) prints its own skip line and
+# is left out of everything below, before any tool is looked for.
+lint_covered=0
+tests_covered=0
+if jp_covered lint "$LINT_LABEL"; then lint_covered=1; fi
+if jp_covered tests "$TEST_LABEL"; then tests_covered=1; fi
+
 if ! jp_have bundle; then
   if [ "${JIG_VERIFY_EXPLAIN:-}" = 1 ]; then
-    jp_plan rubocop skip "bundle not found on PATH"
-    jp_plan "$RB_TEST" skip "bundle not found on PATH"
+    [ "$lint_covered" = 1 ] || jp_plan "$LINT_LABEL" skip "bundle not found on PATH"
+    [ "$tests_covered" = 1 ] || jp_plan "$TEST_LABEL" skip "bundle not found on PATH"
     exit 0
   fi
-  jp_skip rubocop "bundle not found on PATH"
-  jp_skip "$RB_TEST" "bundle not found on PATH"
+  [ "$lint_covered" = 1 ] || jp_skip "$LINT_LABEL" "bundle not found on PATH"
+  [ "$tests_covered" = 1 ] || jp_skip "$TEST_LABEL" "bundle not found on PATH"
   jp_end
 fi
 
 # --- rubocop -------------------------------------------------------------
 
 if [ "${JIG_VERIFY_EXPLAIN:-}" = 1 ]; then
-  if [ ! -f Gemfile.lock ] || ! _rb_gem_locked rubocop; then
-    jp_plan rubocop skip "rubocop not listed in Gemfile.lock"
+  if [ "$lint_covered" = 1 ]; then
+    :
+  elif [ ! -f Gemfile.lock ] || ! _rb_gem_locked rubocop; then
+    jp_plan "$LINT_LABEL" skip "rubocop not listed in Gemfile.lock"
   elif jp_scoped && jp_changed_any .rubocop.yml; then
-    jp_plan_full rubocop ".rubocop.yml changed"
+    if jp_check_cmd lint "$LINT_LABEL" full; then
+      jp_plan_full "$LINT_LABEL" ".rubocop.yml changed"
+    fi
   elif jp_scoped; then
     files=$(jp_changed rb rake)
     if [ -z "$files" ]; then
-      jp_plan rubocop skip "no changed .rb or .rake files"
-    else
-      jp_plan rubocop filtered "changed files: $(printf '%s\n' "$files" | paste -sd, -)"
+      jp_plan "$LINT_LABEL" skip "no changed .rb or .rake files"
+    elif jp_check_cmd lint "$LINT_LABEL" narrowed; then
+      jp_plan "$LINT_LABEL" filtered "changed files: $(printf '%s\n' "$files" | paste -sd, -)"
     fi
-  else
-    jp_plan rubocop full "full scope"
+  elif jp_check_cmd lint "$LINT_LABEL" full; then
+    jp_plan "$LINT_LABEL" full "full scope"
   fi
 else
 
-if [ ! -f Gemfile.lock ]; then
-  jp_skip rubocop "no Gemfile.lock"
+if [ "$lint_covered" = 1 ]; then
+  :
+elif [ ! -f Gemfile.lock ]; then
+  jp_skip "$LINT_LABEL" "no Gemfile.lock"
 elif ! _rb_gem_locked rubocop; then
-  jp_skip rubocop "rubocop not listed in Gemfile.lock"
+  jp_skip "$LINT_LABEL" "rubocop not listed in Gemfile.lock"
 else
   v=$(jp_version bundle exec rubocop --version)
   if jp_scoped && ! jp_changed_any .rubocop.yml; then
     files=$(jp_changed rb rake)
     if [ -z "$files" ]; then
-      jp_skip rubocop "scope: no changed .rb or .rake files"
+      jp_skip "$LINT_LABEL" "scope: no changed .rb or .rake files"
     else
       n=$(printf '%s\n' "$files" | grep -c .)
       # One argument per line, so a path with a space stays one path.
@@ -142,13 +183,17 @@ else
       set -- $files
       set +f
       IFS=$' \t\n'
-      jp_run rubocop "$v, scope: $n files" bundle exec rubocop "$@"
+      if jp_check_cmd lint "$LINT_LABEL" narrowed -- "$@"; then
+        jp_run "$LINT_LABEL" "$v, scope: $n files" "${JP_CMD[@]}"
+      fi
     fi
   elif jp_scoped; then
-    jp_full_left_to_ci rubocop ".rubocop.yml changed" \
-      || jp_run rubocop "$v, scope: .rubocop.yml changed, whole project" bundle exec rubocop
-  else
-    jp_run rubocop "$v" bundle exec rubocop
+    jp_full_left_to_ci "$LINT_LABEL" ".rubocop.yml changed" \
+      || if jp_check_cmd lint "$LINT_LABEL" full; then
+        jp_run "$LINT_LABEL" "$v, scope: .rubocop.yml changed, whole project" "${JP_CMD[@]}"
+      fi
+  elif jp_check_cmd lint "$LINT_LABEL" full; then
+    jp_run "$LINT_LABEL" "$v" "${JP_CMD[@]}"
   fi
 fi
 fi
@@ -242,26 +287,33 @@ _rb_all_reason() {
   return 0
 }
 
-# _rb_run_narrowed <check> <note> <cmd...> — run a narrowed test check: the
-# full set for ALL or an unnarrowable runner, a reasoned full run when the
-# selection is empty or names a file that does not exist (ADR-0041: a
-# narrowing that selects nothing is not a pass), else the selected files
-# appended to <cmd...>.
+# _rb_run_narrowed <note> <default-cmd>... — run a narrowed test check: the
+# full set for ALL, a reasoned full run when the selection is empty or names a
+# file that does not exist (ADR-0041: a narrowing that selects nothing is not
+# a pass), else the selected files, where the check table puts them. The
+# command line comes from the table through jp_check_cmd; <default-cmd> is the
+# runner this script chose.
 _rb_run_narrowed() {
-  local check="$1" note="$2" filters missing n why
-  shift 2
+  local note="$1" filters missing n why
+  local -a defw
+  shift
+  defw=("$@")
   if ! jp_scoped; then
-    jp_run "$check" "$note" "$@"
+    if jp_check_cmd tests "$TEST_LABEL" full "${defw[@]}"; then
+      jp_run "$TEST_LABEL" "$note" "${JP_CMD[@]}"
+    fi
     return 0
   fi
   jp_select _rb_builtin_test
   filters=$JP_SELECTION
   if [ -z "$filters" ]; then
-    jp_skip "$check" "scope: no changed file maps to a test"
+    jp_skip "$TEST_LABEL" "scope: no changed file maps to a test"
   elif [ "$filters" = ALL ]; then
     why=$(_rb_all_reason "$(jp_decide_cause _rb_builtin_test)")
-    jp_full_left_to_ci "$check" "$why" \
-      || jp_run "$check" "$note, scope: $why, ran full set" "$@"
+    jp_full_left_to_ci "$TEST_LABEL" "$why" \
+      || if jp_check_cmd tests "$TEST_LABEL" full "${defw[@]}"; then
+        jp_run "$TEST_LABEL" "$note, scope: $why, ran full set" "${JP_CMD[@]}"
+      fi
   else
     IFS='
 '
@@ -270,21 +322,28 @@ _rb_run_narrowed() {
     if missing=$(jp_first_missing $filters); then
       set +f
       IFS=$' \t\n'
-      jp_full_left_to_ci "$check" "filter '$missing' selects no tests" \
-        || jp_run "$check" "$note, scope: filter '$missing' selects no tests, ran full set" "$@"
+      jp_full_left_to_ci "$TEST_LABEL" "filter '$missing' selects no tests" \
+        || if jp_check_cmd tests "$TEST_LABEL" full "${defw[@]}"; then
+          jp_run "$TEST_LABEL" "$note, scope: filter '$missing' selects no tests, ran full set" "${JP_CMD[@]}"
+        fi
     else
       n=$(printf '%s\n' "$filters" | grep -c .)
       # shellcheck disable=SC2086
-      set -- "$@" $filters
+      set -- $filters
       set +f
       IFS=$' \t\n'
-      jp_run "$check" "$note, scope: $n test files$JP_SELECTION_NOTE" "$@"
+      if jp_check_cmd tests "$TEST_LABEL" narrowed "${defw[@]}" -- "$@"; then
+        jp_run "$TEST_LABEL" "$note, scope: $n test files$JP_SELECTION_NOTE" "${JP_CMD[@]}"
+      fi
     fi
   fi
   return 0
 }
 
 if [ "${JIG_VERIFY_EXPLAIN:-}" = 1 ]; then
+  if [ "$tests_covered" = 1 ]; then
+    exit 0
+  fi
   case "$RB_TEST" in
     rspec)
       jp_select _rb_builtin_test
@@ -292,14 +351,16 @@ if [ "${JIG_VERIFY_EXPLAIN:-}" = 1 ]; then
       ;;
     minitest)
       if _rb_minitest_via_rake && ! _rb_minitest_via_rails; then
-        jp_plan_full minitest "rake test cannot narrow by file"
+        if jp_check_cmd tests "$TEST_LABEL" full "${RB_TEST_CMD[@]}"; then
+          jp_plan_full "$TEST_LABEL" "rake test cannot narrow by file"
+        fi
         exit 0
       fi
       jp_select _rb_builtin_test
       filters=$JP_SELECTION
       ;;
     *)
-      jp_plan test skip "no rspec or minitest runner found"
+      jp_plan "$TEST_LABEL" skip "no rspec or minitest runner found"
       exit 0
       ;;
   esac
@@ -316,19 +377,34 @@ EOF
   else
     why=
   fi
-  jp_plan_select "$RB_TEST" "$filters" "test files" "$why"
+  # The planned command line must exist in the check table: `narrowed` for a
+  # selection of files, `full` otherwise. When it does not, jp_check_cmd has
+  # printed the PLAN skip.
+  if jp_scoped && [ -z "$filters" ]; then
+    jp_plan_select "$TEST_LABEL" "$filters" "test files" "$why"
+  elif [ -n "$filters" ] && [ "$filters" != ALL ] && jp_scoped; then
+    if jp_check_cmd tests "$TEST_LABEL" narrowed "${RB_TEST_CMD[@]}"; then
+      jp_plan_select "$TEST_LABEL" "$filters" "test files" "$why"
+    fi
+  elif jp_check_cmd tests "$TEST_LABEL" full "${RB_TEST_CMD[@]}"; then
+    jp_plan_select "$TEST_LABEL" "$filters" "test files" "$why"
+  fi
   exit 0
+fi
+
+if [ "$tests_covered" = 1 ]; then
+  jp_end
 fi
 
 case "$RB_TEST" in
   rspec)
     v=$(jp_version bundle exec rspec --version)
-    _rb_run_narrowed rspec "$v" bundle exec rspec
+    _rb_run_narrowed "$v" "${RB_TEST_CMD[@]}"
     ;;
   minitest)
     if _rb_minitest_via_rails; then
       v=$(jp_version bin/rails --version)
-      _rb_run_narrowed minitest "$v" bin/rails test
+      _rb_run_narrowed "$v" "${RB_TEST_CMD[@]}"
     else
       # bundle exec rake test has no per-file interface to narrow: the task
       # always runs the whole suite it is given (design.md D4, ruby row).
@@ -336,15 +412,17 @@ case "$RB_TEST" in
       note="$v"
       if jp_scoped; then note="$v, scope: not narrowable, ran full set"; fi
       if jp_scoped; then
-        jp_full_left_to_ci minitest "not narrowable" \
-          || jp_run minitest "$note" bundle exec rake test
-      else
-        jp_run minitest "$note" bundle exec rake test
+        jp_full_left_to_ci "$TEST_LABEL" "not narrowable" \
+          || if jp_check_cmd tests "$TEST_LABEL" full "${RB_TEST_CMD[@]}"; then
+            jp_run "$TEST_LABEL" "$note" "${JP_CMD[@]}"
+          fi
+      elif jp_check_cmd tests "$TEST_LABEL" full "${RB_TEST_CMD[@]}"; then
+        jp_run "$TEST_LABEL" "$note" "${JP_CMD[@]}"
       fi
     fi
     ;;
   *)
-    jp_skip test "no rspec or minitest runner found: no rspec-core/rspec in Gemfile.lock, no bin/rails, no Rakefile with a test/ directory"
+    jp_skip "$TEST_LABEL" "no rspec or minitest runner found: no rspec-core/rspec in Gemfile.lock, no bin/rails, no Rakefile with a test/ directory"
     ;;
 esac
 

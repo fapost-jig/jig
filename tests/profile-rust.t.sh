@@ -120,6 +120,7 @@ EOF
 # exported, capturing OUT/RC the way run() does, without going through
 # `jig`: JIG_HOME is exported by tests/run.sh.
 _rust_run() {
+  profile_checks_env "$JIG_HOME/profiles/rust"
   run bash "$JIG_HOME/profiles/rust/verify.sh"
 }
 
@@ -145,11 +146,28 @@ test_profile_rust_not_detected_without_cargo_toml() {
 
 test_profile_rust_skips_every_check_without_cargo() {
   _rust_workspace
+  profile_checks_env "$JIG_HOME/profiles/rust"
   run_no_tools bash "$JIG_HOME/profiles/rust/verify.sh"
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "rust: fmt: skip (cargo not found on PATH)"
-  assert_contains "$OUT" "rust: clippy: skip (cargo not found on PATH)"
-  assert_contains "$OUT" "rust: test: skip (cargo not found on PATH)"
+  assert_contains "$OUT" "rust: style (cargo fmt): skip (cargo not found on PATH)"
+  assert_contains "$OUT" "rust: lint (cargo clippy): skip (cargo not found on PATH)"
+  assert_contains "$OUT" "rust: tests (cargo test): skip (cargo not found on PATH)"
+}
+
+# A check a layer dropped, or another profile covers, says so without cargo too.
+test_profile_rust_dropped_and_covered_checks_say_so_without_cargo() {
+  _rust_workspace
+  profile_checks_env "$JIG_HOME/profiles/rust"
+  printf 'style\tdrop\twarehouse\nlint\tdrop\twarehouse\n' >> "$JIG_VERIFY_CHECKS"
+  JIG_VERIFY_COVERED="tests=upper"
+  export JIG_VERIFY_COVERED
+  run_no_tools bash "$JIG_HOME/profiles/rust/verify.sh"
+  unset JIG_VERIFY_COVERED
+  assert_eq 2 "$RC" "$OUT"
+  assert_contains "$OUT" "rust: style (cargo fmt): skip (scope: dropped by warehouse, rust:style)"
+  assert_contains "$OUT" "rust: lint (cargo clippy): skip (scope: dropped by warehouse, rust:lint)"
+  assert_contains "$OUT" "rust: tests (cargo test): skip (scope: covered by upper, rust:tests)"
+  assert_not_contains "$OUT" "cargo not found"
 }
 
 # --- unscoped: pass, fail, version, missing components (AC-05) --------------
@@ -159,9 +177,9 @@ test_profile_rust_unscoped_pass_with_version_in_verdict() {
   _rust_stub 1 0 1 0 0
   _rust_run
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "rust: fmt: pass (rustfmt 1.7.0-stable (abc 2024-01-01))"
-  assert_contains "$OUT" "rust: clippy: pass (clippy 0.1.77 (abc 2024-01-01))"
-  assert_contains "$OUT" "rust: test: pass (cargo 1.77.0 (abc 2024-01-01))"
+  assert_contains "$OUT" "rust: style (cargo fmt): pass (rustfmt 1.7.0-stable (abc 2024-01-01))"
+  assert_contains "$OUT" "rust: lint (cargo clippy): pass (clippy 0.1.77 (abc 2024-01-01))"
+  assert_contains "$OUT" "rust: tests (cargo test): pass (cargo 1.77.0 (abc 2024-01-01))"
   assert_file_contains cargo.log "fmt --check"
   assert_file_contains cargo.log "clippy --all-targets -- -D warnings"
   assert_file_contains cargo.log "test"
@@ -172,9 +190,9 @@ test_profile_rust_unscoped_fail_on_nonzero_exit() {
   _rust_stub 1 1 1 1 1
   _rust_run
   assert_eq 1 "$RC" "$OUT"
-  assert_contains "$OUT" "rust: fmt: fail"
-  assert_contains "$OUT" "rust: clippy: fail"
-  assert_contains "$OUT" "rust: test: fail"
+  assert_contains "$OUT" "rust: style (cargo fmt): fail"
+  assert_contains "$OUT" "rust: lint (cargo clippy): fail"
+  assert_contains "$OUT" "rust: tests (cargo test): fail"
 }
 
 test_profile_rust_skips_fmt_when_rustfmt_not_installed() {
@@ -182,9 +200,9 @@ test_profile_rust_skips_fmt_when_rustfmt_not_installed() {
   _rust_stub 0 0 1 0 0
   _rust_run
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "rust: fmt: skip (rustfmt not installed)"
-  assert_contains "$OUT" "rust: clippy: pass"
-  assert_contains "$OUT" "rust: test: pass"
+  assert_contains "$OUT" "rust: style (cargo fmt): skip (rustfmt not installed)"
+  assert_contains "$OUT" "rust: lint (cargo clippy): pass"
+  assert_contains "$OUT" "rust: tests (cargo test): pass"
 }
 
 test_profile_rust_skips_clippy_when_not_installed() {
@@ -192,9 +210,9 @@ test_profile_rust_skips_clippy_when_not_installed() {
   _rust_stub 1 0 0 0 0
   _rust_run
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "rust: fmt: pass"
-  assert_contains "$OUT" "rust: clippy: skip (clippy not installed)"
-  assert_contains "$OUT" "rust: test: pass"
+  assert_contains "$OUT" "rust: style (cargo fmt): pass"
+  assert_contains "$OUT" "rust: lint (cargo clippy): skip (clippy not installed)"
+  assert_contains "$OUT" "rust: tests (cargo test): pass"
 }
 
 # --- narrowing (D4 rust row): a changed source file narrows to its crate ----
@@ -208,9 +226,9 @@ test_profile_rust_scoped_narrows_to_owning_crate() {
   _rust_run
   unset JIG_VERIFY_SCOPE JIG_VERIFY_FILES
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "rust: fmt: pass (rustfmt 1.7.0-stable (abc 2024-01-01), scope: crates crate-a)"
-  assert_contains "$OUT" "rust: clippy: pass (clippy 0.1.77 (abc 2024-01-01), scope: crates crate-a)"
-  assert_contains "$OUT" "rust: test: pass (cargo 1.77.0 (abc 2024-01-01), scope: crates crate-a)"
+  assert_contains "$OUT" "rust: style (cargo fmt): pass (rustfmt 1.7.0-stable (abc 2024-01-01), scope: crates crate-a)"
+  assert_contains "$OUT" "rust: lint (cargo clippy): pass (clippy 0.1.77 (abc 2024-01-01), scope: crates crate-a)"
+  assert_contains "$OUT" "rust: tests (cargo test): pass (cargo 1.77.0 (abc 2024-01-01), scope: crates crate-a)"
   # Exact arguments each check received: -p crate-a, nowhere else.
   assert_file_contains cargo.log "fmt --check -p crate-a"
   assert_file_contains cargo.log "clippy --all-targets -p crate-a -- -D warnings"
@@ -383,9 +401,9 @@ test_profile_rust_map_marks_everything_dash_skips() {
   _rust_run
   unset JIG_VERIFY_SCOPE JIG_VERIFY_FILES JIG_VERIFY_MAPPED
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "rust: fmt: skip (scope: no changed file affects this check)"
-  assert_contains "$OUT" "rust: clippy: skip (scope: no changed file affects this check)"
-  assert_contains "$OUT" "rust: test: skip (scope: no changed file affects this check)"
+  assert_contains "$OUT" "rust: style (cargo fmt): skip (scope: no changed file affects this check)"
+  assert_contains "$OUT" "rust: lint (cargo clippy): skip (scope: no changed file affects this check)"
+  assert_contains "$OUT" "rust: tests (cargo test): skip (scope: no changed file affects this check)"
 }
 
 # --- map filters (D5): a crate name, and an unknown one (AC-09) ------------
@@ -476,10 +494,10 @@ test_profile_rust_full_run_ci_leaves_a_cargo_lock_change_to_ci() {
   unset JIG_VERIFY_SCOPE JIG_VERIFY_FILES JIG_VERIFY_FULL_RUN
   # Nothing ran, so the profile exits 2.
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "rust: test: skip (scope: full (root manifest, lockfile, toolchain pin or a file outside any crate changed), full set left to CI)"
+  assert_contains "$OUT" "rust: tests (cargo test): skip (scope: full (root manifest, lockfile, toolchain pin or a file outside any crate changed), full set left to CI)"
   # fmt and clippy are left to CI as well.
-  assert_contains "$OUT" "rust: fmt: skip (scope: full (root manifest, lockfile, toolchain pin or a file outside any crate changed), full set left to CI)"
-  assert_contains "$OUT" "rust: clippy: skip (scope: full (root manifest, lockfile, toolchain pin or a file outside any crate changed), full set left to CI)"
+  assert_contains "$OUT" "rust: style (cargo fmt): skip (scope: full (root manifest, lockfile, toolchain pin or a file outside any crate changed), full set left to CI)"
+  assert_contains "$OUT" "rust: lint (cargo clippy): skip (scope: full (root manifest, lockfile, toolchain pin or a file outside any crate changed), full set left to CI)"
   assert_not_contains "$(cat cargo.log)" "--check"
   assert_not_contains "$(cat cargo.log)" "--all-targets"
   assert_not_contains "$(cat cargo.log)" "test"
@@ -496,7 +514,7 @@ test_profile_rust_full_run_ci_runs_the_named_crate_beside_a_cargo_lock_change() 
   _rust_run
   unset JIG_VERIFY_SCOPE JIG_VERIFY_FILES JIG_VERIFY_FULL_RUN
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "rust: test: pass (cargo 1.77.0 (abc 2024-01-01), scope: crates crate-a, full set left to CI)"
+  assert_contains "$OUT" "rust: tests (cargo test): pass (cargo 1.77.0 (abc 2024-01-01), scope: crates crate-a, full set left to CI)"
   assert_file_contains cargo.log "test -p crate-a"
   assert_not_contains "$(cat cargo.log)" "crate-b"
 }
@@ -515,4 +533,115 @@ test_profile_rust_full_run_ci_runs_fmt_and_clippy_on_the_named_crate_beside_a_ca
   assert_contains "$OUT" "scope: crates crate-a, full set left to CI)"
   assert_file_contains cargo.log "fmt --check -p crate-a"
   assert_file_contains cargo.log "clippy --all-targets -p crate-a"
+}
+
+# --- the check table ---------------------------------------------------------
+
+# _rust_calls — the fmt, clippy and test command lines the stub logged.
+_rust_calls() {
+  grep -E '^(fmt --check|clippy --all-targets|test)' cargo.log
+}
+
+# _rust_scoped <path>... — _rust_run narrowed to the changed paths.
+_rust_scoped() {
+  local f
+  : > "$JIG_TEST_TMP.files"
+  for f in "$@"; do printf '%s\n' "$f" >> "$JIG_TEST_TMP.files"; done
+  JIG_VERIFY_SCOPE=changed JIG_VERIFY_FILES="$JIG_TEST_TMP.files"
+  export JIG_VERIFY_SCOPE JIG_VERIFY_FILES
+  _rust_run
+  unset JIG_VERIFY_SCOPE JIG_VERIFY_FILES
+}
+
+# The table carries what verify.sh used to write, so nothing a project runs
+# changes: the argv of each check in a full run, a narrowed run, and a
+# narrowed run that falls back to the full set.
+test_profile_rust_check_table_keeps_every_command_line() {
+  _rust_workspace
+  _rust_stub 1 0 1 0 0
+
+  _rust_run
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "fmt --check
+clippy --all-targets -- -D warnings
+test" "$(_rust_calls)"
+
+  rm -f cargo.log
+  _rust_scoped crates/a/src/lib.rs crates/b/src/lib.rs
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "fmt --check -p crate-a -p crate-b
+clippy --all-targets -p crate-a -p crate-b -- -D warnings
+test -p crate-a -p crate-b" "$(_rust_calls)"
+
+  rm -f cargo.log
+  _rust_scoped crates/a/src/lib.rs Cargo.lock
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "fmt --check
+clippy --all-targets -- -D warnings
+test" "$(_rust_calls)" "a lockfile falls back to the full set"
+}
+
+# The table is what runs: a changed row changes the command line, and the
+# selection lands where `{selection}` stands.
+test_profile_rust_check_table_rows_shape_the_command() {
+  _rust_workspace
+  _rust_stub 1 0 1 0 0
+  mkdir -p prof/rust
+  sed -e 's/^checks.lint.narrowed: .*/checks.lint.narrowed: clippy {selection} --all-targets -- -W clippy::pedantic/' \
+    "$JIG_HOME/profiles/rust/profile.yaml" > prof/rust/profile.yaml
+  printf 'crates/a/src/lib.rs\n' > "$JIG_TEST_TMP.files"
+  JIG_VERIFY_SCOPE=changed JIG_VERIFY_FILES="$JIG_TEST_TMP.files"
+  export JIG_VERIFY_SCOPE JIG_VERIFY_FILES
+  profile_checks_env prof/rust
+  run bash "$JIG_HOME/profiles/rust/verify.sh"
+  unset JIG_VERIFY_SCOPE JIG_VERIFY_FILES
+  assert_eq 0 "$RC" "$OUT"
+  assert_file_contains cargo.log "clippy -p crate-a --all-targets -- -W clippy::pedantic"
+}
+
+# A profile.yaml from before the table (kept by `upgrade` as modified) beside
+# this verify.sh fails each check it would run, loudly, instead of running
+# another command in silence; --explain names the gap without a verdict.
+test_profile_rust_check_table_missing_fails_loudly() {
+  _rust_workspace
+  _rust_stub 1 0 1 0 0
+  unset JIG_VERIFY_CHECKS
+  run bash "$JIG_HOME/profiles/rust/verify.sh"
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "rust: style (cargo fmt): fail (profile.yaml names no check 'style'; jig upgrade restores it)"
+  assert_contains "$OUT" "rust: lint (cargo clippy): fail (profile.yaml names no check 'lint'; jig upgrade restores it)"
+  assert_contains "$OUT" "rust: tests (cargo test): fail (profile.yaml names no check 'tests'; jig upgrade restores it)"
+  assert_eq "" "$(_rust_calls || true)" "no fmt, clippy or test ran"
+
+  JIG_VERIFY_EXPLAIN=1 run bash "$JIG_HOME/profiles/rust/verify.sh"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN rust: style (cargo fmt): skip (profile.yaml names no check 'style'; jig upgrade restores it)"
+  assert_contains "$OUT" "PLAN rust: lint (cargo clippy): skip (profile.yaml names no check 'lint'; jig upgrade restores it)"
+  assert_contains "$OUT" "PLAN rust: tests (cargo test): skip (profile.yaml names no check 'tests'; jig upgrade restores it)"
+}
+
+# Every role the profile lists in `checks:` can be taken over by another
+# profile (`covers: [rust:<role>]`): the check prints jp_covered's line and
+# runs no cargo at all, not even to probe for rustfmt or clippy.
+test_profile_rust_every_role_can_be_covered() {
+  fixture_repo
+  _rust_stub 1 0 1 0 0
+  profile_checks_env "$JIG_HOME/profiles/rust"
+  JIG_VERIFY_COVERED="style=other lint=other tests=other"
+  export JIG_VERIFY_COVERED
+
+  run bash "$JIG_HOME/profiles/rust/verify.sh"
+  assert_eq 2 "$RC" "$OUT"
+  assert_contains "$OUT" "rust: style (cargo fmt): skip (scope: covered by other, rust:style)"
+  assert_contains "$OUT" "rust: lint (cargo clippy): skip (scope: covered by other, rust:lint)"
+  assert_contains "$OUT" "rust: tests (cargo test): skip (scope: covered by other, rust:tests)"
+  assert_eq "" "$(cat cargo.log 2>/dev/null || true)" "no cargo ran"
+
+  JIG_VERIFY_EXPLAIN=1 run bash "$JIG_HOME/profiles/rust/verify.sh"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN rust: style (cargo fmt): skip (scope: covered by other, rust:style)"
+  assert_contains "$OUT" "PLAN rust: lint (cargo clippy): skip (scope: covered by other, rust:lint)"
+  assert_contains "$OUT" "PLAN rust: tests (cargo test): skip (scope: covered by other, rust:tests)"
+  assert_eq "" "$(cat cargo.log 2>/dev/null || true)" "no cargo ran under explain"
+  unset JIG_VERIFY_COVERED
 }

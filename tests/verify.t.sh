@@ -299,6 +299,7 @@ test_verify_shell_all_scripts_find_fallback_outside_git_repo() {
   chmod +x plain.sh
   sc_stub_logging 1.0.0
 
+  profile_checks_env "$JIG_HOME/profiles/shell"
   bash "$JIG_HOME/profiles/shell/verify.sh" >out 2>&1
   rc=$?
   assert_eq 0 "$rc"
@@ -645,10 +646,10 @@ test_verify_php_skips_every_check_without_toolchain() {
 
   run_no_tools jig verify --profile php
   assert_eq 3 "$RC" "$OUT"
-  assert_contains "$OUT" "php: phpunit: skip"
-  assert_contains "$OUT" "php: phpstan: skip"
-  assert_contains "$OUT" "php: pint: skip"
-  assert_contains "$OUT" "php: composer validate: skip"
+  assert_contains "$OUT" "php: tests (phpunit): skip"
+  assert_contains "$OUT" "php: static (phpstan): skip"
+  assert_contains "$OUT" "php: style (pint): skip"
+  assert_contains "$OUT" "php: manifest (composer validate): skip"
   assert_contains "$OUT" "RESULT php: skip"
   assert_contains "$OUT" "verify: 1 profiles, 0 pass, 0 fail, 1 skip"
   assert_contains "$OUT" "verify: nothing was checked"
@@ -667,7 +668,7 @@ EOF
 
   run_no_tools jig verify --profile php
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "php: phpunit: pass"
+  assert_contains "$OUT" "php: tests (phpunit): pass"
   assert_contains "$OUT" "RESULT php: pass"
   assert_contains "$OUT" "verify: 1 profiles, 1 pass, 0 fail, 0 skip"
 }
@@ -680,8 +681,8 @@ test_verify_go_skips_without_toolchain() {
   # See the comment on test_verify_php_skips_every_check_without_toolchain:
   # every check skips, so the run checked nothing (rc 3), not a pass.
   assert_eq 3 "$RC" "$OUT"
-  assert_contains "$OUT" "go: vet: skip"
-  assert_contains "$OUT" "go: test: skip"
+  assert_contains "$OUT" "go: static (go vet): skip"
+  assert_contains "$OUT" "go: tests (go test): skip"
   assert_contains "$OUT" "RESULT go: skip"
   assert_contains "$OUT" "verify: 1 profiles, 0 pass, 0 fail, 1 skip"
   assert_contains "$OUT" "verify: nothing was checked"
@@ -696,8 +697,8 @@ test_verify_node_skips_without_toolchain() {
   # See the comment on test_verify_php_skips_every_check_without_toolchain:
   # every check skips, so the run checked nothing (rc 3), not a pass.
   assert_eq 3 "$RC" "$OUT"
-  assert_contains "$OUT" "node: npm test: skip"
-  assert_contains "$OUT" "node: npm run lint: skip"
+  assert_contains "$OUT" "node: tests (npm test): skip"
+  assert_contains "$OUT" "node: lint (npm run lint): skip"
   assert_contains "$OUT" "RESULT node: skip"
   assert_contains "$OUT" "verify: 1 profiles, 0 pass, 0 fail, 1 skip"
   assert_contains "$OUT" "verify: nothing was checked"
@@ -712,37 +713,390 @@ test_verify_node_skips_when_no_scripts_declared() {
   # See the comment on test_verify_php_skips_every_check_without_toolchain:
   # every check skips, so the run checked nothing (rc 3), not a pass.
   assert_eq 3 "$RC"
-  assert_contains "$OUT" "node: npm test: skip (no test script or npm not found)"
-  assert_contains "$OUT" "node: npm run lint: skip (no lint script or npm not found)"
+  assert_contains "$OUT" "node: tests (npm test): skip (no test script or npm not found)"
+  assert_contains "$OUT" "node: lint (npm run lint): skip (no lint script or npm not found)"
   assert_contains "$OUT" "RESULT node: skip"
 }
 
-# --- laravel: requires php, does not duplicate its checks -------------------
+# --- laravel: a layer over php, its tests run through artisan -----------------
+# laravel has no verify.sh and no checks of its own: it extends php, and its one
+# row, `checks.tests.command: php artisan test`, replaces php's command for the
+# role `tests` (schemas/profile.md, Layer overrides). The suite is php's, runs
+# once, and is labelled by the runner behind artisan.
 
-test_verify_laravel_skips_without_artisan_or_php() {
+# _lv_install — a Laravel project as `jig init` activates it (laravel alone in
+# `profiles:`; php comes in as its base) with an `artisan`, a `php` that logs
+# what `artisan test` was handed to artisan.log, a vendor/bin/phpunit that logs
+# to phpunit.log, and a passing composer, so a composer on the machine does not
+# decide the result.
+_lv_install() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles laravel >/dev/null
+  : > artisan
+  mkdir -p stub-bin vendor/bin
+  cat > stub-bin/php <<STUB
+#!/usr/bin/env bash
+if [ "\$1" = "artisan" ] && [ "\$2" = "test" ]; then
+  shift 2
+  printf '%s\n' "\$*" >> "$PWD/artisan.log"
+  exit 0
+fi
+exit 127
+STUB
+  cat > vendor/bin/phpunit <<STUB
+#!/usr/bin/env bash
+if [ "\$1" = "--version" ]; then
+  printf 'PHPUnit 11.0.0\n'
+  exit 0
+fi
+printf '%s\n' "\$*" >> "$PWD/phpunit.log"
+exit 0
+STUB
+  # shellcheck disable=SC2016  # a script written for the stub to expand, not this shell
+  printf '#!/usr/bin/env bash\n[ "$1" = --version ] && echo "Composer 2.8.0"\nexit 0\n' > stub-bin/composer
+  chmod +x stub-bin/php stub-bin/composer vendor/bin/phpunit
+  PATH="$PWD/stub-bin:$PATH"
+  export PATH
+}
+
+# _lv_committed — the project as a commit, so a later change is what
+# `jig verify --changed` narrows to.
+_lv_committed() {
+  git add -A >/dev/null 2>&1
+  git commit -qm base >/dev/null 2>&1
+}
+
+test_verify_laravel_runs_the_php_suite_through_artisan() {
+  _lv_install
+  run jig verify
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "verify: laravel is a layer over php; its checks run in its bases"
+  assert_contains "$OUT" "verify: php:tests: command from laravel"
+  assert_contains "$OUT" "php: tests (phpunit): pass (PHPUnit 11.0.0)"
+  assert_not_contains "$OUT" "laravel: tests"
+  assert_not_contains "$OUT" "RESULT laravel"
+  assert_file artisan.log
+  assert_eq "" "$(cat artisan.log)"
+  assert_no_file phpunit.log
+}
+
+test_verify_laravel_with_php_named_beside_it_runs_the_suite_once() {
+  _lv_install
+  local stack
+  for stack in "generic, laravel, php" "generic, php, laravel" "generic, laravel"; do
+    rm -f artisan.log phpunit.log
+    printf 'profiles: [%s]\nadapters: [claude, codex]\n' "${stack#generic, }" > .ai/config.yaml
+    run jig verify
+    assert_eq 0 "$RC" "$stack: $OUT"
+    assert_eq 1 "$(wc -l < artisan.log | tr -d ' ')" "$stack: artisan.log"
+    assert_no_file phpunit.log
+  done
+}
+
+test_verify_laravel_explain_plans_the_suite_once_through_artisan() {
+  _lv_install
+  run jig verify --explain
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "verify: php:tests: command from laravel"
+  assert_contains "$OUT" "PLAN php: tests (phpunit): full"
+  assert_not_contains "$OUT" "PLAN laravel"
+  assert_no_file artisan.log
+  assert_no_file phpunit.log
+}
+
+test_verify_laravel_alone_without_tools_skips_the_suite() {
   fixture_repo
   jig init --from "$JIG_HOME" --profiles laravel >/dev/null
 
   run_no_tools jig verify --profile laravel
-  # See the comment on test_verify_php_skips_every_check_without_toolchain:
-  # every check skips, so the run checked nothing (rc 3), not a pass.
+  # Every check skips, so the run checked nothing (rc 3), not a pass.
   assert_eq 3 "$RC" "$OUT"
-  assert_contains "$OUT" "laravel: artisan test: skip"
-  assert_contains "$OUT" "RESULT laravel: skip"
+  assert_contains "$OUT" "php: tests (phpunit): skip (not found in vendor/bin)"
+  assert_contains "$OUT" "RESULT php: skip"
+}
+
+test_verify_php_alone_runs_its_own_command_beside_an_artisan() {
+  _lv_install
+  run jig verify --profile php
+  assert_eq 0 "$RC" "$OUT"
+  assert_file phpunit.log
+  assert_no_file artisan.log
+  assert_not_contains "$OUT" "command from laravel"
+}
+
+test_verify_laravel_narrowed_run_hands_the_selected_test_files_to_artisan() {
+  _lv_install
+  mkdir -p app tests
+  : > tests/FooTest.php
+  _lv_committed
+  printf '<?php\n' > app/Foo.php
+  run jig verify --changed
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "php: tests (phpunit): pass (PHPUnit 11.0.0, scope: 1 test files)"
+  assert_eq "tests/FooTest.php" "$(cat artisan.log)"
+  assert_no_file phpunit.log
+}
+
+test_verify_laravel_runs_the_full_set_for_a_routes_change() {
+  _lv_install
+  _lv_committed
+  mkdir -p routes
+  printf '<?php\n' > routes/web.php
+  run jig verify --changed
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "scope: routes/web.php can affect any test, ran full set"
+  assert_eq "" "$(cat artisan.log)"
+}
+
+test_verify_laravel_doc_only_change_is_scope_narrowing() {
+  _lv_install
+  # phpstan and pint present, so every skip below is about this change and none
+  # about a missing tool.
+  cp vendor/bin/phpunit vendor/bin/phpstan
+  cp vendor/bin/phpunit vendor/bin/pint
+  _lv_committed
+  printf 'notes\n' > README.md
+  run jig verify --changed
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "php: tests (phpunit): skip (scope: no changed file maps to a test)"
+  assert_no_file artisan.log
+  assert_no_file phpunit.log
+}
+
+test_verify_laravel_map_is_read_before_the_php_map() {
+  _lv_install
+  mkdir -p .ai/verify tests/Feature resources/js
+  : > tests/Feature/AppTest.php
+  # No final newline: the two maps must not run into each other.
+  printf 'resources/js/app.js tests/Feature/AppTest.php' > .ai/verify/laravel.map
+  printf 'resources/js/** ALL\n' > .ai/verify/php.map
+  _lv_committed
+  printf 'x\n' > resources/js/app.js
+  run jig verify --changed
+  # Both maps match app.js; laravel's own line comes first and wins, so one
+  # test file runs rather than php.map's full set.
+  assert_eq 0 "$RC" "$OUT"
+  assert_no_file phpunit.log
+  assert_eq "tests/Feature/AppTest.php" "$(cat artisan.log)"
+  assert_contains "$OUT" "map .ai/verify/laravel.map, .ai/verify/php.map)"
+}
+
+test_verify_laravel_map_alone_narrows_the_tests() {
+  _lv_install
+  mkdir -p .ai/verify tests/Feature resources/js
+  : > tests/Feature/AppTest.php
+  printf 'resources/js/app.js tests/Feature/AppTest.php\n' > .ai/verify/laravel.map
+  _lv_committed
+  printf 'x\n' > resources/js/app.js
+  run jig verify --changed
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "tests/Feature/AppTest.php" "$(cat artisan.log)"
+  assert_contains "$OUT" "map .ai/verify/laravel.map)"
+}
+
+test_verify_laravel_explain_reads_the_php_map() {
+  _lv_install
+  mkdir -p .ai/verify
+  printf 'resources/js/** ALL\n' > .ai/verify/php.map
+  _lv_committed
+  mkdir -p resources/js
+  printf 'x\n' > resources/js/app.js
+  run jig verify --changed --explain
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN php: tests (phpunit): full"
+  assert_no_file artisan.log
+}
+
+test_verify_laravel_fails_on_a_broken_laravel_map() {
+  _lv_install
+  mkdir -p .ai/verify resources/js
+  printf 'resources/js/**\n' > .ai/verify/laravel.map
+  _lv_committed
+  printf 'x\n' > resources/js/app.js
+  run jig verify --changed
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "RESULT php: fail (map .ai/verify/laravel.map:1: no decision for resources/js/**)"
+  assert_no_file artisan.log
+}
+
+# A project profile with a suite of its own replaces laravel's tests with
+# `covers: [laravel:tests]`; the cover reaches php's role down the chain.
+_lv_myapp() {
+  mkdir -p .ai/profiles/myapp
+  printf 'name: myapp\ndescription: the project runs its own suite.\nscope: [changed, map]\ncovers: [laravel:tests]\n' \
+    > .ai/profiles/myapp/profile.yaml
+  # shellcheck disable=SC2016  # a script written for the stub to expand, not this shell
+  printf '#!/usr/bin/env bash\necho "myapp: ran mapped=$(cat "${JIG_VERIFY_MAPPED:-/dev/null}" | tr "\\t\\n" ":;")"\nexit 0\n' \
+    > .ai/profiles/myapp/verify.sh
+  printf 'profiles: [laravel, myapp]\nadapters: [claude, codex]\n' > .ai/config.yaml
+}
+
+test_verify_a_project_profile_covers_laravel_tests_and_the_suite_runs_once() {
+  _lv_install
+  _lv_myapp
+  run jig verify
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "php: tests (phpunit): skip (scope: covered by myapp, php:tests)"
+  assert_contains "$OUT" "myapp: ran"
+  assert_no_file artisan.log
+  assert_no_file phpunit.log
+  assert_not_contains "$OUT" "warning"
+  assert_not_contains "$OUT" "no effect"
+}
+
+# The cover names laravel, so the layers from laravel down are replaced with the
+# tests; a layer above laravel is not, and is still told its row does nothing.
+test_verify_only_the_layers_above_the_covered_profile_are_warned_about() {
+  _lv_install
+  _lv_myapp
+  mkdir -p .ai/profiles/warehouse
+  printf 'name: warehouse\ndescription: a layer over laravel.\nextends: laravel\nchecks.tests.full: --parallel\n' \
+    > .ai/profiles/warehouse/profile.yaml
+  printf 'profiles: [warehouse, myapp]\nadapters: [claude, codex]\n' > .ai/config.yaml
+  run jig verify
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "verify: warning: warehouse overrides php:tests, but myapp runs it in this run (covers), so the override has no effect"
+  assert_not_contains "$OUT" "warning: laravel overrides"
+  assert_no_file artisan.log
+}
+
+test_verify_a_project_profile_gets_the_laravel_and_php_maps_with_the_tests() {
+  _lv_install
+  _lv_myapp
+  mkdir -p .ai/verify resources/js
+  printf 'resources/js/app.js tests/Feature/AppTest.php\n' > .ai/verify/laravel.map
+  printf 'resources/css/** ALL\n' > .ai/verify/php.map
+  _lv_committed
+  mkdir -p resources/css
+  printf 'x\n' > resources/js/app.js
+  printf 'x\n' > resources/css/app.css
+  run jig verify --changed
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "php: tests (phpunit): skip (scope: covered by myapp, php:tests)"
+  assert_contains "$OUT" "myapp: ran mapped=resources/css/app.css:ALL;resources/js/app.js:tests/Feature/AppTest.php;"
+  assert_contains "$OUT" "map .ai/verify/laravel.map, .ai/verify/php.map)"
+  assert_no_file artisan.log
+}
+
+test_verify_a_cover_of_a_layer_with_no_role_in_its_chain_warns() {
+  _lv_install
+  _lv_myapp
+  sed -i.bak 's/laravel:tests/laravel:nothing/' .ai/profiles/myapp/profile.yaml
+  rm -f .ai/profiles/myapp/profile.yaml.bak
+  run jig verify
+  assert_contains "$OUT" "profile 'myapp' covers 'laravel:nothing', but no profile of laravel's chain names a check 'nothing' (checks:), so nothing is covered"
+  assert_file artisan.log
+}
+
+# warehouse, a pure layer of the project over laravel: its rows reach php's
+# role `tests` through laravel, and the command stays laravel's.
+test_verify_a_project_layer_over_laravel_shapes_the_artisan_command() {
+  _lv_install
+  mkdir -p .ai/profiles/warehouse
+  printf 'name: warehouse\ndescription: a layer over laravel.\nextends: laravel\nchecks.tests.full: --parallel --functional\n' \
+    > .ai/profiles/warehouse/profile.yaml
+  printf 'profiles: [warehouse]\nadapters: [claude, codex]\n' > .ai/config.yaml
+  run jig verify
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "verify: php:tests: command from laravel; full from warehouse"
+  assert_eq "--parallel --functional" "$(cat artisan.log)"
+  assert_no_file phpunit.log
+}
+
+test_verify_warehouse_map_is_read_before_the_laravel_map() {
+  _lv_install
+  mkdir -p .ai/profiles/warehouse .ai/verify tests/Feature resources/js
+  printf 'name: warehouse\ndescription: a layer over laravel.\nextends: laravel\n' \
+    > .ai/profiles/warehouse/profile.yaml
+  printf 'profiles: [warehouse]\nadapters: [claude, codex]\n' > .ai/config.yaml
+  : > tests/Feature/AppTest.php tests/Feature/OtherTest.php
+  printf 'resources/js/app.js tests/Feature/AppTest.php\n' > .ai/verify/warehouse.map
+  printf 'resources/js/app.js tests/Feature/OtherTest.php\n' > .ai/verify/laravel.map
+  _lv_committed
+  printf 'x\n' > resources/js/app.js
+  run jig verify --changed
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "tests/Feature/AppTest.php" "$(cat artisan.log)"
+  assert_contains "$OUT" "map .ai/verify/warehouse.map, .ai/verify/laravel.map)"
+}
+
+# jig upgrade keeps a profile.yaml the person edited, and deletes the verify.sh
+# the stock laravel no longer ships: what is left is a profile that is neither a
+# layer nor runnable, and php would silently run phpunit in its place.
+test_verify_a_kept_old_laravel_profile_yaml_fails_loudly() {
+  _lv_install
+  rm -f .ai/profiles/laravel/verify.sh
+  printf 'name: laravel\ndescription: edited.\ndetect: [artisan]\nrequires: [php]\nscope: [changed]\n' \
+    > .ai/profiles/laravel/profile.yaml
+  run jig verify
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "FAIL laravel: profile.yaml has no extends, but the stock laravel now extends php and ships no verify.sh; jig upgrade kept your edited profile.yaml — carry your edits onto the new one"
+  assert_no_file phpunit.log
+
+  run jig verify --explain
+  assert_contains "$OUT" "PLAN laravel: error (profile.yaml has no extends, but the stock laravel now extends php and ships no verify.sh; jig upgrade kept your edited profile.yaml — carry your edits onto the new one)"
+}
+
+# A failing suite under artisan is php's failing tests check, and the run fails.
+test_verify_laravel_a_failing_artisan_test_fails_the_run() {
+  _lv_install
+  cat > stub-bin/php <<'STUB'
+#!/usr/bin/env bash
+[ "$1" = artisan ] && [ "$2" = test ] && exit 1
+exit 127
+STUB
+  run jig verify
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "php: tests (phpunit): fail"
+  assert_contains "$OUT" "verify: php:tests: command from laravel"
+}
+
+# laravel named by hand where there is no artisan: its command is still php's
+# tests, and `php artisan test` cannot open the file, so the run fails loudly
+# rather than quietly running phpunit in its place (owner's decision at the gate).
+test_verify_laravel_without_artisan_fails_loudly() {
+  _lv_install
+  rm -f artisan
+  cat > stub-bin/php <<'STUB'
+#!/usr/bin/env bash
+if [ "$1" = artisan ] && [ ! -f artisan ]; then
+  echo "Could not open input file: artisan" >&2
+  exit 1
+fi
+exit 0
+STUB
+  run jig verify
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "php: tests (phpunit): fail"
+  assert_no_file phpunit.log
+}
+
+# The same, run by the project's own copy of jig, which has no source at hand to
+# read the stock profile from: the manifest says jig placed laravel, and a placed
+# profile with neither a verify.sh nor an extends runs its checks nowhere.
+test_verify_a_kept_old_laravel_profile_yaml_fails_loudly_without_the_source() {
+  _lv_install
+  rm -f .ai/profiles/laravel/verify.sh
+  printf 'name: laravel\ndescription: edited.\ndetect: [artisan]\nrequires: [php]\nscope: [changed]\n' \
+    > .ai/profiles/laravel/profile.yaml
+  run env -u JIG_SOURCE bash .ai/scripts/jig verify
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "FAIL laravel: a profile jig installed, with neither a verify.sh nor an extends, so its checks run nowhere"
+  assert_not_contains "$OUT" "SKIP laravel: no verify.sh"
 }
 
 test_verify_check_requires_warns_when_php_not_active() {
   fixture_repo
-  jig init --from "$JIG_HOME" --profiles laravel >/dev/null
+  jig init --from "$JIG_HOME" --profiles php >/dev/null
+  mkdir -p .ai/profiles/needy
+  printf 'name: needy\ndescription: a project profile that needs php.\ndetect: always\nrequires: [php]\n' \
+    > .ai/profiles/needy/profile.yaml
+  printf '#!/usr/bin/env bash\nexit 0\n' > .ai/profiles/needy/verify.sh
   cat > .ai/config.yaml <<EOF
-profiles: [laravel]
+profiles: [needy]
 EOF
 
-  run jig verify --profile laravel
-  # laravel still skips every check without php active (as above), so the
-  # run checked nothing (rc 3); what is under test here is only the warning
-  # about the missing 'php' requirement, which prints regardless.
-  assert_eq 3 "$RC"
+  run jig verify --profile needy
   assert_contains "$OUT" "requires 'php', which is not active"
 }
 
@@ -848,7 +1202,7 @@ EOF
   printf 'sample.go\n' > changed
   printf 'package sample\n' > sample.go
 
-  for profile in dart dotnet generic go jvm laravel node php python ruby rust shell swift; do
+  for profile in dart dotnet generic go jvm node php python ruby rust shell swift; do
     run env PATH="$PWD/fake-bin:$PATH" JIG_VERIFY_EXPLAIN=1 \
       JIG_VERIFY_SCOPE=changed JIG_VERIFY_FILES="$PWD/changed" \
       bash "$JIG_HOME/profiles/$profile/verify.sh"
@@ -867,11 +1221,12 @@ test_verify_explain_shell_common_code_widens_to_full_tests() {
   printf ':\n' > scripts/lib/common.sh
   printf 'scripts/lib/common.sh\n' > changed
 
+  profile_checks_env "$JIG_HOME/profiles/shell"
   run env JIG_VERIFY_EXPLAIN=1 JIG_VERIFY_SCOPE=changed \
     JIG_VERIFY_FILES="$PWD/changed" bash "$JIG_HOME/profiles/shell/verify.sh"
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "PLAN shell: tests/run.sh: full"
-  assert_not_contains "$OUT" "shell: tests/run.sh: pass"
+  assert_contains "$OUT" "PLAN shell: tests (tests/run.sh): full"
+  assert_not_contains "$OUT" "shell: tests (tests/run.sh): pass"
 }
 
 # The shell profile has its own selection logic for each check. Exercise the
@@ -903,6 +1258,7 @@ test_verify_explain_shell_plan_agrees_with_actual_checks() {
         ;;
     esac
 
+    profile_checks_env "$JIG_HOME/profiles/shell"
     run env JIG_VERIFY_EXPLAIN=1 JIG_VERIFY_SCOPE=changed \
       JIG_VERIFY_FILES="$PWD/changed" bash "$JIG_HOME/profiles/shell/verify.sh"
     assert_eq 0 "$RC"
@@ -916,7 +1272,7 @@ test_verify_explain_shell_plan_agrees_with_actual_checks() {
 
     plan_checks=$(printf '%s\n' "$plan" | awk -F ': ' '$1 == "PLAN shell" { print $2 }')
     run_checks=$(printf '%s\n' "$run_output" | awk -F ': ' '$1 == "shell" { print $2 }')
-    assert_eq "$(printf 'shellcheck\ntests/run.sh')" "$plan_checks"
+    assert_eq "$(printf 'lint (shellcheck)\ntests (tests/run.sh)')" "$plan_checks"
     assert_eq "$plan_checks" "$run_checks"
 
     while IFS= read -r check; do
@@ -948,7 +1304,7 @@ test_verify_explain_command_uses_installed_shell_rules_for_changed_code() {
 
   run jig verify --explain --changed --profile shell
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "PLAN shell: tests/run.sh: full"
+  assert_contains "$OUT" "PLAN shell: tests (tests/run.sh): full"
   assert_contains "$OUT" "no checks ran"
   assert_no_file ran
 }
@@ -1021,21 +1377,23 @@ test_verify_explain_go_and_jest_name_possible_full_run() {
   printf 'module example.com/sample\n' > go.mod
   printf 'package pkg\n' > pkg/sample.go
   printf 'pkg/sample.go\n' > changed
+  profile_checks_env "$JIG_HOME/profiles/go"
   run env PATH="$PWD/fake-bin:$PATH" JIG_VERIFY_EXPLAIN=1 JIG_VERIFY_SCOPE=changed \
     JIG_VERIFY_FILES="$PWD/changed" bash "$JIG_HOME/profiles/go/verify.sh"
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "PLAN go: vet: filtered"
-  assert_contains "$OUT" "PLAN go: test: conditional"
+  assert_contains "$OUT" "PLAN go: static (go vet): filtered"
+  assert_contains "$OUT" "PLAN go: tests (go test): conditional"
   assert_contains "$OUT" "full set possible"
   assert_no_file tool-called
 
   printf '{"scripts":{"test":"jest"},"devDependencies":{"jest":"*"}}\n' > package.json
   printf 'export const answer = 42;\n' > source.js
   printf 'source.js\n' > changed
+  profile_checks_env "$JIG_HOME/profiles/node"
   run env PATH="$PWD/fake-bin:$PATH" JIG_VERIFY_EXPLAIN=1 JIG_VERIFY_SCOPE=changed \
     JIG_VERIFY_FILES="$PWD/changed" bash "$JIG_HOME/profiles/node/verify.sh"
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "PLAN node: npm test: conditional"
+  assert_contains "$OUT" "PLAN node: tests (npm test): conditional"
   assert_contains "$OUT" "full set possible"
   assert_no_file tool-called
 }
@@ -1051,21 +1409,23 @@ test_verify_explain_go_and_jest_under_ci_do_not_name_a_possible_full_set() {
   printf 'module example.com/sample\n' > go.mod
   printf 'package pkg\n' > pkg/sample.go
   printf 'pkg/sample.go\n' > changed
+  profile_checks_env "$JIG_HOME/profiles/go"
   run env JIG_VERIFY_FULL_RUN=ci PATH="$PWD/fake-bin:$PATH" JIG_VERIFY_EXPLAIN=1 JIG_VERIFY_SCOPE=changed \
     JIG_VERIFY_FILES="$PWD/changed" bash "$JIG_HOME/profiles/go/verify.sh"
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "PLAN go: vet: filtered"
-  assert_contains "$OUT" "PLAN go: test: conditional"
+  assert_contains "$OUT" "PLAN go: static (go vet): filtered"
+  assert_contains "$OUT" "PLAN go: tests (go test): conditional"
   assert_not_contains "$OUT" "full set possible"
   assert_no_file tool-called
 
   printf '{"scripts":{"test":"jest"},"devDependencies":{"jest":"*"}}\n' > package.json
   printf 'export const answer = 42;\n' > source.js
   printf 'source.js\n' > changed
+  profile_checks_env "$JIG_HOME/profiles/node"
   run env JIG_VERIFY_FULL_RUN=ci PATH="$PWD/fake-bin:$PATH" JIG_VERIFY_EXPLAIN=1 JIG_VERIFY_SCOPE=changed \
     JIG_VERIFY_FILES="$PWD/changed" bash "$JIG_HOME/profiles/node/verify.sh"
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "PLAN node: npm test: conditional"
+  assert_contains "$OUT" "PLAN node: tests (npm test): conditional"
   assert_not_contains "$OUT" "full set possible"
   assert_no_file tool-called
 }
@@ -1073,11 +1433,12 @@ test_verify_explain_go_and_jest_under_ci_do_not_name_a_possible_full_set() {
 test_verify_explain_empty_changed_scope_names_each_skipped_check() {
   fixture_repo
   : > changed
+  profile_checks_env "$JIG_HOME/profiles/shell"
   run env JIG_VERIFY_EXPLAIN=1 JIG_VERIFY_SCOPE=changed \
     JIG_VERIFY_FILES="$PWD/changed" bash "$JIG_HOME/profiles/shell/verify.sh"
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "PLAN shell: shellcheck: skip (scope: changed, no changed files)"
-  assert_contains "$OUT" "PLAN shell: tests/run.sh: skip (scope: changed, no changed files)"
+  assert_contains "$OUT" "PLAN shell: lint (shellcheck): skip (scope: changed, no changed files)"
+  assert_contains "$OUT" "PLAN shell: tests (tests/run.sh): skip (scope: changed, no changed files)"
 }
 
 test_verify_explain_does_not_wait_for_or_replace_busy_record() {
@@ -1265,7 +1626,7 @@ test_verify_shellcheck_verdict_names_its_version() {
 
   run jig verify
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "shell: shellcheck: pass (shellcheck 1.2.3)"
+  assert_contains "$OUT" "shell: lint (shellcheck): pass (shellcheck 1.2.3)"
 }
 
 test_verify_shellcheck_failure_also_names_its_version() {
@@ -1277,7 +1638,7 @@ test_verify_shellcheck_failure_also_names_its_version() {
 
   run jig verify
   assert_eq 1 "$RC"
-  assert_contains "$OUT" "shell: shellcheck: fail (shellcheck 4.5.6)"
+  assert_contains "$OUT" "shell: lint (shellcheck): fail (shellcheck 4.5.6)"
 }
 
 test_verify_shellcheck_scoped_verdict_keeps_both_facts() {
@@ -1288,7 +1649,7 @@ test_verify_shellcheck_scoped_verdict_keeps_both_facts() {
   sc_stub 7.8.9 0
 
   run jig verify --changed
-  assert_contains "$OUT" "shell: shellcheck: pass (shellcheck 7.8.9"
+  assert_contains "$OUT" "shell: lint (shellcheck): pass (shellcheck 7.8.9"
   assert_contains "$OUT" "scope: "
 }
 
@@ -1308,8 +1669,8 @@ test_verify_survives_a_shellcheck_that_cannot_report_its_version() {
   run jig verify
   # The lint itself fails (the stub fails everything), but the profile must
   # still report both of its checks rather than dying silently.
-  assert_contains "$OUT" "shell: shellcheck: fail (shellcheck unknown)"
-  assert_contains "$OUT" "shell: tests/run.sh:"
+  assert_contains "$OUT" "shell: lint (shellcheck): fail (shellcheck unknown)"
+  assert_contains "$OUT" "shell: tests (tests/run.sh):"
 }
 
 # --- CI-backed projects: verify.full_run (ADR-0041) -------------------------
@@ -1957,7 +2318,7 @@ test_verify_shell_profile_map_dash_skips_the_narrowed_run() {
 
   run jig verify --changed
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "shell: tests/run.sh: skip (scope: no changed file maps to a test)"
+  assert_contains "$OUT" "shell: tests (tests/run.sh): skip (scope: no changed file maps to a test)"
   assert_no_file run-log
 }
 
@@ -1975,7 +2336,7 @@ test_verify_shell_profile_map_question_mark_falls_back_to_builtin_rule() {
 
   run jig verify --changed
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "shell: tests/run.sh: pass (scope: 1 filters)"
+  assert_contains "$OUT" "shell: tests (tests/run.sh): pass (scope: 1 filters)"
   assert_file_contains run-log "foo::"
 }
 
@@ -1990,7 +2351,7 @@ test_verify_shell_profile_full_run_when_filter_selects_no_tests() {
   run jig verify --changed
   assert_eq 0 "$RC"
   assert_contains "$OUT" \
-    "shell: tests/run.sh: pass (scope: filter 'foo::' selects no tests, ran full set)"
+    "shell: tests (tests/run.sh): pass (scope: filter 'foo::' selects no tests, ran full set)"
   assert_file_contains run-log "(full)"
 }
 
@@ -2005,7 +2366,7 @@ test_verify_shell_profile_full_run_when_script_has_no_matching_test_file() {
 
   run jig verify --changed
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "shell: tests/run.sh: pass (scope: not narrowable, ran full set)"
+  assert_contains "$OUT" "shell: tests (tests/run.sh): pass (scope: not narrowable, ran full set)"
   assert_file_contains run-log "(full)"
 }
 
@@ -2032,7 +2393,7 @@ EOF
 
   run jig verify --changed
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "shell: tests/run.sh: pass (scope: 1 filters)"
+  assert_contains "$OUT" "shell: tests (tests/run.sh): pass (scope: 1 filters)"
   assert_not_contains "$OUT" "selects no tests"
   assert_file_contains run-log "foo::test_bar"
 }
@@ -2058,7 +2419,7 @@ test_verify_shell_profile_map_decision_glob_token_is_not_expanded_against_files(
   run jig verify --changed
   assert_eq 0 "$RC"
   assert_contains "$OUT" \
-    "shell: tests/run.sh: pass (scope: filter 'a*' selects no tests, ran full set)"
+    "shell: tests (tests/run.sh): pass (scope: filter 'a*' selects no tests, ran full set)"
   assert_not_contains "$OUT" "filter 'a1'"
   assert_not_contains "$OUT" "filter 'a2'"
 }
@@ -2116,7 +2477,7 @@ test_verify_shell_library_function_edit_narrows_to_its_callers_tests() {
   _fixture_shell_lib_project
   _edit_fn fb
   _shell_lib_plan
-  assert_contains "$OUT" "PLAN shell: tests/run.sh: filtered (test filters: two::)"
+  assert_contains "$OUT" "PLAN shell: tests (tests/run.sh): filtered (test filters: two::)"
 
   git checkout -q scripts/lib/shared.sh
   _edit_fn fa
@@ -2132,7 +2493,7 @@ test_verify_shell_library_function_edit_runs_only_the_selected_tests() {
   rm -f run-log
   run jig verify --changed --profile shell
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "shell: tests/run.sh: pass (scope: 1 filters)"
+  assert_contains "$OUT" "shell: tests (tests/run.sh): pass (scope: 1 filters)"
   assert_file_contains run-log "two::"
 }
 
@@ -2143,7 +2504,7 @@ test_verify_shell_library_function_without_callers_stays_full() {
   git diff --quiet scripts/lib/shared.sh && fail "the edit did not land"
   _shell_lib_plan
   # fc has no caller anywhere: nobody can say what reaches it, so the full set.
-  assert_contains "$OUT" "PLAN shell: tests/run.sh: full"
+  assert_contains "$OUT" "PLAN shell: tests (tests/run.sh): full"
 }
 
 # A one-line function must not lend its name to the function after it when the
@@ -2172,26 +2533,26 @@ test_verify_shell_library_changes_the_diff_cannot_name_stay_full() {
   sed 's/^SHARED_GLOBAL=1$/SHARED_GLOBAL=2/' scripts/lib/shared.sh > shared.new
   mv shared.new scripts/lib/shared.sh
   _shell_lib_plan
-  assert_contains "$OUT" "PLAN shell: tests/run.sh: full"
+  assert_contains "$OUT" "PLAN shell: tests (tests/run.sh): full"
   git checkout -q scripts/lib/shared.sh
 
   # A new function: nothing calls it yet, so its callers cannot be listed.
   printf '\nfd() { :; }\n' >> scripts/lib/shared.sh
   _shell_lib_plan
-  assert_contains "$OUT" "PLAN shell: tests/run.sh: full"
+  assert_contains "$OUT" "PLAN shell: tests (tests/run.sh): full"
   git checkout -q scripts/lib/shared.sh
 
   # A removed function.
   sed '/^fb() {$/,/^}$/d' scripts/lib/shared.sh > shared.new
   mv shared.new scripts/lib/shared.sh
   _shell_lib_plan
-  assert_contains "$OUT" "PLAN shell: tests/run.sh: full"
+  assert_contains "$OUT" "PLAN shell: tests (tests/run.sh): full"
   git checkout -q scripts/lib/shared.sh
 
   # A brand new file.
   printf 'fz() { :; }\n' > scripts/lib/fresh.sh
   _shell_lib_plan
-  assert_contains "$OUT" "PLAN shell: tests/run.sh: full"
+  assert_contains "$OUT" "PLAN shell: tests (tests/run.sh): full"
 }
 
 test_verify_shell_library_caller_without_a_test_keeps_the_full_set() {
@@ -2201,7 +2562,7 @@ test_verify_shell_library_caller_without_a_test_keeps_the_full_set() {
   git commit -q -m "a caller nobody tests"
   _edit_fn fb
   _shell_lib_plan
-  assert_contains "$OUT" "PLAN shell: tests/run.sh: full"
+  assert_contains "$OUT" "PLAN shell: tests (tests/run.sh): full"
 }
 
 # The project map answers for a caller the change did not touch: a script with
@@ -2214,7 +2575,7 @@ test_verify_shell_library_caller_is_mapped_by_the_project_map() {
   git commit -q -m "entry script"
   _edit_fn fb
   _shell_lib_plan
-  assert_contains "$OUT" "PLAN shell: tests/run.sh: full"
+  assert_contains "$OUT" "PLAN shell: tests (tests/run.sh): full"
 
   git checkout -q scripts/lib/shared.sh
   mkdir -p .ai/verify
@@ -2239,7 +2600,7 @@ test_verify_shell_full_run_ci_leaves_the_full_set_to_ci_beside_filters() {
 
   run jig verify --changed --profile shell
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "shell: tests/run.sh: pass (scope: 1 filters, full set left to CI)"
+  assert_contains "$OUT" "shell: tests (tests/run.sh): pass (scope: 1 filters, full set left to CI)"
   assert_file_contains run-log "two::"
 }
 
@@ -2255,7 +2616,7 @@ test_verify_shell_full_run_ci_alone_leaves_the_full_set_to_ci() {
 
   run jig verify --changed --profile shell
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "shell: tests/run.sh: skip (scope: not narrowable, full set left to CI)"
+  assert_contains "$OUT" "shell: tests (tests/run.sh): skip (scope: not narrowable, full set left to CI)"
   assert_contains "$OUT" "verify: 1 check(s) left their full set to CI (verify.full_run: ci); jig verify --full runs it here"
   assert_no_file run-log
 }
@@ -2284,7 +2645,7 @@ test_verify_shell_full_run_ci_explain_says_the_full_set_is_left_to_ci() {
 
   run jig verify --changed --explain --profile shell
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "PLAN shell: tests/run.sh: skip (scope: changed paths require the full set, full set left to CI)"
+  assert_contains "$OUT" "PLAN shell: tests (tests/run.sh): skip (scope: changed paths require the full set, full set left to CI)"
 }
 
 test_verify_shell_full_run_local_keeps_all_beside_filters() {
@@ -2931,8 +3292,8 @@ test_verify_a_covered_stack_a_change_narrows_out_of_is_not_refused() {
 
   run jig verify --changed --base HEAD~1
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "shell: shellcheck: skip (scope: no changed shell scripts)"
-  assert_contains "$OUT" "shell: tests/run.sh: skip (scope: no changed file maps to a test)"
+  assert_contains "$OUT" "shell: lint (shellcheck): skip (scope: no changed shell scripts)"
+  assert_contains "$OUT" "shell: tests (tests/run.sh): skip (scope: no changed file maps to a test)"
   assert_contains "$OUT" "RESULT shell: skip (scope: changed, 1 files)"
   assert_contains "$OUT" "verify: every check in scope skipped"
   assert_not_contains "$OUT" "install the project's tools"
@@ -3057,7 +3418,7 @@ test_verify_shell_full_run_ci_leaves_the_whole_tree_shellcheck_to_ci() {
   sc_stub_logging 1.0.0
 
   run jig verify --changed --profile shell
-  assert_contains "$OUT" "shell: shellcheck: skip (scope: .shellcheckrc changed; whole script set, full set left to CI)"
+  assert_contains "$OUT" "shell: lint (shellcheck): skip (scope: .shellcheckrc changed; whole script set, full set left to CI)"
   assert_contains "$OUT" "check(s) left their full set to CI"
   assert_no_file sc-linted.log
 }
@@ -3075,7 +3436,7 @@ test_verify_shell_full_run_ci_still_lints_the_changed_script() {
   sc_stub_logging 1.0.0
 
   run jig verify --changed --profile shell
-  assert_contains "$OUT" "shell: shellcheck: pass (shellcheck 1.0.0, scope: "
+  assert_contains "$OUT" "shell: lint (shellcheck): pass (shellcheck 1.0.0, scope: "
   assert_not_contains "$OUT" "left to CI"
   assert_file_contains sc-linted.log tracked.sh
 }
@@ -3112,7 +3473,7 @@ test_verify_shell_full_run_ci_explain_leaves_shellcheck_to_ci() {
   sc_stub_logging 1.0.0
 
   run jig verify --changed --explain --profile shell
-  assert_contains "$OUT" "PLAN shell: shellcheck: skip (scope: .shellcheckrc changed; whole script set, full set left to CI)"
+  assert_contains "$OUT" "PLAN shell: lint (shellcheck): skip (scope: .shellcheckrc changed; whole script set, full set left to CI)"
 }
 
 # --- a profile covers a check of another (covers / checks) --------------------
@@ -3165,7 +3526,7 @@ test_verify_a_project_profile_covers_a_stock_profile_s_tests() {
   _node_cover_project
   run jig verify
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "node: npm test: skip (scope: covered by upper, node:tests)"
+  assert_contains "$OUT" "node: tests (npm test): skip (scope: covered by upper, node:tests)"
   assert_contains "$OUT" "upper: covered=<unset>"
   assert_no_file npm.log
 }
@@ -3176,14 +3537,14 @@ test_verify_explain_plans_a_covered_stock_check_as_a_skip() {
     > .ai/profiles/upper/verify.sh
   run jig verify --explain
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "PLAN node: npm test: skip (scope: covered by upper, node:tests)"
+  assert_contains "$OUT" "PLAN node: tests (npm test): skip (scope: covered by upper, node:tests)"
 }
 
 test_verify_a_stock_check_runs_when_its_cover_is_not_in_the_run() {
   _node_cover_project
   run jig verify --profile node
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "node: npm test: pass"
+  assert_contains "$OUT" "node: tests (npm test): pass"
   assert_file npm.log
 }
 
@@ -3191,7 +3552,7 @@ test_verify_a_profile_that_never_starts_covers_nothing() {
   _node_cover_project
   rm .ai/profiles/upper/verify.sh
   run jig verify
-  assert_contains "$OUT" "node: npm test: pass"
+  assert_contains "$OUT" "node: tests (npm test): pass"
   assert_file npm.log
 }
 
@@ -3199,11 +3560,11 @@ test_verify_a_profile_covers_only_where_its_stack_is() {
   _node_cover_project
   printf 'detect: [manage.py]\n' >> .ai/profiles/upper/profile.yaml
   run jig verify
-  assert_contains "$OUT" "node: npm test: pass"
+  assert_contains "$OUT" "node: tests (npm test): pass"
   : > manage.py
   rm -f npm.log
   run jig verify
-  assert_contains "$OUT" "node: npm test: skip (scope: covered by upper, node:tests)"
+  assert_contains "$OUT" "node: tests (npm test): skip (scope: covered by upper, node:tests)"
   assert_no_file npm.log
 }
 
@@ -3289,4 +3650,721 @@ test_verify_hands_on_no_map_its_profile_never_reads() {
   run jig verify --changed
   assert_contains "$OUT" "upper: mapped=<unset>"
   assert_contains "$OUT" "lower: covered=tests=upper"
+}
+
+# --- a profile declares its checks in a table (checks.<role>.<field>) ------------
+# `jig verify` lints the table, hands it down as JIG_VERIFY_CHECKS to a profile
+# that has one, and unsets the variable for every other profile
+# (adr-20261117-a-profile-declares-its-checks-in-a-table).
+
+# _fixture_table_profile <name> [<line>...] — a project profile whose
+# verify.sh asks the library for its `tests` check and runs `echo` with the
+# command line the table gave it; each <line> is added to its profile.yaml.
+_fixture_table_profile() {
+  local name="$1" line
+  shift
+  mkdir -p ".ai/profiles/$name"
+  {
+    printf 'name: %s\n' "$name"
+    printf 'description: fixture profile reading its check table.\n'
+    for line in "$@"; do printf '%s\n' "$line"; done
+  } > ".ai/profiles/$name/profile.yaml"
+  cat > ".ai/profiles/$name/verify.sh" <<'EOS'
+#!/usr/bin/env bash
+. "$(dirname "$0")/../../scripts/lib/profile.sh"
+jp_begin tbl
+if [ -n "${JIG_VERIFY_CHECKS:-}" ]; then echo "checks-file=set"; else echo "checks-file=<unset>"; fi
+jp_check_cmd tests "echoer" full echo base || jp_end
+jp_run echoer "" "${JP_CMD[@]}"
+jp_end
+EOS
+}
+
+_table_project() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_table_profile tbl "scope: [explain]" "checks: [tests]" \
+    "checks.tests.command: echo" "checks.tests.full: --full  # all of it"
+  printf 'profiles: [generic, tbl]\nadapters: [claude, codex]\n' > .ai/config.yaml
+}
+
+test_verify_hands_the_check_table_to_the_profile_that_declares_one() {
+  _table_project
+  run jig verify
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "checks-file=set"
+  assert_contains "$OUT" "--full"
+  assert_not_contains "$OUT" "base"
+  assert_contains "$OUT" "tbl: echoer: pass"
+}
+
+# `checks: [tests]` alone, as released before the table, is no table: a
+# verify.sh that asks for one beside it fails loudly rather than running a
+# command of its own, and the run is not a pass.
+test_verify_a_profile_with_only_a_checks_list_gets_no_table() {
+  _table_project
+  printf 'name: tbl\nchecks: [tests]\nscope: [explain]\n' > .ai/profiles/tbl/profile.yaml
+  run jig verify
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "checks-file=<unset>"
+  assert_contains "$OUT" "tbl: echoer: fail (profile.yaml names no check 'tests'; jig upgrade restores it)"
+}
+
+test_verify_a_profile_without_a_table_never_sees_a_callers_checks_file() {
+  _table_project
+  printf 'name: tbl\nchecks: [tests]\nscope: [explain]\n' > .ai/profiles/tbl/profile.yaml
+  printf 'tests\tfull\t--leaked\n' > leaked.rows
+  JIG_VERIFY_CHECKS="$PWD/leaked.rows"
+  export JIG_VERIFY_CHECKS
+  run jig verify
+  unset JIG_VERIFY_CHECKS
+  assert_contains "$OUT" "checks-file=<unset>"
+  assert_not_contains "$OUT" "leaked"
+}
+
+test_verify_a_bad_check_table_fails_the_profile() {
+  _table_project
+  printf 'checks.tests.ful: --x\n' >> .ai/profiles/tbl/profile.yaml
+  run jig verify
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "RESULT tbl: fail (profile.yaml:7: unknown field 'ful' (command, full, narrowed))"
+  assert_not_contains "$OUT" "tbl: echoer"
+}
+
+test_verify_a_check_table_with_a_role_typo_fails_even_without_rows() {
+  _table_project
+  printf 'name: tbl\nchecks: [tests]\nscope: [explain]\nchecks.Tests.full: x\n' > .ai/profiles/tbl/profile.yaml
+  run jig verify
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "RESULT tbl: fail (profile.yaml:4: role 'Tests' must be"
+}
+
+test_verify_explain_names_a_bad_check_table_as_an_error() {
+  _table_project
+  printf 'checks.tests.narrowed: run\n' >> .ai/profiles/tbl/profile.yaml
+  run jig verify --explain
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN tbl: error (profile.yaml:7: narrowed needs exactly one {selection}, found none)"
+}
+
+test_verify_removes_the_check_table_file_when_it_is_done() {
+  _table_project
+  local tmp="$PWD/tmpdir"
+  mkdir -p "$tmp"
+  TMPDIR="$tmp" run jig verify
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "" "$(ls "$tmp")"
+}
+
+# --- profile stacks (extends) ---------------------------------------------------
+
+# _fixture_stack_base <name> — a project profile that runs, answers a preview
+# and leaves <name>.ran behind.
+_fixture_stack_base() {
+  local name="$1"
+  mkdir -p ".ai/profiles/$name"
+  printf 'name: %s\nscope: [explain]\n' "$name" > ".ai/profiles/$name/profile.yaml"
+  cat > ".ai/profiles/$name/verify.sh" <<EOS
+#!/usr/bin/env bash
+if [ -n "\${JIG_VERIFY_EXPLAIN:-}" ]; then
+  echo "PLAN $name: tests: full (fixture)"
+  exit 0
+fi
+touch "$name.ran"
+echo "$name: own: pass"
+exit 0
+EOS
+}
+
+# _fixture_stack_layer <name> <base> [<extra profile.yaml line>...] — a pure
+# layer: a profile.yaml and nothing else.
+_fixture_stack_layer() {
+  local name="$1" base="$2" line
+  shift 2
+  mkdir -p ".ai/profiles/$name"
+  {
+    printf 'name: %s\nextends: %s\n' "$name" "$base"
+    for line in "$@"; do printf '%s\n' "$line"; done
+  } > ".ai/profiles/$name/profile.yaml"
+}
+
+test_verify_runs_the_base_of_a_listed_layer_and_skips_the_layer_quietly() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_stack_base base
+  _fixture_stack_layer top base
+  printf 'profiles: [generic, top]\nadapters: [claude, codex]\n' > .ai/config.yaml
+
+  run jig verify
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "verify: top is a layer over base; its checks run in its bases"
+  assert_contains "$OUT" "RESULT base: pass"
+  assert_file base.ran
+  assert_not_contains "$OUT" "no verify.sh"
+  assert_not_contains "$OUT" "RESULT top"
+  # generic and base: the layer is not counted.
+  assert_contains "$OUT" "verify: 2 profiles, "
+}
+
+test_verify_a_profile_that_is_only_a_base_runs_alone_when_named() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_stack_base base
+  _fixture_stack_layer top base
+  run jig verify --profile base
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "RESULT base: pass"
+  assert_not_contains "$OUT" "layer over"
+}
+
+test_verify_profile_flag_expands_a_layer_to_its_stack() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_stack_base base
+  _fixture_stack_layer top base
+  run jig verify --profile top
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "verify: top is a layer over base; its checks run in its bases"
+  assert_contains "$OUT" "RESULT base: pass"
+  assert_not_contains "$OUT" "RESULT generic"
+}
+
+test_verify_explain_names_a_pure_layer_and_does_not_call_it_unknown() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_stack_base base
+  _fixture_stack_layer top base
+  run jig verify --explain --profile top
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "verify: top is a layer over base; its checks run in its bases"
+  assert_contains "$OUT" "PLAN base: tests: full (fixture)"
+  assert_not_contains "$OUT" "PLAN top"
+  assert_contains "$OUT" "1 profiles explained, 0 unknown, 0 error"
+  assert_no_file base.ran
+}
+
+test_verify_a_profile_with_neither_extends_nor_verify_script_is_still_a_broken_install() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  mkdir -p .ai/profiles/hollow
+  printf 'name: hollow\n' > .ai/profiles/hollow/profile.yaml
+  run jig verify --profile hollow
+  assert_contains "$OUT" "SKIP hollow: no verify.sh"
+}
+
+test_verify_a_layer_with_its_own_verify_script_runs_with_its_base() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_stack_base base
+  _fixture_stack_base top
+  printf 'name: top\nextends: base\nscope: [explain]\n' > .ai/profiles/top/profile.yaml
+  run jig verify --profile top
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "RESULT top: pass"
+  assert_contains "$OUT" "RESULT base: pass"
+  assert_not_contains "$OUT" "layer over"
+  assert_contains "$OUT" "verify: 2 profiles, 2 pass"
+}
+
+test_verify_refuses_before_running_anything_when_a_base_is_missing() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_stack_base other
+  _fixture_stack_layer top ghost
+  printf 'profiles: [generic, other, top]\nadapters: [claude, codex]\n' > .ai/config.yaml
+
+  run jig verify
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "FAIL top: extends 'ghost', which is not installed (run jig upgrade)"
+  assert_no_file other.ran
+  assert_not_contains "$OUT" "RESULT"
+
+  run jig verify --explain
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "PLAN top: error (extends 'ghost', which is not installed (run jig upgrade))"
+  assert_not_contains "$OUT" "PLAN other"
+}
+
+test_verify_refuses_a_cycle_and_a_list_in_extends() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_stack_layer a b
+  _fixture_stack_layer b a
+  run jig verify --profile a
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "FAIL a: extends cycle: a -> b -> a"
+
+  rm -rf .ai/profiles/a .ai/profiles/b
+  _fixture_stack_layer c "[x, y]"
+  run jig verify --profile c
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "FAIL c: extends names one profile, not a list"
+}
+
+test_verify_refuses_a_project_profile_under_a_stock_name() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  # A project's own `php`: no file of it is the shipped one, and it is not tracked.
+  _fixture_stack_base php
+  printf 'profiles: [generic, php]\nadapters: [claude, codex]\n' > .ai/config.yaml
+  run jig verify
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "FAIL php: profile '.ai/profiles/php' is the project's own, but 'php' is a stock profile"
+  assert_no_file php.ran
+}
+
+test_verify_list_shows_layers_and_bases() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_stack_base base
+  _fixture_stack_layer top base
+  printf 'profiles: [generic, top]\nadapters: [claude, codex]\n' > .ai/config.yaml
+  run jig verify --list
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "generic: installed"
+  assert_contains "$OUT" "top: installed (layer over base)"
+  assert_contains "$OUT" "base: installed (base of top)"
+}
+
+test_verify_accepts_check_table_rows_on_a_base_and_a_layer_over_it() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_stack_base base
+  # A base's rows in the check table's own format (schemas/profile.md, Check
+  # table): a role its checks list names, a known field.
+  printf 'checks: [tests]\nchecks.tests.full: --fast\n' >> .ai/profiles/base/profile.yaml
+  _fixture_stack_layer top base
+  run jig verify --profile top
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "RESULT base: pass"
+}
+
+# --- a layer overrides a check of its base (adr-20261118-a-layer-overrides-its-bases-checks-by-role) --
+
+# _fixture_override_base <name> [<extra profile.yaml line>...] — a profile with a
+# check table of two roles that asks the library for each check's command line
+# and reports it, as `<name>: <role>: pass (cmd <words>)` (a `PLAN … full (cmd
+# <words>)` under --explain). BASE_MODE=narrowed asks `tests` for its narrowed
+# line, with the selection `s1 s2`.
+_fixture_override_base() {
+  local name="$1" line
+  shift
+  mkdir -p ".ai/profiles/$name"
+  {
+    printf 'name: %s\nscope: [explain]\nchecks: [tests, lint]\n' "$name"
+    printf 'checks.tests.command: run-tests\nchecks.tests.full: --all\n'
+    printf 'checks.tests.narrowed: --some {selection}\n'
+    printf 'checks.lint.command: lint\n'
+    for line in "$@"; do printf '%s\n' "$line"; done
+  } > ".ai/profiles/$name/profile.yaml"
+  cat > ".ai/profiles/$name/verify.sh" <<EOS
+#!/usr/bin/env bash
+. "\$(dirname "\$0")/../../scripts/lib/profile.sh"
+jp_begin $name
+for role in tests lint; do
+  jp_covered "\$role" "\$role" && continue
+  mode=full
+  [ "\$role" = tests ] && mode=\${BASE_MODE:-full}
+  jp_check_cmd "\$role" "\$role" "\$mode" -- s1 s2 || continue
+  if [ -n "\${JIG_VERIFY_EXPLAIN:-}" ]; then
+    jp_plan "\$role" full "cmd \${JP_CMD[*]}"
+  else
+    jp_pass "\$role" "cmd \${JP_CMD[*]}"
+  fi
+done
+[ -z "\${JIG_VERIFY_EXPLAIN:-}" ] || exit 0
+jp_end
+EOS
+}
+
+# _override_project <layer-line>... — a base and a pure layer `top` over it, the
+# layer's profile.yaml lines given.
+_override_project() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_override_base base
+  _fixture_stack_layer top base "$@"
+}
+
+test_verify_a_layer_overrides_the_arguments_of_a_base_check_and_names_itself() {
+  _override_project 'checks.tests.full: --fast'
+  run jig verify --profile top
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "base: tests: pass (cmd run-tests --fast)"
+  # the field it left alone, and the other role, are the base's
+  assert_contains "$OUT" "base: lint: pass (cmd lint)"
+  assert_contains "$OUT" "verify: base:tests: full from top"
+  assert_not_contains "$OUT" "verify: base:lint"
+  # said before the base's own lines
+  local said=${OUT%%"base: tests"*}
+  assert_contains "$said" "verify: base:tests: full from top"
+}
+
+test_verify_a_layer_overrides_narrowed_command_and_erases_with_empty_brackets() {
+  _override_project 'checks.tests.narrowed: --pick {selection}' 'checks.lint.command: other-lint' \
+    'checks.lint.full: []'
+  BASE_MODE=narrowed run jig verify --profile top
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "base: tests: pass (cmd run-tests --pick s1 s2)"
+  assert_contains "$OUT" "base: lint: pass (cmd other-lint)"
+  assert_contains "$OUT" "verify: base:tests: narrowed from top"
+  assert_contains "$OUT" "verify: base:lint: command, full from top"
+
+  # `full: []` erases the base's `--all`.
+  rm -rf .ai/profiles/top
+  _fixture_stack_layer top base 'checks.tests.full: []'
+  run jig verify --profile top
+  assert_contains "$OUT" "base: tests: pass (cmd run-tests)"
+}
+
+test_verify_explain_shows_a_layers_override_and_runs_nothing() {
+  _override_project 'checks.tests.full: --fast'
+  run jig verify --explain --profile top
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "verify: base:tests: full from top"
+  assert_contains "$OUT" "PLAN base: tests: full (cmd run-tests --fast)"
+  assert_contains "$OUT" "PLAN base: lint: full (cmd lint)"
+  assert_no_file base.ran
+}
+
+test_verify_a_layer_drops_a_check_in_a_run_and_in_a_preview() {
+  _override_project 'checks.tests.drop: true'
+  run jig verify --profile top
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "base: tests: skip (scope: dropped by top, base:tests)"
+  assert_contains "$OUT" "base: lint: pass (cmd lint)"
+  assert_not_contains "$OUT" "run-tests"
+  # a drop is named by the check's own skip, not by a line of verify:
+  assert_not_contains "$OUT" "verify: base:tests"
+
+  run jig verify --explain --profile top
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN base: tests: skip (scope: dropped by top, base:tests)"
+  assert_contains "$OUT" "PLAN base: lint: full (cmd lint)"
+}
+
+test_verify_two_layers_in_a_chain_win_field_by_field_and_both_are_named() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_override_base base
+  _fixture_stack_layer mid base 'checks.tests.full: --mid' 'checks.tests.narrowed: --mid {selection}'
+  _fixture_stack_layer top mid 'checks.tests.full: --top'
+  run jig verify --profile top
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "base: tests: pass (cmd run-tests --top)"
+  assert_contains "$OUT" "verify: base:tests: full from top; narrowed from mid"
+  BASE_MODE=narrowed run jig verify --profile top
+  assert_contains "$OUT" "base: tests: pass (cmd run-tests --mid s1 s2)"
+  # the layer under the top one alone: its own full
+  run jig verify --profile mid
+  assert_contains "$OUT" "base: tests: pass (cmd run-tests --mid)"
+  assert_contains "$OUT" "verify: base:tests: full, narrowed from mid"
+}
+
+test_verify_refuses_a_field_or_a_drop_over_a_role_a_lower_layer_dropped() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_override_base base
+  _fixture_stack_layer mid base 'checks.tests.drop: true'
+  _fixture_stack_layer top mid 'checks.tests.full: --top'
+  run jig verify --profile top
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "FAIL top: profile.yaml:3: base:tests is dropped by mid; an override here would never be read"
+  assert_not_contains "$OUT" "RESULT"
+  run jig verify --explain --profile top
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN top: error (profile.yaml:3: base:tests is dropped by mid; an override here would never be read)"
+
+  # a second drop of the same role is refused for the same reason
+  _fixture_stack_layer top mid 'checks.tests.drop: true'
+  run jig verify --profile top
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "FAIL top: profile.yaml:3: base:tests is dropped by mid"
+
+  # the lower layer alone is fine, and a role it left alone can still be changed above it
+  _fixture_stack_layer top mid 'checks.lint.command: other-lint'
+  run jig verify --profile top
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "base: tests: skip (scope: dropped by mid, base:tests)"
+  assert_contains "$OUT" "base: lint: pass (cmd other-lint)"
+}
+
+# --- a run whose checks were all dropped ------------------------------------------
+
+test_verify_a_profile_whose_every_check_was_dropped_is_named_not_blamed_on_tools() {
+  _override_project 'checks.tests.drop: true' 'checks.lint.drop: true'
+  # a full run streams live and reads no output: the gap ending, as ever, exit 3
+  run jig verify --full --profile top
+  assert_eq 3 "$RC" "$OUT"
+  assert_contains "$OUT" "verify: nothing was checked, so this is not a pass — every check of base was dropped by top; nothing verified it"
+  assert_not_contains "$OUT" "install the project's tools"
+
+  # narrowed to changed files: the exit code and the ending are what they were
+  # (every skip names a scope), and the dropped checks are said beside it
+  sed 's/^scope: .*/scope: [changed, explain]/' .ai/profiles/base/profile.yaml > base.yaml
+  cp base.yaml .ai/profiles/base/profile.yaml
+  printf 'x\n' > changed.txt
+  run jig verify --changed --profile top
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "verify: every check of base was dropped by top; nothing verified it"
+  assert_not_contains "$OUT" "so this is not a pass"
+  assert_contains "$OUT" "this change touches nothing any profile covers"
+}
+
+# A covered profile whose checks all skip by scope beside a fully dropped base,
+# on a change that touches neither: no refusal, as before.
+test_verify_a_dropped_base_beside_a_scope_skipping_profile_does_not_refuse_a_narrowed_run() {
+  _override_project 'checks.tests.drop: true' 'checks.lint.drop: true'
+  sed 's/^scope: .*/scope: [changed, explain]/' .ai/profiles/base/profile.yaml > base.yaml
+  cp base.yaml .ai/profiles/base/profile.yaml
+  mkdir -p .ai/profiles/other
+  printf 'name: other\nscope: [changed]\n' > .ai/profiles/other/profile.yaml
+  printf '#!/usr/bin/env bash\necho "other: tests: skip (scope: changed, nothing in scope)"\nexit 2\n' > .ai/profiles/other/verify.sh
+  printf 'profiles: [generic, top, other]\nadapters: [claude, codex]\n' > .ai/config.yaml
+  printf 'x\n' > notes.md
+  run jig verify --changed
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "verify: every check of base was dropped by top; nothing verified it"
+  assert_contains "$OUT" "this change touches nothing any profile covers"
+  assert_not_contains "$OUT" "so this is not a pass"
+}
+
+test_verify_dropping_only_some_checks_still_passes() {
+  _override_project 'checks.tests.drop: true'
+  run jig verify --full --profile top
+  assert_eq 0 "$RC" "$OUT"
+  assert_not_contains "$OUT" "was dropped by"
+}
+
+test_verify_a_base_named_alone_gets_no_layers_overrides() {
+  _override_project 'checks.tests.full: --fast'
+  run jig verify --profile base
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "base: tests: pass (cmd run-tests --all)"
+  assert_not_contains "$OUT" "from top"
+}
+
+test_verify_two_branches_over_one_base_changing_one_role_are_refused() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_override_base base
+  _fixture_stack_layer a base 'checks.tests.full: --a'
+  _fixture_stack_layer b base 'checks.tests.full: --b'
+  printf 'profiles: [generic, a, b]\nadapters: [claude, codex]\n' > .ai/config.yaml
+  run jig verify
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "FAIL b: profile.yaml:3: a and b both override base:tests; base runs once, so one of them would be ignored"
+  assert_not_contains "$OUT" "RESULT"
+  run jig verify --explain
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN b: error (profile.yaml:3: a and b both override base:tests"
+
+  # different roles merge: the base runs with both layers' fields
+  _fixture_stack_layer b base 'checks.lint.command: other-lint'
+  run jig verify
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "base: tests: pass (cmd run-tests --a)"
+  assert_contains "$OUT" "base: lint: pass (cmd other-lint)"
+  assert_contains "$OUT" "verify: base:tests: full from a"
+  assert_contains "$OUT" "verify: base:lint: command from b"
+}
+
+# _layer_refused <reason> <layer-line>... — `top` over `base` with those lines
+# fails the whole run, in a run and in a preview, and nothing ran.
+_layer_refused() {
+  local want="$1"
+  shift
+  rm -rf .ai/profiles/top
+  _fixture_stack_layer top base "$@"
+  rm -f base.ran
+  run jig verify --profile top
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "FAIL top: profile.yaml:"
+  assert_contains "$OUT" "$want"
+  assert_not_contains "$OUT" "RESULT"
+  assert_no_file base.ran
+  run jig verify --explain --profile top
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN top: error (profile.yaml:"
+  assert_contains "$OUT" "$want"
+  assert_not_contains "$OUT" "PLAN base"
+}
+
+test_verify_refuses_a_layer_whose_override_cannot_work() {
+  _override_project
+  _layer_refused "role 'nope' is in no checks: of top's chain (base)" 'checks.nope.full: --x'
+  _layer_refused "drop must be exactly true" 'checks.tests.drop: false'
+  _layer_refused "checks.tests.drop cannot be combined with another field of tests" \
+    'checks.tests.drop: true' 'checks.tests.full: --x'
+  _layer_refused "command cannot be []" 'checks.tests.command: []'
+  # a pure layer lists no checks of its own, even an empty-looking one
+  _layer_refused "a layer with no verify.sh runs no check of its own, so checks: must be empty" \
+    'checks: [tests]'
+}
+
+test_verify_refuses_an_override_of_a_base_without_a_table_or_a_narrowed_field() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_override_base base
+  _layer_refused "base:lint does not narrow; a narrowed override would never be read" \
+    'checks.lint.narrowed: {selection}'
+
+  # a base that lists the role but declares no table: its verify.sh would not read one
+  _fixture_stack_base plain
+  printf 'checks: [tests]\n' >> .ai/profiles/plain/profile.yaml
+  rm -rf .ai/profiles/top
+  _fixture_stack_layer top plain 'checks.tests.full: --x'
+  rm -f plain.ran
+  run jig verify --profile top
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "FAIL top: profile.yaml:3: plain declares no check table; an override of plain:tests would not be read"
+  assert_no_file plain.ran
+}
+
+test_verify_a_layer_cannot_override_a_base_role_it_shares_a_name_with() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_override_base base
+  # `top` has its own verify.sh and its own `tests`: its rows are its own table,
+  # and the base's `tests` is out of reach (schemas/profile.md, Layer overrides).
+  _fixture_override_base top
+  printf 'name: top\nextends: base\nscope: [explain]\nchecks: [tests, lint]\n' > .ai/profiles/top/profile.yaml
+  printf 'checks.tests.command: own-tests\nchecks.tests.full: --own\nchecks.lint.command: own-lint\n' \
+    >> .ai/profiles/top/profile.yaml
+  run jig verify --profile top
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "top: tests: pass (cmd own-tests --own)"
+  assert_contains "$OUT" "base: tests: pass (cmd run-tests --all)"
+  assert_not_contains "$OUT" "verify: base:tests"
+}
+
+# --- covers and overrides ---------------------------------------------------------
+
+# _cover_override_project — `up` covers `low:tests`; `warehouse` is a pure layer
+# over `up`. Both bases have a table and stand their checks down through the
+# library.
+_cover_override_project() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_override_base up 'covers: [low:tests]'
+  _fixture_override_base low
+  _fixture_stack_layer warehouse up
+  printf 'profiles: [generic, warehouse, low]\nadapters: [claude, codex]\n' > .ai/config.yaml
+}
+
+test_verify_a_dropped_check_covers_nothing_and_the_lower_profile_runs_it() {
+  _cover_override_project
+  run jig verify
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "low: tests: skip (scope: covered by up, low:tests)"
+  assert_contains "$OUT" "up: tests: pass (cmd run-tests --all)"
+
+  _fixture_stack_layer warehouse up 'checks.tests.drop: true'
+  run jig verify
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "verify: up:tests is dropped by warehouse, so up no longer covers low:tests; low runs it"
+  assert_contains "$OUT" "up: tests: skip (scope: dropped by warehouse, up:tests)"
+  assert_contains "$OUT" "low: tests: pass (cmd run-tests --all)"
+  assert_not_contains "$OUT" "covered by up"
+
+  run jig verify --explain
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "verify: up:tests is dropped by warehouse, so up no longer covers low:tests; low runs it"
+  assert_contains "$OUT" "PLAN up: tests: skip (scope: dropped by warehouse, up:tests)"
+  assert_contains "$OUT" "PLAN low: tests: full (cmd run-tests --all)"
+}
+
+test_verify_warns_of_an_override_of_a_check_another_profile_covers() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_override_base up 'covers: [low:tests]'
+  _fixture_override_base low
+  _fixture_stack_layer shop low 'checks.tests.full: --x'
+  printf 'profiles: [generic, up, shop]\nadapters: [claude, codex]\n' > .ai/config.yaml
+  run jig verify
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "verify: warning: shop overrides low:tests, but up runs it in this run (covers), so the override has no effect"
+  assert_contains "$OUT" "low: tests: skip (scope: covered by up, low:tests)"
+
+  # the cover does not hold with `up` out of the run: no warning, the override works
+  run jig verify --profile shop
+  assert_not_contains "$OUT" "warning: shop overrides"
+  assert_contains "$OUT" "low: tests: pass (cmd run-tests --x)"
+}
+
+# --- the shell profile's check table (adr-20261117-a-profile-declares-its-checks-in-a-table) --
+
+# _sh_table_fixture — a repository with one script, plus stubs of tests/run.sh
+# and of the linter that log their arguments, one line per call.
+_sh_table_fixture() {
+  fixture_repo
+  mkdir -p scripts tests stub-bin
+  printf '#!/usr/bin/env bash\necho x\n' > scripts/a.sh
+  chmod +x scripts/a.sh
+  printf '#!/bin/sh\necho "$*" >> "%s/runsh.log"\nexit 0\n' "$PWD" > tests/run.sh
+  chmod +x tests/run.sh
+  printf 'test_one() { :; }\n' > tests/a.t.sh
+  # shellcheck disable=SC2016 # the stub's own $1 and $*, expanded when it runs
+  printf '#!/bin/sh\n[ "$1" = --version ] && { echo "version: 0.9.0"; exit 0; }\necho "$*" >> "%s/sc.log"\nexit 0\n' "$PWD" > stub-bin/shellcheck
+  chmod +x stub-bin/shellcheck
+  PATH="$PWD/stub-bin:$PATH"
+  export PATH
+  profile_checks_env "$JIG_HOME/profiles/shell"
+}
+
+# Every command line the shell profile runs, in a full and a narrowed run,
+# is the one it ran before the table.
+test_verify_shell_check_table_keeps_every_command_line() {
+  _sh_table_fixture
+  run bash "$JIG_HOME/profiles/shell/verify.sh"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$(cat sc.log)" "-s bash -e SC1091 scripts/a.sh"
+  assert_eq "" "$(cat runsh.log)"
+  assert_contains "$OUT" "shell: lint (shellcheck): pass"
+  assert_contains "$OUT" "shell: tests (tests/run.sh): pass"
+
+  rm -f sc.log runsh.log
+  printf 'tests/a.t.sh\n' > changed
+  run env JIG_VERIFY_SCOPE=changed JIG_VERIFY_FILES="$PWD/changed" \
+    bash "$JIG_HOME/profiles/shell/verify.sh"
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "a::" "$(cat runsh.log)"
+}
+
+# A profile.yaml from before the table beside this verify.sh fails both
+# checks, and runs neither tool.
+test_verify_shell_check_table_missing_fails_loudly() {
+  _sh_table_fixture
+  unset JIG_VERIFY_CHECKS
+  run bash "$JIG_HOME/profiles/shell/verify.sh"
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "shell: lint (shellcheck): fail (profile.yaml names no check 'lint'; jig upgrade restores it)"
+  assert_contains "$OUT" "shell: tests (tests/run.sh): fail (profile.yaml names no check 'tests'; jig upgrade restores it)"
+  assert_no_file sc.log
+  assert_no_file runsh.log
+}
+
+# Every role the shell profile lists can be taken over by another profile.
+test_verify_shell_every_role_can_be_covered() {
+  _sh_table_fixture
+  JIG_VERIFY_COVERED="lint=other tests=other"
+  export JIG_VERIFY_COVERED
+  run bash "$JIG_HOME/profiles/shell/verify.sh"
+  assert_eq 2 "$RC" "$OUT"
+  assert_eq "shell: lint (shellcheck): skip (scope: covered by other, shell:lint)
+shell: tests (tests/run.sh): skip (scope: covered by other, shell:tests)" "$OUT"
+  assert_no_file sc.log
+  assert_no_file runsh.log
+
+  JIG_VERIFY_EXPLAIN=1 run bash "$JIG_HOME/profiles/shell/verify.sh"
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "PLAN shell: lint (shellcheck): skip (scope: covered by other, shell:lint)
+PLAN shell: tests (tests/run.sh): skip (scope: covered by other, shell:tests)" "$OUT"
+
+  JIG_VERIFY_COVERED="lint=other"
+  run bash "$JIG_HOME/profiles/shell/verify.sh"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "shell: tests (tests/run.sh): pass"
+  assert_no_file sc.log
+  unset JIG_VERIFY_COVERED
 }

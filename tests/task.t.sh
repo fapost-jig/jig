@@ -11495,6 +11495,25 @@ test_task_ship_is_silent_about_verification_when_a_profile_covers_the_project() 
   assert_not_contains "$OUT" "ships unverified"
 }
 
+# A base counts: a layer that claims nothing over a base that does cover the
+# project (profile stacks, adr-20261117-profiles-lists-top-layers-and-jig-resolves-the-stack).
+test_task_ship_is_silent_about_verification_when_a_listed_layers_base_covers_the_project() {
+  ship_setup
+  ship_cfg_local agent.git commit
+  task_route_done T-1
+  jig task set T-1 knowledge_consolidated true >/dev/null
+  mkdir -p .ai/profiles/stack .ai/profiles/layer
+  printf 'name: stack\ndetect: [stack.toml]\n' > .ai/profiles/stack/profile.yaml
+  printf 'name: layer\nextends: stack\nverifies: nothing\n' > .ai/profiles/layer/profile.yaml
+  sed 's/^profiles:.*/profiles: [generic, layer]/' .ai/config.yaml > .ai/config.yaml.tmp
+  mv .ai/config.yaml.tmp .ai/config.yaml
+  ship_stage_change
+
+  run jig task ship T-1 --message-file msg.txt
+  assert_eq 0 "$RC" "$OUT"
+  assert_not_contains "$OUT" "ships unverified"
+}
+
 # --- route depth (adr-20261002-route-depth-is-a-personal-choice) --------------
 
 test_task_new_lean_records_the_depth_in_state() {

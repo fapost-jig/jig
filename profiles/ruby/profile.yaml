@@ -3,3 +3,15 @@ name: ruby
 description: Ruby projects (rubocop, rspec or minitest, all through bundle exec).
 detect: [Gemfile]
 scope: [changed, map, explain, environment]
+# The checks of this profile by role, and the index of its check table
+# (schemas/profile.md, Check table). Another profile can take any one over by
+# name (`covers: [ruby:lint]`).
+checks: [lint, tests]
+# lint: rubocop through bundle exec; a narrowed run checks the changed .rb and
+# .rake files.
+checks.lint.command: bundle exec rubocop
+checks.lint.narrowed: {selection}
+# tests: rspec, or minitest through bin/rails test or bundle exec rake test;
+# verify.sh chooses the runner, so the table names no command. A narrowed run
+# passes the test files it selected.
+checks.tests.narrowed: {selection}
