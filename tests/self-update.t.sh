@@ -774,3 +774,64 @@ test_self_update_places_the_pr_review_skill_and_leaves_a_foreign_one() {
   assert_eq "mine" "$(cat "$HOME/.agents/skills/jig-pr-review/SKILL.md")"
 }
 
+
+# --- origin left at fapost-lab/jig by an install made before the move -------
+# (adr-20261118-jig-lives-in-its-own-organisation). No network: the share's
+# own url.<upstream>.insteadOf sends the GitHub address to the local bare
+# remote, and the raw remote.origin.url shows what self-update wrote.
+
+# su_point_origin <url> <github-url-to-serve-locally> — set the global
+# install's origin to <url> and route <github-url> to $HOME/upstream.git.
+su_point_origin() {
+  local share
+  share=$(su_share)
+  git -C "$share" config url."$HOME/upstream.git".insteadOf "$2"
+  git -C "$share" remote set-url origin "$1"
+}
+
+test_self_update_repoints_https_origin_from_fapost_lab() {
+  su_build_source "$HOME/work"
+  su_build_upstream "$HOME/work" "$HOME/upstream.git"
+  su_clone_global_detached "$HOME/upstream.git" v0.1.0
+  su_point_origin https://github.com/fapost-lab/jig.git https://github.com/fapost-jig/jig.git
+
+  su_commit_release "$HOME/work" 0.2.0
+  su_push "$HOME/work"
+
+  run su_jig self-update
+  assert_eq 0 "$RC" "self-update should succeed: $OUT"
+  assert_contains "$OUT" "self-update: origin moved: https://github.com/fapost-lab/jig.git -> https://github.com/fapost-jig/jig.git"
+  assert_contains "$OUT" "self-update: updated 0.1.0 -> 0.2.0"
+  assert_eq "https://github.com/fapost-jig/jig.git" "$(git -C "$(su_share)" config --get remote.origin.url)"
+}
+
+test_self_update_repoints_ssh_origin_from_fapost_lab_on_a_branch() {
+  su_build_source "$HOME/work"
+  su_build_upstream "$HOME/work" "$HOME/upstream.git"
+  su_clone_global_branch "$HOME/upstream.git"
+  su_point_origin git@github.com:fapost-lab/jig.git git@github.com:fapost-jig/jig.git
+
+  su_commit_release "$HOME/work" 0.2.0
+  su_push "$HOME/work"
+
+  run su_jig self-update
+  assert_eq 0 "$RC" "self-update should succeed: $OUT"
+  assert_contains "$OUT" "self-update: origin moved: git@github.com:fapost-lab/jig.git -> git@github.com:fapost-jig/jig.git"
+  assert_eq "git@github.com:fapost-jig/jig.git" "$(git -C "$(su_share)" config --get remote.origin.url)"
+
+  run su_jig self-update
+  assert_eq 0 "$RC"
+  assert_not_contains "$OUT" "origin moved" "a repointed origin is not moved again"
+}
+
+test_self_update_leaves_any_other_origin_alone() {
+  su_build_source "$HOME/work"
+  su_build_upstream "$HOME/work" "$HOME/upstream.git"
+  su_clone_global_detached "$HOME/upstream.git" v0.1.0
+  su_point_origin https://github.com/someone/jig.git https://github.com/someone/jig.git
+
+  run su_jig self-update
+  assert_eq 0 "$RC" "self-update should succeed: $OUT"
+  assert_not_contains "$OUT" "origin moved"
+  assert_eq "https://github.com/someone/jig.git" "$(git -C "$(su_share)" config --get remote.origin.url)"
+}

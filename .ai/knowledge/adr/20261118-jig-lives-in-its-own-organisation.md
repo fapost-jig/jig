@@ -59,3 +59,12 @@ organisation (Mintlify, which builds the documentation site) do not move and wer
 - Jig's CI has its own pool of 20 jobs and no longer stalls fapost-lab's projects, and the reverse.
 - Organisation-level settings, apps and secrets of fapost-jig are kept by hand, apart from
   fapost-lab's.
+
+> **Amendment (2026-11-18).** The third alternative is taken after all, narrowly: `jig self-update`
+> repoints `origin` when it is exactly the old address (`https://github.com/fapost-lab/jig[.git]`,
+> `git@github.com:fapost-lab/jig[.git]` or its `ssh://` form) to `fapost-jig/jig`, keeping the
+> transport, says so in one line, and leaves any other remote alone. People who installed Jig are
+> not developers and will not change a remote themselves, and the redirect ends the day the old
+> name is reused. The update that brings this change still runs the old code and fetches through
+> the redirect; the repoint happens on the next `jig self-update` after it, so the release carrying
+> it should ship soon after the move.
