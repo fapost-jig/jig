@@ -418,12 +418,15 @@ profiles_active() {
 }
 
 # profiles_reached — the names of the profiles the active set reaches,
-# space-separated like profiles_active. This is the single place that decides
-# "reached": today it is exactly the active set, but a later task (layer
-# stacks, `extends`) widens it with the bases each listed layer extends, so
-# callers must ask this function and not profiles_active.
+# space-separated like profiles_active: the stack, `profiles:` closed over
+# `extends` (profiles_stack_v). This is the single place that decides
+# "reached", so callers ask it and not profiles_active. Exit 1, printing
+# nothing, when the stack does not resolve: what it would reach is unknown,
+# and nothing may be named unreached on a guess.
 profiles_reached() {
-  profiles_active
+  local __pr_names
+  profiles_stack_v __pr_names || return 1
+  printf '%s\n' "$__pr_names"
 }
 
 # profiles_unreached — one name per line, sorted, of each directory directly
@@ -431,8 +434,8 @@ profiles_reached() {
 # profile that is installed but never runs. Prints nothing when the dir is
 # missing. A report must not die on a bad entry, so non-directories and names
 # that are not shaped like a profile name are skipped, and an invalid
-# configured name (profiles_active dies on it) makes this return non-zero
-# quietly: the die happens in a subshell, so the caller survives.
+# configured name, or a stack that does not resolve, makes this return
+# non-zero quietly (profiles_reached), so nothing is named on a guess.
 profiles_unreached() {
   local dir reached entry name out=""
   dir=$(profiles_installed_dir)
@@ -507,13 +510,288 @@ profiles_detect() {
   printf '%s\n' "$result" | tr ' ' '\n' | sed '/^$/d'
 }
 
+# --- stacks --------------------------------------------------------------------
+# A profile may build on one other: `extends: <name>` in its profile.yaml
+# (schemas/profile.md, adr-20261117-profiles-lists-top-layers-and-jig-resolves-the-stack).
+# `profiles:` in .ai/config.yaml lists the top layers; the stack is that list
+# closed over `extends`, and profiles_stack_v is the one place that closes it:
+# verify, upgrade, init, carry/lock and ship all read the stack from here.
+
+# _profiles_extends_v <var> <name> <ext-root> — the base <name> extends into
+# <var> (empty when it extends nothing, or when there is no such profile). Reads
+# <ext-root>/<name> when that directory exists, else the installed profile: a
+# project's own profile lives nowhere but .ai/profiles. Exit 1, with
+# PROFILES_STACK_ERROR and PROFILES_STACK_LAYER set, for a value that is not one
+# profile name.
+_profiles_extends_v() {
+  local __pe_dir __pe_raw
+  printf -v "$1" '%s' ""
+  __pe_dir="$3/$2"
+  [ -d "$__pe_dir" ] || __pe_dir="$JIG_PROJECT/$JIG_AI_DIR/profiles/$2"
+  profile_get_v __pe_raw "$__pe_dir" extends || return 0
+  [ -n "$__pe_raw" ] || return 0
+  PROFILES_STACK_LAYER=$2
+  case "$__pe_raw" in
+    \[*)
+      PROFILES_STACK_ERROR="$2: extends names one profile, not a list ($__pe_raw)"
+      return 1
+      ;;
+  esac
+  if ! _profiles_valid_name "$__pe_raw"; then
+    PROFILES_STACK_ERROR="$2: extends '$__pe_raw' is not a profile name"
+    return 1
+  fi
+  if [ "$__pe_raw" = generic ]; then
+    PROFILES_STACK_ERROR="$2: extends 'generic', which is always first and is no base"
+    return 1
+  fi
+  printf -v "$1" '%s' "$__pe_raw"
+}
+
+# _profiles_tracked_v <var> — `<name>` words, one per profile the install
+# manifest tracks a file of under .ai/profiles/<name>/ (copy mode): the profiles
+# jig placed. Read once per question, with builtins only, so asking it of every
+# profile of a stack starts no process per profile (conventions/shell.md).
+_profiles_tracked_v() {
+  local __pt_file __pt_line __pt_body=0 __pt_name __pt_out=" "
+  local __pt_prefix="$JIG_AI_DIR/profiles/"
+  __pt_file="$JIG_PROJECT/$JIG_AI_DIR/manifest"
+  printf -v "$1" '%s' " "
+  [ -f "$__pt_file" ] || return 0
+  while IFS= read -r __pt_line || [ -n "$__pt_line" ]; do
+    __pt_line=${__pt_line%$'\r'}
+    if [ "$__pt_body" = 0 ]; then
+      [ "$__pt_line" != "---" ] || __pt_body=1
+      continue
+    fi
+    __pt_line=${__pt_line#* }
+    case "$__pt_line" in
+      "$__pt_prefix"*/*) ;;
+      *) continue ;;
+    esac
+    __pt_name=${__pt_line#"$__pt_prefix"}
+    __pt_name=${__pt_name%%/*}
+    case "$__pt_out" in
+      *" $__pt_name "*) ;;
+      *) __pt_out="$__pt_out$__pt_name " ;;
+    esac
+  done < "$__pt_file"
+  printf -v "$1" '%s' "$__pt_out"
+}
+
+# _profiles_stock_in <name> <stock-root> <tracked> — profiles_is_stock with what
+# it reads handed in: <stock-root> may be empty, <tracked> is _profiles_tracked_v's.
+_profiles_stock_in() {
+  [ -z "$2" ] || [ ! -d "$2/$1" ] || return 0
+  [ ! -L "$JIG_PROJECT/$JIG_AI_DIR/profiles/$1" ] || return 0
+  case "$3" in
+    *" $1 "*) return 0 ;;
+  esac
+  return 1
+}
+
+# _profiles_project_in <name> <stock-root> <tracked> — profiles_is_project with
+# what it reads handed in. Only a real, untracked directory that also exists in
+# the source is compared file by file: the one rare case that costs a process.
+_profiles_project_in() {
+  local dir="$JIG_PROJECT/$JIG_AI_DIR/profiles/$1" f rel
+  [ -d "$dir" ] && [ ! -L "$dir" ] || return 1
+  case "$3" in
+    *" $1 "*) return 1 ;;
+  esac
+  [ -n "$2" ] && [ -d "$2/$1" ] || return 0
+  while IFS= read -r f; do
+    rel=${f#"$dir"/}
+    [ -f "$2/$1/$rel" ] && cmp -s "$f" "$2/$1/$rel" || return 0
+  done < <(find "$dir" -type f)
+  return 1
+}
+
+# profiles_is_stock <name> [<stock-root>] — true when <name> is a profile jig
+# ships or has installed: it exists under <stock-root> (a source's profiles/;
+# default profiles_source_dir, when this is a source checkout), the manifest
+# tracks .ai/profiles/<name>/ (copy mode), or .ai/profiles/<name> is a symlink
+# (link mode, where the manifest body is empty). False for a name that is not
+# shaped like a profile name: it never becomes a path.
+profiles_is_stock() {
+  local root="${2:-}" tracked
+  _profiles_valid_name "$1" || return 1
+  [ -n "$root" ] || root=$(profiles_source_dir)
+  _profiles_tracked_v tracked
+  _profiles_stock_in "$1" "$root" "$tracked"
+}
+
+# profiles_is_project <name> [<stock-root>] — true when .ai/profiles/<name> is a
+# profile the project wrote: a real directory the manifest does not track whose
+# files are not all byte-identical to the source's copy. A directory that is
+# identical is a stock profile whose install was interrupted — copy mode places
+# files one by one and writes the manifest once, at the end — and the next run
+# finishes it rather than refuses it. False for a name that is not shaped like a
+# profile name.
+profiles_is_project() {
+  local root="${2:-}" tracked
+  _profiles_valid_name "$1" || return 1
+  [ -n "$root" ] || root=$(profiles_source_dir)
+  _profiles_tracked_v tracked
+  _profiles_project_in "$1" "$root" "$tracked"
+}
+
+# profiles_stack_v <var> [--edges] [--stock-root <dir>] [<name>...] — the stack
+# of <name>... (default: generic and `profiles:`) into <var>: names separated by
+# spaces, in run order. With --edges, lines `<layer><TAB><base>` instead, one per
+# extends in the stack, in run order of the layer.
+#
+# Run order is topological, a layer always before its base, and otherwise the
+# order the names were first met: each name listed, then its chain down, repeats
+# dropped, then names are taken one at a time, each the first one all of whose
+# layers are out. `[generic, a, b]` over a shared `laravel`, over `php`, is
+# generic a b laravel php; a walk down each chain in turn would put laravel
+# before b. A list that names both a layer and its base is allowed and runs the
+# base once.
+#
+# <stock-root> is a source's profiles/ (upgrade, init): the `extends` of a stock
+# profile is read there, because the version being installed may change it, and
+# the name is stock when it exists there. By default the extends of every
+# profile is read from what is installed (verify: what runs is what is there).
+#
+# Called in the caller's own shell, never in `$( )`, like profile_get_v: the
+# reason must reach the caller. It never dies. Exit 1, <var> empty, and
+# PROFILES_STACK_ERROR holds `<layer>: <reason>` (PROFILES_STACK_LAYER the layer)
+# for: a name that is not a profile name, an extends that is a list, `generic` or
+# not a name, a base that is not there, a cycle, and a profile the project wrote
+# under the name of a stock one.
+# shellcheck disable=SC2034 # read by the callers
+PROFILES_STACK_ERROR=""
+# shellcheck disable=SC2034
+PROFILES_STACK_LAYER=""
+profiles_stack_v() {
+  local __ps_var="$1" __ps_edges=0 __ps_root="" __ps_names="" __ps_n
+  shift
+  PROFILES_STACK_ERROR=""
+  PROFILES_STACK_LAYER=""
+  printf -v "$__ps_var" '%s' ""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --edges) __ps_edges=1; shift ;;
+      --stock-root)
+        __ps_root="$2"
+        shift 2
+        ;;
+      *) __ps_names="$__ps_names $1"; shift ;;
+    esac
+  done
+  if [ -z "$__ps_names" ]; then
+    __ps_names="generic $(cfg_list profiles generic)"
+  fi
+  local __ps_installed="$JIG_PROJECT/$JIG_AI_DIR/profiles"
+  local __ps_ext_root="${__ps_root:-$__ps_installed}" __ps_out=""
+  local __ps_order="" __ps_chain __ps_cur __ps_base __ps_seen __ps_edgelist="" __ps_name
+
+  for __ps_name in $__ps_names; do
+    if ! _profiles_valid_name "$__ps_name"; then
+      PROFILES_STACK_LAYER=$__ps_name
+      PROFILES_STACK_ERROR="$__ps_name: invalid profile name"
+      return 1
+    fi
+    __ps_cur=$__ps_name
+    __ps_chain=""
+    while :; do
+      case " $__ps_chain " in
+        *" $__ps_cur "*)
+          PROFILES_STACK_LAYER=$__ps_cur
+          _jig_replace_all_v __ps_out "${__ps_chain# } $__ps_cur" ' ' ' -> '
+          PROFILES_STACK_ERROR="$__ps_cur: extends cycle: $__ps_out"
+          return 1
+          ;;
+      esac
+      __ps_chain="$__ps_chain $__ps_cur"
+      __ps_seen=1
+      case " $__ps_order " in
+        *" $__ps_cur "*) ;;
+        *) __ps_seen=0; __ps_order="$__ps_order $__ps_cur" ;;
+      esac
+      # A name met before had its chain walked then.
+      [ "$__ps_seen" = 0 ] || break
+      _profiles_extends_v __ps_base "$__ps_cur" "$__ps_ext_root" || return 1
+      [ -n "$__ps_base" ] || break
+      if [ ! -d "$__ps_ext_root/$__ps_base" ] && [ ! -d "$__ps_installed/$__ps_base" ]; then
+        PROFILES_STACK_LAYER=$__ps_cur
+        if [ -n "$__ps_root" ]; then
+          PROFILES_STACK_ERROR="$__ps_cur: extends '$__ps_base', which is neither shipped with jig nor in $JIG_AI_DIR/profiles"
+        else
+          PROFILES_STACK_ERROR="$__ps_cur: extends '$__ps_base', which is not installed (run jig upgrade)"
+        fi
+        return 1
+      fi
+      __ps_edgelist="$__ps_edgelist $__ps_cur>$__ps_base"
+      __ps_cur=$__ps_base
+    done
+  done
+  __ps_out=""
+  __ps_order=${__ps_order# }
+  __ps_edgelist=${__ps_edgelist# }
+
+  # The project's own profile under a stock name: one refusal naming both.
+  # What the check reads is read once here, not once per profile.
+  local __ps_src="$__ps_root" __ps_tracked
+  [ -n "$__ps_src" ] || __ps_src=$(profiles_source_dir)
+  _profiles_tracked_v __ps_tracked
+  for __ps_name in $__ps_order; do
+    [ "$__ps_name" != generic ] || continue
+    if _profiles_project_in "$__ps_name" "$__ps_src" "$__ps_tracked" \
+       && _profiles_stock_in "$__ps_name" "$__ps_src" "$__ps_tracked"; then
+      # shellcheck disable=SC2034
+      PROFILES_STACK_LAYER=$__ps_name
+      # shellcheck disable=SC2034
+      PROFILES_STACK_ERROR="$__ps_name: profile '$JIG_AI_DIR/profiles/$__ps_name' is the project's own, but '$__ps_name' is a stock profile; rename the project's (and its extends: lines), or, if it is an interrupted install of the stock one, remove the directory and run jig upgrade"
+      return 1
+    fi
+  done
+
+  local __ps_emitted="" __ps_e __ps_ok __ps_progress=1
+  while [ "$__ps_progress" = 1 ]; do
+    __ps_progress=0
+    for __ps_n in $__ps_order; do
+      case " $__ps_emitted " in
+        *" $__ps_n "*) continue ;;
+      esac
+      __ps_ok=1
+      for __ps_e in $__ps_edgelist; do
+        [ "${__ps_e#*>}" = "$__ps_n" ] || continue
+        case " $__ps_emitted " in
+          *" ${__ps_e%%>*} "*) ;;
+          *) __ps_ok=0; break ;;
+        esac
+      done
+      [ "$__ps_ok" = 1 ] || continue
+      __ps_emitted="$__ps_emitted $__ps_n"
+      __ps_progress=1
+      break
+    done
+  done
+  __ps_emitted=${__ps_emitted# }
+
+  if [ "$__ps_edges" = 1 ]; then
+    for __ps_n in $__ps_emitted; do
+      for __ps_e in $__ps_edgelist; do
+        [ "${__ps_e%%>*}" = "$__ps_n" ] || continue
+        __ps_out="${__ps_out:+$__ps_out$'\n'}$__ps_n"$'\t'"${__ps_e#*>}"
+      done
+    done
+  else
+    __ps_out=$__ps_emitted
+  fi
+  printf -v "$__ps_var" '%s' "$__ps_out"
+}
+
 # --- requires check ----------------------------------------------------------
 
-# profiles_check_requires — jig_warn (stderr) for every active profile whose
-# `requires` are not all active. Advisory only: always returns 0.
+# profiles_check_requires — jig_warn (stderr) for every profile of the stack
+# whose `requires` are not all in it. Advisory only: always returns 0. A stack
+# that does not resolve is verify's refusal to make; here the plain list is read.
 profiles_check_requires() {
   local active p name req installed_dir
-  active=$(profiles_active)
+  profiles_stack_v active || active=$(profiles_active)
   installed_dir=$(profiles_installed_dir)
   for name in $active; do
     p=$(profiles_dir "$installed_dir" "$name")
@@ -535,14 +813,17 @@ profiles_check_requires() {
 # stack keeps outside git, and `jig task start --worktree` carries it over
 # from the owning checkout (adr-20260924-a-worktree-carries-what-git-does-not).
 
-# _profiles_declared <key> — `<profile><TAB><item>` for every item the active
-# profiles declare under <key>, first-occurrence order, an item never repeated
+# _profiles_declared <key> — `<profile><TAB><item>` for every item the profiles
+# of the stack declare under <key>, first-occurrence order, an item never repeated
 # whichever profile named it first. Reads the profiles installed in this
 # project: those are the ones it actually runs, and `upgrade` keeps a copy a
 # user edited (ADR-0003).
 _profiles_declared() {
-  local key="$1" root name dir item seen=""
+  local key="$1" root name dir item seen="" names
   root=$(profiles_installed_dir)
+  # The stack, not the list: a base is installed and runs. One that does not
+  # resolve reads as the plain list; refusing is verify's work, not carry's.
+  profiles_stack_v names || names=$(profiles_active)
   while IFS= read -r name; do
     [ -n "$name" ] || continue
     dir=$(profiles_dir "$root" "$name") || return 1
@@ -555,7 +836,7 @@ _profiles_declared() {
       seen="$seen<$item>"
       printf '%s\t%s\n' "$name" "$item"
     done < <(_profiles_list_lines "$dir" "$key")
-  done < <(profiles_active | tr ' ' '\n')
+  done < <(printf '%s\n' "$names" | tr ' ' '\n')
   return 0
 }
 

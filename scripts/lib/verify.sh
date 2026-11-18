@@ -592,15 +592,47 @@ cmd_verify() {
   local installed_dir
   installed_dir=$(profiles_installed_dir)
 
+  # The stack: the names asked for (a `--profile` list, or `profiles:`) and every
+  # base they extend, a layer before its base. `--profile php` runs php and what
+  # php extends, never what extends php. A stack that does not resolve is refused
+  # below, after the staleness gate; here the names stay as they were asked.
+  local plain_words="$profiles_words" stack_err="" stack_layer="" stack_edges=""
+  # shellcheck disable=SC2086
+  if profiles_stack_v profiles_words $plain_words; then
+    # shellcheck disable=SC2086
+    profiles_stack_v stack_edges --edges $plain_words || true
+  else
+    stack_err=$PROFILES_STACK_ERROR
+    stack_layer=$PROFILES_STACK_LAYER
+    profiles_words=$plain_words
+  fi
+
   if [ "$list_only" = 1 ]; then
+    local over under e
     for p in $profiles_words; do
       pdir=$(profiles_dir "$installed_dir" "$p")
       if [ -d "$pdir" ]; then
-        printf '%s: installed\n' "$p"
+        over=""
+        under=""
+        while IFS=$'\t' read -r e b; do
+          [ -n "$e" ] || continue
+          [ "$e" != "$p" ] || over=$b
+          [ "$b" != "$p" ] || under="${under:+$under, }$e"
+        done <<EOF
+$stack_edges
+EOF
+        note=""
+        [ -z "$over" ] || note="layer over $over"
+        [ -z "$under" ] || note="${note:+$note; }base of $under"
+        printf '%s: installed%s\n' "$p" "${note:+ ($note)}"
       else
         printf '%s: not installed\n' "$p"
       fi
     done
+    if [ -n "$stack_err" ]; then
+      printf 'FAIL %s\n' "$stack_err"
+      return 1
+    fi
     return 0
   fi
 
@@ -690,6 +722,45 @@ cmd_verify() {
   # fw_pending_rc != 0: pending state unknown (e.g. no source checkout on
   # this machine, domains/install) — proceed and verify the profiles normally.
 
+  # A stack that does not resolve, or a layer with check overrides this version
+  # cannot honour yet, is refused before any profile starts: a layer that runs
+  # without its base, or whose override is ignored, passes for something it did
+  # not check. After the gate above, which catches a missing stock base first.
+  if [ -n "$stack_err" ]; then
+    if [ "$explain" = 1 ]; then
+      printf 'PLAN %s: error (%s)\n' "$stack_layer" "${stack_err#"$stack_layer: "}"
+    else
+      printf 'FAIL %s\n' "$stack_err"
+    fi
+    return 1
+  fi
+  local layer_refused=0 ext chk_line chk_n chk_text
+  for p in $profiles_words; do
+    pdir=$(profiles_dir "$installed_dir" "$p")
+    profile_get_v ext "$pdir" extends || continue
+    [ -n "$ext" ] || continue
+    # The check-table rows `checks.<name>.*` belong to "A layer overrides a
+    # check": until it lands they would be read by nobody and a layer's override
+    # would silently do nothing.
+    chk_line=""
+    chk_n=0
+    while IFS= read -r chk_text || [ -n "$chk_text" ]; do
+      chk_n=$((chk_n + 1))
+      chk_text=${chk_text#"${chk_text%%[![:space:]]*}"}
+      case "$chk_text" in
+        checks.*) chk_line=$chk_n; break ;;
+      esac
+    done < "$pdir/profile.yaml"
+    [ -n "$chk_line" ] || continue
+    layer_refused=1
+    if [ "$explain" = 1 ]; then
+      printf 'PLAN %s: error (profile.yaml:%s: a layer'"'"'s check overrides arrive with a later task (A layer overrides a check); remove the checks.* lines)\n' "$p" "$chk_line"
+    else
+      printf 'FAIL %s: profile.yaml:%s: a layer'"'"'s check overrides arrive with a later task (A layer overrides a check); remove the checks.* lines\n' "$p" "$chk_line"
+    fi
+  done
+  [ "$layer_refused" = 0 ] || return 1
+
   # One trap for both the temporary files and the run record: the record has to
   # come back on every exit, not only on a run that narrowed.
   jig_on_exit '_verify_cleanup'
@@ -764,8 +835,21 @@ cmd_verify() {
 
   local total=0 pass=0 failn=0 skip=0 rc
   for p in $profiles_words; do
-    total=$((total + 1))
     pdir=$(profiles_dir "$installed_dir" "$p")
+
+    # A pure layer — it extends a profile and has no verify.sh of its own — is
+    # a few lines of configuration over its base, not a broken install: it runs
+    # nothing, is not counted, and says where its checks run. Whether anything
+    # was covered is what its bases say.
+    if [ -f "$pdir/profile.yaml" ] && [ ! -f "$pdir/verify.sh" ]; then
+      profile_get_v ext "$pdir" extends || true
+      if [ -n "$ext" ]; then
+        printf 'verify: %s is a layer over %s; its checks run in its bases\n' "$p" "$ext"
+        continue
+      fi
+    fi
+
+    total=$((total + 1))
 
     if [ ! -d "$pdir" ]; then
       if [ "$explain" = 1 ]; then

@@ -580,8 +580,20 @@ test_doctor_profiles_warns_on_an_unreached_directory() {
 
   run jig doctor
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "warn  profiles: warehouse under .ai/profiles not reached by profiles:, never run"
+  assert_contains "$OUT" "warn  profiles: warehouse under .ai/profiles not reached by profiles: or extends, never run"
   assert_contains "$OUT" "fix: add it to profiles: in .ai/config.yaml, or remove .ai/profiles/<name>"
+}
+
+test_doctor_profiles_names_a_stack_that_does_not_resolve_and_nothing_unreached() {
+  fixture_jig_repo
+  mkdir -p .ai/profiles/warehouse .ai/profiles/stray
+  printf 'name: warehouse\nextends: missing\n' > .ai/profiles/warehouse/profile.yaml
+  printf 'name: stray\n' > .ai/profiles/stray/profile.yaml
+  sed 's/^profiles:.*/profiles: [generic, warehouse]/' .ai/config.yaml > c.tmp && mv c.tmp .ai/config.yaml
+
+  run jig doctor
+  assert_contains "$OUT" "warn  profiles: the profile stack does not resolve: warehouse: extends 'missing', which is not installed (run jig upgrade)"
+  assert_not_contains "$OUT" "stray under .ai/profiles"
 }
 
 # --- config keys (the drift report) -------------------------------------------

@@ -167,13 +167,43 @@ test_profiles_active_dedups_and_puts_generic_first() {
 
 # --- profiles_reached / profiles_unreached ---------------------------------
 
-test_profiles_reached_equals_active_today() {
+test_profiles_reached_is_the_list_when_nothing_extends() {
   fixture_repo
   mkdir -p .ai
   printf 'profiles: [php, generic, laravel]\n' > .ai/config.yaml
   profiles_harness 'profiles_reached'
   assert_eq 0 "$RC"
   assert_eq "generic php laravel" "$OUT"
+}
+
+# A base reached only through `extends` is reached: it runs, so it is never
+# named unreached.
+test_profiles_reached_includes_a_base_reached_through_extends() {
+  fixture_repo
+  mkdir -p .ai/profiles/generic .ai/profiles/base .ai/profiles/warehouse
+  printf 'name: base\n' > .ai/profiles/base/profile.yaml
+  printf 'name: warehouse\nextends: base\n' > .ai/profiles/warehouse/profile.yaml
+  printf 'profiles: [warehouse]\n' > .ai/config.yaml
+  profiles_harness 'profiles_reached'
+  assert_eq 0 "$RC"
+  assert_eq "generic warehouse base" "$OUT"
+  profiles_harness 'profiles_unreached'
+  assert_eq 0 "$RC"
+  assert_eq "" "$OUT"
+}
+
+# A stack that does not resolve reaches nothing knowable: nothing is named.
+test_profiles_unreached_names_nothing_when_the_stack_does_not_resolve() {
+  fixture_repo
+  mkdir -p .ai/profiles/generic .ai/profiles/warehouse .ai/profiles/stray
+  printf 'name: warehouse\nextends: missing\n' > .ai/profiles/warehouse/profile.yaml
+  printf 'profiles: [warehouse]\n' > .ai/config.yaml
+  profiles_harness 'profiles_reached'
+  assert_eq 1 "$RC"
+  assert_eq "" "$OUT"
+  profiles_harness 'profiles_unreached'
+  assert_eq 1 "$RC"
+  assert_eq "" "$OUT"
 }
 
 test_profiles_unreached_prints_the_unlisted_directory() {
@@ -555,4 +585,294 @@ test_profiles_check_rows_is_empty_without_a_table() {
   profiles_harness 'profiles_check_rows "$PWD/fx"'
   assert_eq 0 "$RC"
   assert_eq "" "$OUT"
+}
+
+# --- stacks: profiles_stack_v --------------------------------------------------
+
+# _stack_profile <root> <name> [<extends-line>] — a profile directory under <root>.
+_stack_profile() {
+  mkdir -p "$1/$2"
+  printf 'name: %s\n%s\n' "$2" "${3:-}" > "$1/$2/profile.yaml"
+}
+
+# stack_of <names...> — the stack of those names, read from the fixture's own
+# installed profiles and a fixture source, in run order.
+stack_of() {
+  profiles_harness 'profiles_stack_v out --stock-root "$PWD/src/profiles" '"$*"' || { printf "ERR %s\n" "$PROFILES_STACK_ERROR"; exit 1; }; printf "%s\n" "$out"'
+}
+
+test_stack_layer_before_its_base_in_listed_order() {
+  fixture_repo
+  _stack_profile src/profiles generic
+  _stack_profile src/profiles php
+  _stack_profile src/profiles laravel 'extends: php'
+  stack_of generic laravel php
+  assert_eq 0 "$RC"
+  assert_eq "generic laravel php" "$OUT"
+}
+
+test_stack_layer_listed_after_its_base_still_runs_first() {
+  fixture_repo
+  _stack_profile src/profiles generic
+  _stack_profile src/profiles php
+  _stack_profile src/profiles laravel 'extends: php'
+  stack_of generic php laravel
+  assert_eq "generic laravel php" "$OUT"
+}
+
+test_stack_layer_alone_brings_its_base() {
+  fixture_repo
+  _stack_profile src/profiles generic
+  _stack_profile src/profiles php
+  _stack_profile src/profiles laravel 'extends: php'
+  stack_of generic laravel
+  assert_eq "generic laravel php" "$OUT"
+}
+
+test_stack_shared_base_waits_for_every_layer_over_it() {
+  fixture_repo
+  _stack_profile src/profiles generic
+  _stack_profile src/profiles php
+  _stack_profile src/profiles laravel 'extends: php'
+  _stack_profile src/profiles a 'extends: laravel'
+  _stack_profile src/profiles b 'extends: laravel'
+  stack_of generic a b
+  assert_eq "generic a b laravel php" "$OUT"
+}
+
+test_stack_without_extends_keeps_the_list() {
+  fixture_repo
+  _stack_profile src/profiles generic
+  _stack_profile src/profiles php
+  _stack_profile src/profiles node
+  stack_of generic node php node
+  assert_eq "generic node php" "$OUT"
+}
+
+test_stack_default_names_are_generic_and_the_config_list() {
+  fixture_repo
+  mkdir -p .ai
+  printf 'profiles: [top]\n' > .ai/config.yaml
+  _stack_profile .ai/profiles top 'extends: base'
+  _stack_profile .ai/profiles base
+  profiles_harness 'profiles_stack_v out --stock-root "$PWD/src/profiles"; printf "%s\n" "$out"'
+  assert_eq 0 "$RC"
+  assert_eq "generic top base" "$OUT"
+}
+
+test_stack_edges_name_each_layer_and_its_base() {
+  fixture_repo
+  _stack_profile src/profiles generic
+  _stack_profile src/profiles php
+  _stack_profile src/profiles laravel 'extends: php'
+  _stack_profile src/profiles a 'extends: laravel'
+  profiles_harness 'profiles_stack_v out --edges --stock-root "$PWD/src/profiles" generic a; printf "%s\n" "$out"'
+  assert_eq 0 "$RC"
+  assert_eq "a	laravel
+laravel	php" "$OUT"
+}
+
+test_stack_reads_a_stock_extends_from_the_stock_root_not_the_installed_copy() {
+  fixture_repo
+  _stack_profile src/profiles generic
+  _stack_profile src/profiles php
+  _stack_profile src/profiles laravel 'extends: php'
+  # The installed copy is from before the release that added extends.
+  _stack_profile .ai/profiles laravel
+  cp -R src/profiles/php .ai/profiles/php
+  printf 'jig.version: 0\n---\nabc .ai/profiles/laravel/profile.yaml\nabc .ai/profiles/php/profile.yaml\n' > .ai/manifest
+  stack_of generic laravel
+  assert_eq "generic laravel php" "$OUT"
+}
+
+test_stack_missing_base_names_layer_and_base() {
+  fixture_repo
+  _stack_profile .ai/profiles generic
+  _stack_profile .ai/profiles top 'extends: ghost'
+  profiles_harness 'profiles_stack_v out top; rc=$?; printf "%s|%s|%s\n" "$rc" "$PROFILES_STACK_LAYER" "$PROFILES_STACK_ERROR"'
+  assert_contains "$OUT" "1|top|top: extends 'ghost', which is not installed (run jig upgrade)"
+}
+
+test_stack_missing_base_against_a_source_says_so() {
+  fixture_repo
+  _stack_profile .ai/profiles top 'extends: ghost'
+  stack_of top
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "top: extends 'ghost', which is neither shipped with jig nor in .ai/profiles"
+}
+
+test_stack_cycle_is_named() {
+  fixture_repo
+  _stack_profile .ai/profiles a 'extends: b'
+  _stack_profile .ai/profiles b 'extends: a'
+  profiles_harness 'profiles_stack_v out a; printf "%s\n" "$PROFILES_STACK_ERROR"'
+  assert_contains "$OUT" "a: extends cycle: a -> b -> a"
+}
+
+test_stack_extends_itself_is_a_cycle() {
+  fixture_repo
+  _stack_profile .ai/profiles a 'extends: a'
+  profiles_harness 'profiles_stack_v out a; printf "%s\n" "$PROFILES_STACK_ERROR"'
+  assert_contains "$OUT" "a: extends cycle: a -> a"
+}
+
+test_stack_extends_a_list_is_refused() {
+  fixture_repo
+  _stack_profile .ai/profiles a 'extends: [b, c]'
+  profiles_harness 'profiles_stack_v out a; rc=$?; printf "%s|%s\n" "$rc" "$PROFILES_STACK_ERROR"'
+  assert_contains "$OUT" "1|a: extends names one profile, not a list"
+}
+
+test_stack_extends_generic_is_refused() {
+  fixture_repo
+  _stack_profile .ai/profiles a 'extends: generic'
+  profiles_harness 'profiles_stack_v out a; printf "%s\n" "$PROFILES_STACK_ERROR"'
+  assert_contains "$OUT" "a: extends 'generic', which is always first and is no base"
+}
+
+test_stack_extends_an_invalid_name_is_refused() {
+  fixture_repo
+  _stack_profile .ai/profiles a 'extends: ../x'
+  profiles_harness 'profiles_stack_v out a; printf "%s\n" "$PROFILES_STACK_ERROR"'
+  assert_contains "$OUT" "a: extends '../x' is not a profile name"
+}
+
+test_stack_an_invalid_listed_name_is_an_error_not_a_death() {
+  fixture_repo
+  mkdir -p .ai
+  printf 'profiles: [..]\n' > .ai/config.yaml
+  profiles_harness 'profiles_stack_v out; rc=$?; printf "%s|%s\n" "$rc" "$PROFILES_STACK_ERROR"'
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "1|..: invalid profile name"
+}
+
+# --- stacks: stock and project profiles ------------------------------------------
+
+test_stack_clash_project_profile_under_a_stock_name_copy_mode() {
+  fixture_repo
+  _stack_profile src/profiles generic
+  _stack_profile src/profiles php
+  _stack_profile src/profiles generic
+  # The project wrote its own `php`; the manifest does not track it.
+  _stack_profile .ai/profiles php 'detect: [mine.txt]'
+  printf 'jig.version: 0\n---\n' > .ai/manifest
+  stack_of generic php
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "php: profile '.ai/profiles/php' is the project's own, but 'php' is a stock profile; rename the project's (and its extends: lines)"
+}
+
+test_stack_clash_names_the_clashing_base_of_a_layer() {
+  fixture_repo
+  _stack_profile src/profiles generic
+  _stack_profile src/profiles php
+  _stack_profile .ai/profiles php 'detect: [mine.txt]'
+  _stack_profile .ai/profiles mine 'extends: php'
+  mkdir -p .ai
+  printf 'jig.version: 0\n---\n' > .ai/manifest
+  stack_of generic mine
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "'.ai/profiles/php' is the project's own"
+}
+
+test_stack_clash_is_not_raised_in_link_mode() {
+  fixture_repo
+  skip_unless_symlinks
+  _stack_profile src/profiles generic
+  _stack_profile src/profiles php
+  mkdir -p .ai/profiles
+  ln -s "$PWD/src/profiles/php" .ai/profiles/php
+  stack_of generic php
+  assert_eq 0 "$RC"
+  assert_eq "generic php" "$OUT"
+}
+
+test_stack_project_profile_under_a_stock_name_clashes_in_link_mode_too() {
+  fixture_repo
+  skip_unless_symlinks
+  _stack_profile src/profiles generic
+  _stack_profile src/profiles php
+  # Link mode: the manifest body is empty, the stock ones are symlinks.
+  _stack_profile .ai/profiles php 'detect: [mine.txt]'
+  mkdir -p .ai
+  printf 'jig.version: 0\njig.mode: link\n---\n' > .ai/manifest
+  stack_of generic php
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "is the project's own, but 'php' is a stock profile"
+}
+
+test_stack_a_modified_stock_profile_is_not_a_clash() {
+  fixture_repo
+  _stack_profile src/profiles generic
+  _stack_profile src/profiles php
+  cp -R src/profiles/php .ai/profiles/php
+  printf 'detect: [edited.txt]\n' >> .ai/profiles/php/profile.yaml
+  mkdir -p .ai
+  printf 'jig.version: 0\n---\nabc .ai/profiles/php/profile.yaml\n' > .ai/manifest
+  stack_of generic php
+  assert_eq 0 "$RC"
+  assert_eq "generic php" "$OUT"
+}
+
+test_stack_a_byte_identical_untracked_directory_is_an_interrupted_install_not_a_clash() {
+  fixture_repo
+  _stack_profile src/profiles generic
+  _stack_profile src/profiles php
+  cp -R src/profiles/php .ai/profiles/php
+  mkdir -p .ai
+  printf 'jig.version: 0\n---\n' > .ai/manifest
+  stack_of generic php
+  assert_eq 0 "$RC"
+  assert_eq "generic php" "$OUT"
+}
+
+test_stack_only_the_stack_is_checked_for_clashes() {
+  fixture_repo
+  _stack_profile src/profiles generic
+  _stack_profile src/profiles php
+  _stack_profile .ai/profiles php 'detect: [mine.txt]'
+  mkdir -p .ai
+  printf 'jig.version: 0\n---\n' > .ai/manifest
+  stack_of generic
+  assert_eq 0 "$RC"
+  assert_eq "generic" "$OUT"
+}
+
+test_profiles_is_stock_by_source_manifest_or_symlink() {
+  fixture_repo
+  skip_unless_symlinks
+  _stack_profile src/profiles in-source
+  _stack_profile .ai/profiles tracked
+  _stack_profile .ai/profiles mine
+  mkdir -p .ai
+  ln -s "$PWD/src/profiles/in-source" .ai/profiles/linked
+  printf 'jig.version: 0\n---\nabc .ai/profiles/tracked/profile.yaml\n' > .ai/manifest
+  profiles_harness 'for n in in-source tracked linked mine; do profiles_is_stock "$n" "$PWD/src/profiles" && echo "$n stock" || echo "$n own"; done'
+  assert_contains "$OUT" "in-source stock"
+  assert_contains "$OUT" "tracked stock"
+  assert_contains "$OUT" "linked stock"
+  assert_contains "$OUT" "mine own"
+}
+
+test_declared_carry_reads_the_stack() {
+  fixture_repo
+  mkdir -p .ai
+  printf 'profiles: [top]\n' > .ai/config.yaml
+  _stack_profile .ai/profiles generic
+  _stack_profile .ai/profiles top 'extends: base'
+  _stack_profile .ai/profiles base 'carry: [vendor]'
+  profiles_harness 'profiles_carry'
+  assert_eq 0 "$RC"
+  assert_eq "base	vendor" "$OUT"
+}
+
+test_declared_carry_falls_back_to_the_list_when_the_stack_does_not_resolve() {
+  fixture_repo
+  mkdir -p .ai
+  printf 'profiles: [top]\n' > .ai/config.yaml
+  _stack_profile .ai/profiles generic
+  _stack_profile .ai/profiles top "carry: [node_modules]
+extends: ghost"
+  profiles_harness 'profiles_carry'
+  assert_eq 0 "$RC"
+  assert_eq "top	node_modules" "$OUT"
 }

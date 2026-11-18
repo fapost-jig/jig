@@ -22,7 +22,7 @@ paths:
   - scripts/lib/section.sh
   - scripts/lib/output.sh
   - scripts/lib/globalskill.sh
-reviewed_at: 2026-11-12
+reviewed_at: 2026-11-18
 ---
 # Install
 
@@ -38,8 +38,14 @@ project owns.
   `.ai/verify/`, `.ai/config.yaml` and `AGENTS.md` are never touched (ADR-0003,
   ADR-0011, ADR-0041) — with the single exception of `AGENTS.md`'s marked section, below. `init` does not create `.ai/verify/` either: a project that wants a
   map writes it. A first `init` without `--profiles` and without `.ai/config.yaml` writes
-  the detected profiles into the config it creates; with `--profiles`, or when the config
-  exists, detection only suggests (adr-20260918-init-activates-detected-profiles). Neither is `.ai/config.local.yaml`, which is not the project's either: it
+  the detected profiles into the config it creates — only the top layers, never a profile that
+  is the base of another detected one; with `--profiles`, or when the config
+  exists, detection only suggests (adr-20260918-init-activates-detected-profiles). What
+  `init` and `upgrade` install is the stack, `profiles:` closed over `extends`: a base a listed
+  layer reaches is installed, kept up to date and never deleted, while `profiles:` itself is
+  never edited; a project's own profile is never installed over, and a stack that does not
+  resolve is refused before a file is placed
+  (adr-20261117-profiles-lists-top-layers-and-jig-resolves-the-stack). Neither is `.ai/config.local.yaml`, which is not the project's either: it
   belongs to the clone's owner and is never created by `init` — only by hand or by
   `jig config set --local` at the owner's request (ADR-0038). `init` does write
   its line into `.gitignore`, through the same append-missing-lines merge as every other

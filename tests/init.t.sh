@@ -1192,3 +1192,99 @@ test_init_link_mode_is_not_refused_for_an_unreleased_source() {
   assert_file .ai/manifest
   assert_file_contains .ai/manifest "jig.mode: link"
 }
+
+# --- profile stacks (extends) ---------------------------------------------------
+
+# _init_stack_source <dest> — a released copy of $JIG_HOME with two more stock
+# profiles: `zbase` (detected by zb.txt) and `ztop` (detected by zt.txt), a
+# layer over it.
+_init_stack_source() {
+  local dest="$1"
+  cp -R "$JIG_HOME"/. "$dest"/
+  mkdir -p "$dest/profiles/zbase" "$dest/profiles/ztop"
+  printf 'name: zbase\ndetect: [zb.txt]\n' > "$dest/profiles/zbase/profile.yaml"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$dest/profiles/zbase/verify.sh"
+  printf 'name: ztop\ndetect: [zt.txt]\nextends: zbase\n' > "$dest/profiles/ztop/profile.yaml"
+  fixture_release_source "$dest"
+}
+
+test_init_first_run_writes_only_the_top_layer_of_what_it_detects() {
+  fixture_repo
+  local src
+  src=$(mktemp -d "${TMPDIR:-/tmp}/jig-init-stack.XXXXXX")
+  _init_stack_source "$src"
+  : > zb.txt
+  : > zt.txt
+
+  run jig init --from "$src"
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "detected profiles: ztop"
+  assert_not_contains "$OUT" "suggested profiles:"
+  assert_eq "[generic, ztop]" "$(sed -n 's/^profiles: //p' .ai/config.yaml)"
+  # The base is installed all the same: it is in the layer's stack.
+  assert_file .ai/profiles/ztop/profile.yaml
+  assert_file .ai/profiles/zbase/verify.sh
+
+  rm -rf "$src"
+}
+
+test_init_rerun_with_a_project_layer_does_not_look_for_it_in_the_source() {
+  fixture_repo
+  local src
+  src=$(mktemp -d "${TMPDIR:-/tmp}/jig-init-stack.XXXXXX")
+  _init_stack_source "$src"
+  jig init --from "$src" --profiles generic >/dev/null
+  mkdir -p .ai/profiles/mine
+  printf 'name: mine\nextends: zbase\n' > .ai/profiles/mine/profile.yaml
+  printf 'profiles: [generic, mine]\nadapters: [claude, codex]\n' > .ai/config.yaml
+
+  run jig init --from "$src"
+  assert_eq 0 "$RC"
+  assert_not_contains "$OUT" "not found in source"
+  assert_file .ai/profiles/zbase/verify.sh
+  assert_file_contains .ai/profiles/mine/profile.yaml "extends: zbase"
+
+  rm -rf "$src"
+}
+
+test_init_suggestion_counts_what_a_layer_reaches() {
+  fixture_repo
+  local src
+  src=$(mktemp -d "${TMPDIR:-/tmp}/jig-init-stack.XXXXXX")
+  _init_stack_source "$src"
+  jig init --from "$src" --profiles generic >/dev/null
+  mkdir -p .ai/profiles/mine
+  printf 'name: mine\nextends: zbase\n' > .ai/profiles/mine/profile.yaml
+  printf 'profiles: [generic, mine]\nadapters: [claude, codex]\n' > .ai/config.yaml
+  : > zb.txt
+
+  run jig init --from "$src"
+  assert_eq 0 "$RC"
+  assert_not_contains "$OUT" "suggested profiles:"
+
+  # Without the layer, the base it would have brought is the suggestion.
+  printf 'profiles: [generic]\nadapters: [claude, codex]\n' > .ai/config.yaml
+  run jig init --from "$src"
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "suggested profiles: zbase"
+
+  rm -rf "$src"
+}
+
+test_init_a_name_in_neither_the_source_nor_the_project_still_dies() {
+  fixture_repo
+  run jig init --from "$JIG_HOME" --profiles generic,ghost
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "profile 'ghost' not found in source"
+}
+
+test_init_refuses_a_layer_whose_base_is_nowhere() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  mkdir -p .ai/profiles/mine
+  printf 'name: mine\nextends: ghost\n' > .ai/profiles/mine/profile.yaml
+  printf 'profiles: [generic, mine]\nadapters: [claude, codex]\n' > .ai/config.yaml
+  run jig init --from "$JIG_HOME"
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "mine: extends 'ghost'"
+}
