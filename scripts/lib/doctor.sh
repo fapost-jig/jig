@@ -145,7 +145,7 @@ _doctor_check_global_jig() {
   local exe="$1" root version
   if [ -z "$exe" ]; then
     _doctor_warn "global jig" "not found on PATH" \
-      "curl -fsSL https://raw.githubusercontent.com/fapost-lab/jig/main/install.sh | bash"
+      "curl -fsSL https://raw.githubusercontent.com/fapost-jig/jig/main/install.sh | bash"
     return 0
   fi
   root="${exe%/scripts/jig}"
@@ -153,7 +153,7 @@ _doctor_check_global_jig() {
     _doctor_ok "global jig" "$exe ($version)"
   else
     _doctor_warn "global jig" "$exe (version unreadable)" \
-      "curl -fsSL https://raw.githubusercontent.com/fapost-lab/jig/main/install.sh | bash"
+      "curl -fsSL https://raw.githubusercontent.com/fapost-jig/jig/main/install.sh | bash"
   fi
 }
 

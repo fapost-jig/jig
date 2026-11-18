@@ -4,9 +4,9 @@
 # Bootstraps a per-user global framework checkout and a `jig` command
 # without requiring a prior clone:
 #
-#   curl -fsSL https://raw.githubusercontent.com/fapost-lab/jig/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/fapost-jig/jig/main/install.sh | bash
 #
-# Defaults: repository https://github.com/fapost-lab/jig.git, ref = the
+# Defaults: repository https://github.com/fapost-jig/jig.git, ref = the
 # newest release tag, checkout $HOME/.local/share/jig (detached at that
 # tag), executable $HOME/.local/bin/jig symlinked to the checkout's
 # scripts/jig. Never uses sudo and never touches the caller's current
@@ -243,7 +243,7 @@ Installs Jig into a per-user location and creates a `jig` command.
 
 Options:
   --repository <url>      Git remote to install from
-                           (default: https://github.com/fapost-lab/jig.git)
+                           (default: https://github.com/fapost-jig/jig.git)
   --ref <branch-or-tag>   Install this ref instead of the newest release tag.
                            Use --ref main for the development channel.
   --install-dir <dir>     Framework checkout location
@@ -710,7 +710,7 @@ main() {
   INSTALL_LATER=""
   _install_check_environment
 
-  REPOSITORY="https://github.com/fapost-lab/jig.git"
+  REPOSITORY="https://github.com/fapost-jig/jig.git"
   REF=""
   INSTALL_DIR="$HOME/.local/share/jig"
   BIN_DIR="$HOME/.local/bin"

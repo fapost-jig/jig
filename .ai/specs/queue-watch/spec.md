@@ -121,7 +121,7 @@ way.)
   ends the watcher and withdraws its "taken" records.
 - Jig UI shows the block and a stop button; it cannot start a Claude Code session, so it shows the
   command that does. Jig's side is the contract; the UI work goes as an item into
-  `fapost-lab/jig-ui`'s spec through a pull request, never a task there.
+  `fapost-jig/jig-ui`'s spec through a pull request, never a task there.
 - Depends on `start-follows-the-queue` (`next` without started tasks, position by priority) and on
   `verify-waits-for-a-slot` (machine load; `verify.jobs` in place of `JIG_TEST_JOBS=3` belongs
   there). — rejected: `verify.jobs` as an item of this spec, because a per-process key does not

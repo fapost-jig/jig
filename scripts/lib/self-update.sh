@@ -148,7 +148,7 @@ cmd_self_update() {
   local global self_phys source
 
   global=$(jig_global_executable) \
-    || jig_die "self-update: no global jig on PATH; install it with: curl -fsSL https://raw.githubusercontent.com/fapost-lab/jig/main/install.sh | bash"
+    || jig_die "self-update: no global jig on PATH; install it with: curl -fsSL https://raw.githubusercontent.com/fapost-jig/jig/main/install.sh | bash"
 
   # JIG_SELF is already symlink-resolved (dispatcher); made physical the same
   # way jig_global_executable makes its own answer physical, so the two

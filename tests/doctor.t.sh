@@ -106,7 +106,7 @@ _doctor_fixed_env() {
 
 _doctor_fixed_problems() {
   printf 'warn  global jig: not found on PATH\n'
-  printf '      fix: curl -fsSL https://raw.githubusercontent.com/fapost-lab/jig/main/install.sh | bash\n'
+  printf '      fix: curl -fsSL https://raw.githubusercontent.com/fapost-jig/jig/main/install.sh | bash\n'
   printf 'warn  directory links: task worktrees are unavailable\n'
   printf '      fix: enable Windows Developer Mode, or use a local NTFS or POSIX filesystem\n'
 }
@@ -121,7 +121,7 @@ test_doctor_a_pipe_gets_the_report_byte_for_byte_as_before() {
     printf 'ok    git: %s\n' "$DOCTOR_GIT_VERSION"
     printf 'ok    git identity: Doctor Test <doctor@example.com>\n'
     printf 'warn  global jig: not found on PATH\n'
-    printf '      fix: curl -fsSL https://raw.githubusercontent.com/fapost-lab/jig/main/install.sh | bash\n'
+    printf '      fix: curl -fsSL https://raw.githubusercontent.com/fapost-jig/jig/main/install.sh | bash\n'
     printf 'warn  directory links: task worktrees are unavailable\n'
     printf '      fix: enable Windows Developer Mode, or use a local NTFS or POSIX filesystem\n'
     printf 'doctor: 2 ok, 2 warn, 0 fail\n'
