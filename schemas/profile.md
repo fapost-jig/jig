@@ -12,6 +12,7 @@ absent key means is decided by its reader, not by this file.
 | `description` | scalar | one line on what the profile checks and which tools it reaches for. Read by no script either |
 | `detect` | `always`, or an inline list of globs | how `profiles_detect` recognises a project of this stack — see **Detection** |
 | `requires` | inline list of profile names | profiles this one builds on. Detection closes over it, and `profiles_check_requires` warns when an active profile's requirement is not active — see **Requires** |
+| `extends` | one profile name | the profile this one builds on: a layer over a base. Listing the layer in `profiles:` brings its base with it — see **Stacks**. A scalar, never a list |
 | `scope` | inline list of capabilities | which parts of the verify scope protocol this profile's `verify.sh` understands: `changed` (ADR-0013), `map` (ADR-0041), `explain`, `environment` — see **Scope** |
 | `covers` | inline list of `<profile>:<check>` | checks of other profiles this profile's own checks replace: `laravel` declares `covers: [php:tests]`, because `php artisan test` runs the suite php's PHPUnit or Pest would — see **Covers** |
 | `checks` | inline list of check names | the checks of this profile another can take over by name. Today one name exists, `tests`, and `php`, `laravel`, `node` and `python` declare it — see **Covers** |
@@ -57,12 +58,66 @@ A profile pulled in by detection pulls in everything it requires, even when that
 profile's own globs matched nothing — `laravel` matches `artisan` and brings in `php`,
 whose `composer.json` may be absent. The closure runs until a full pass adds nothing new.
 
-Activation is separate and is not closed over: `.ai/config.yaml` lists exactly the
-profiles the project activates. `profiles_check_requires` warns on stderr when an active
-profile requires one that is not active, and is advisory — it never fails a command. The
+Activation of `requires` is separate and is not closed over: `.ai/config.yaml` lists exactly
+the profiles the project activates, and a profile that is only required is not run. (`extends` is
+closed over, below.) `profiles_check_requires` warns on stderr when a profile of the stack
+requires one that is not in it, and is advisory — it never fails a command. The
 two read different trees: detection reads the profiles shipped with the framework, the
 warning reads the copies installed under `.ai/profiles/`, so a manifest the project
 edited can make them disagree.
+
+`requires` is the older key and stays as it is for now: it closes detection and warns. A profile
+that is built on another says `extends` (below); which of the two a stock profile such as
+`laravel` uses is decided when it is converted.
+
+## Stacks
+
+`extends: <name>` makes a profile a **layer** over one **base**: a project's own `warehouse`
+over `laravel`, `laravel` over `php`. `profiles:` in `.ai/config.yaml` lists the top layers, and
+the **stack** is that list closed over `extends`. A profile is *reached* when it is in the
+stack. `profiles_stack_v` in `scripts/lib/profiles.sh` is the one function that resolves it;
+`jig verify`, `jig upgrade`, `jig init`, the worktree carry and lock lists and the ship notice
+all read the stack from it and none re-derives it. `profiles_reached` answers "reached" from it
+for `jig doctor` and `jig status`, which name an installed profile the stack does not reach; when
+the stack does not resolve, doctor names that reason and nothing is called unreached.
+
+- **Shape.** The value is one profile name, valid as a directory name. A list
+  (`extends: [a, b]`), `generic` (always first, never a base) and anything that is not a name are
+  errors. The chain is linear: a base may extend another, and ends at a profile with no `extends`.
+  The `detect` of a base reached this way is not asked: the layer called it.
+- **Order.** A layer always comes before its base; otherwise the order is the order the names
+  were first met in `profiles:`. `[generic, laravel, php]` with `laravel` over `php` runs
+  `generic laravel php`, as does `[generic, php, laravel]`; two layers over one base run before
+  it. A list that names both a layer and its base is allowed: the base runs once.
+- **Where `extends` is read.** For a stock profile from the source (`jig upgrade`, `jig init`: the
+  release being installed decides), and from the installed copy in `jig verify`: what runs is
+  what is there. For a project's own profile always from `.ai/profiles/<name>/`.
+- **Errors.** A base that is not installed (or, for upgrade and init, neither shipped nor under
+  `.ai/profiles/`), a cycle, a list or a bad name in `extends`, and a name clash (below) are
+  errors, never warnings: `jig verify` refuses before running any profile
+  (`FAIL <layer>: ...`; `--explain` prints `PLAN <layer>: error (...)`) and `jig upgrade`
+  refuses before placing a file, in link mode too. `profiles_stack_v` itself never dies: it
+  returns 1 and sets `PROFILES_STACK_ERROR` (`<layer>: <reason>`) and `PROFILES_STACK_LAYER`.
+- **Stock and the project's own.** A profile is *stock* when it exists in the source's
+  `profiles/`, the manifest tracks `.ai/profiles/<name>/`, or `.ai/profiles/<name>` is a symlink
+  (link mode). A profile is the *project's own* when `.ai/profiles/<name>/` is a real directory the
+  manifest does not track and at least one of its files differs from (or is absent in) the
+  source's copy; a byte-identical untracked directory is a stock install that was interrupted,
+  and the next `jig upgrade` finishes it. A project's own profile in the stack that carries a
+  stock name is a **name clash**, one error naming both; only the stack is checked, so a name a
+  release newly ships breaks no project that did not activate it. Without a source checkout
+  `jig verify` cannot see a clash with a stock name it has not installed; `upgrade` and `init`
+  always can.
+- **Pure layer.** A profile with `extends` and no `verify.sh` is not a broken install: `jig verify`
+  does not run it or count it, and prints `<layer> is a layer over <base>; its checks run in its
+  bases`. A profile with neither stays `SKIP <name>: no verify.sh`.
+- **Not yet.** A layer's `checks.*` rows (a check table that overrides its base) arrive with the
+  task "A layer overrides a check". Until then `jig verify` refuses a layer whose `profile.yaml`
+  has any line starting `checks.`, so an override is not silently ignored; the plain `checks:`
+  list is fine.
+- **Install.** `jig upgrade` installs, updates and keeps every profile of the stack, bases
+  included, and still never edits `profiles:`; a first `jig init` writes only the top layers of
+  what it detects (adr-20261117-profiles-lists-top-layers-and-jig-resolves-the-stack).
 
 ## Scope
 
@@ -148,7 +203,7 @@ upper profile accepts the lower profile's filter vocabulary — `php` and `larav
 file path. The lower profile still receives its own map for the checks it keeps.
 
 `covers` and `checks` are the first step of profile layers (`.ai/specs/profile-layers/`): one
-name, one way to drop a check. A check table, overrides of a check's arguments and `extends` are
+name, one way to drop a check. A check table and overrides of a check's arguments are
 later work, and other stock profiles name their checks as that work reaches them.
 
 ## The reader is tolerant, and that is the design

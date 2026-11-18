@@ -421,6 +421,21 @@ covering profile declares `scope: [changed, map]` (as the example's would). One 
 without reading maps does not take tests whose map would be dropped: Jig warns, and the stock
 profile keeps them.
 
+A profile of your own can also build on one other, with `extends: <name>` in its `profile.yaml`.
+List only the top layer in `.ai/config.yaml`; the profiles it extends come with it, and
+`jig upgrade` installs and keeps them without ever editing the list.
+
+```yaml
+# .ai/profiles/warehouse/profile.yaml
+extends: laravel
+```
+
+The layer runs before its base. A base that is not installed, a cycle, a list after `extends`, or
+a profile of your own that has the name of a stock one is refused by `jig verify` and
+`jig upgrade` before anything runs or is placed. A layer that is only a `profile.yaml`, with no
+`verify.sh`, is fine: `jig verify` says its checks run in its bases. A layer cannot yet change a
+check of its base (`checks.*` rows are refused until that arrives).
+
 ### Where checks run
 
 A project that lives in a container — Laravel Sail, a `docker compose` service — must be checked

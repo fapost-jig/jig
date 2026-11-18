@@ -137,7 +137,10 @@ EOF
   assert_contains "$OUT" "shell: installed"
 }
 
-test_upgrade_link_mode_reports_conflict_and_keeps_existing_file() {
+# A directory of the project's own under a stock profile's name is a name clash
+# of the stack (adr-20261117-profiles-lists-top-layers-and-jig-resolves-the-stack):
+# one refusal naming both, not a keep-conflict per file.
+test_upgrade_link_mode_refuses_a_project_directory_under_a_stock_name_and_keeps_it() {
   skip_unless_symlinks
   fixture_repo
   jig init --from "$JIG_HOME" --link --profiles generic >/dev/null
@@ -149,8 +152,8 @@ EOF
   echo "pre-existing, not a symlink" > .ai/profiles/shell/verify.sh
 
   run jig upgrade --from "$JIG_HOME"
-  assert_eq 0 "$RC"
-  assert_contains "$OUT" "keep-conflict .ai/profiles/shell"
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "profile '.ai/profiles/shell' is the project's own, but 'shell' is a stock profile"
   assert_no_file .ai/profiles/shell/profile.yaml
   assert_file_contains .ai/profiles/shell/verify.sh "pre-existing, not a symlink"
 }
@@ -4094,4 +4097,177 @@ test_upgrade_in_its_own_tree_with_nothing_to_change_leaves_nothing() {
   _tree_gone
 
   rm -rf "$remote"
+}
+
+# --- profile stacks (extends) ---------------------------------------------------
+
+# _stack_source <dest> — a released copy of $JIG_HOME that ships two more stock
+# profiles: `zbase`, with a verify.sh, and `ztop`, a layer over it that is a
+# profile.yaml and nothing else.
+_stack_source() {
+  local dest="$1"
+  cp -R "$JIG_HOME"/. "$dest"/
+  mkdir -p "$dest/profiles/zbase" "$dest/profiles/ztop"
+  printf 'name: zbase\ndescription: fixture base.\n' > "$dest/profiles/zbase/profile.yaml"
+  printf '#!/usr/bin/env bash\necho "zbase: own: pass"\nexit 0\n' > "$dest/profiles/zbase/verify.sh"
+  printf 'name: ztop\nextends: zbase\n' > "$dest/profiles/ztop/profile.yaml"
+  fixture_release_source "$dest"
+}
+
+test_upgrade_installs_the_base_of_a_listed_layer_and_leaves_profiles_alone() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  local src
+  src=$(mktemp -d "${TMPDIR:-/tmp}/jig-stack-src.XXXXXX")
+  _stack_source "$src"
+  printf 'profiles: [generic, ztop]\nadapters: [claude, codex]\n' > .ai/config.yaml
+
+  run jig upgrade --from "$src"
+  assert_eq 0 "$RC"
+  assert_file .ai/profiles/ztop/profile.yaml
+  assert_file .ai/profiles/zbase/profile.yaml
+  assert_file .ai/profiles/zbase/verify.sh
+  assert_file_contains .ai/manifest ".ai/profiles/zbase/verify.sh"
+  # Upgrade installs the stack; it never writes the list.
+  assert_file_contains .ai/config.yaml "profiles: \[generic, ztop\]"
+
+  rm -rf "$src"
+}
+
+test_upgrade_does_not_delete_a_base_the_manifest_remembers() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  local src
+  src=$(mktemp -d "${TMPDIR:-/tmp}/jig-stack-src.XXXXXX")
+  _stack_source "$src"
+  printf 'profiles: [generic, ztop]\nadapters: [claude, codex]\n' > .ai/config.yaml
+  run jig upgrade --from "$src"
+  assert_eq 0 "$RC"
+
+  run jig upgrade --from "$src"
+  assert_eq 0 "$RC"
+  assert_not_contains "$OUT" "remove .ai/profiles/zbase"
+  assert_file .ai/profiles/zbase/verify.sh
+  assert_file_contains .ai/manifest ".ai/profiles/zbase/verify.sh"
+
+  rm -rf "$src"
+}
+
+test_upgrade_refuses_a_stack_that_does_not_resolve_before_placing_a_file_copy_mode() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  local src
+  src=$(mktemp -d "${TMPDIR:-/tmp}/jig-stack-src.XXXXXX")
+  _stack_source "$src"
+  printf 'name: ztop\nextends: ghost\n' > "$src/profiles/ztop/profile.yaml"
+  fixture_release_source "$src"
+  printf 'profiles: [generic, ztop]\nadapters: [claude, codex]\n' > .ai/config.yaml
+  cp .ai/manifest manifest.before.tmp
+
+  run jig upgrade --from "$src"
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "ztop: extends 'ghost', which is neither shipped with jig nor in .ai/profiles"
+  assert_contains "$OUT" "Nothing was changed"
+  assert_no_file .ai/profiles/ztop
+  assert_no_file .ai/profiles/zbase
+  assert_eq "$(cat manifest.before.tmp)" "$(cat .ai/manifest)"
+
+  rm -rf "$src"
+}
+
+test_upgrade_refuses_a_stack_that_does_not_resolve_before_placing_a_file_link_mode() {
+  skip_unless_symlinks
+  fixture_repo
+  local src
+  src=$(mktemp -d "${TMPDIR:-/tmp}/jig-stack-src.XXXXXX")
+  _stack_source "$src"
+  printf 'name: ztop\nextends: ghost\n' > "$src/profiles/ztop/profile.yaml"
+  fixture_release_source "$src"
+  jig init --from "$src" --link --profiles generic >/dev/null
+  printf 'profiles: [generic, ztop]\nadapters: [claude, codex]\n' > .ai/config.yaml
+  cp .ai/manifest manifest.before.tmp
+
+  run jig upgrade --from "$src"
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "ztop: extends 'ghost'"
+  assert_no_file .ai/profiles/ztop
+  assert_eq "$(cat manifest.before.tmp)" "$(cat .ai/manifest)"
+
+  rm -rf "$src"
+}
+
+test_upgrade_links_the_base_of_a_listed_layer_in_link_mode() {
+  skip_unless_symlinks
+  fixture_repo
+  local src
+  src=$(mktemp -d "${TMPDIR:-/tmp}/jig-stack-src.XXXXXX")
+  _stack_source "$src"
+  jig init --from "$src" --link --profiles generic >/dev/null
+  printf 'profiles: [generic, ztop]\nadapters: [claude, codex]\n' > .ai/config.yaml
+
+  run jig upgrade --from "$src"
+  assert_eq 0 "$RC"
+  assert_symlink .ai/profiles/ztop
+  assert_symlink .ai/profiles/zbase
+
+  rm -rf "$src"
+}
+
+test_upgrade_refuses_a_project_profile_under_a_stock_name() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  local src
+  src=$(mktemp -d "${TMPDIR:-/tmp}/jig-stack-src.XXXXXX")
+  _stack_source "$src"
+  # The project wrote its own `zbase` before the release shipped one.
+  mkdir -p .ai/profiles/zbase
+  printf 'name: zbase\ndetect: [mine.txt]\n' > .ai/profiles/zbase/profile.yaml
+  printf 'profiles: [generic, zbase]\nadapters: [claude, codex]\n' > .ai/config.yaml
+
+  run jig upgrade --from "$src"
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "profile '.ai/profiles/zbase' is the project's own, but 'zbase' is a stock profile"
+  assert_file_contains .ai/profiles/zbase/profile.yaml "mine.txt"
+
+  rm -rf "$src"
+}
+
+test_upgrade_finishes_an_interrupted_base_install_instead_of_refusing_it() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  local src
+  src=$(mktemp -d "${TMPDIR:-/tmp}/jig-stack-src.XXXXXX")
+  _stack_source "$src"
+  # An upgrade that died after placing zbase: its files are here, the manifest
+  # (written once, at the end) does not know them.
+  cp -R "$src/profiles/zbase" .ai/profiles/zbase
+  printf 'profiles: [generic, ztop]\nadapters: [claude, codex]\n' > .ai/config.yaml
+
+  run jig upgrade --from "$src"
+  assert_eq 0 "$RC"
+  assert_not_contains "$OUT" "is the project's own"
+  assert_file_contains .ai/manifest ".ai/profiles/zbase/profile.yaml"
+  assert_file .ai/profiles/ztop/profile.yaml
+
+  rm -rf "$src"
+}
+
+test_upgrade_a_project_layer_over_a_stock_base_installs_the_base() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  local src
+  src=$(mktemp -d "${TMPDIR:-/tmp}/jig-stack-src.XXXXXX")
+  _stack_source "$src"
+  mkdir -p .ai/profiles/mine
+  printf 'name: mine\nextends: zbase\n' > .ai/profiles/mine/profile.yaml
+  printf 'profiles: [generic, mine]\nadapters: [claude, codex]\n' > .ai/config.yaml
+
+  run jig upgrade --from "$src"
+  assert_eq 0 "$RC"
+  assert_file .ai/profiles/zbase/verify.sh
+  # The project's own layer is not the manifest's to track.
+  run grep -c '.ai/profiles/mine/' .ai/manifest
+  assert_eq "0" "$OUT"
+
+  rm -rf "$src"
 }

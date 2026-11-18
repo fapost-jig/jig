@@ -3290,3 +3290,201 @@ test_verify_hands_on_no_map_its_profile_never_reads() {
   assert_contains "$OUT" "upper: mapped=<unset>"
   assert_contains "$OUT" "lower: covered=tests=upper"
 }
+
+# --- profile stacks (extends) ---------------------------------------------------
+
+# _fixture_stack_base <name> — a project profile that runs, answers a preview
+# and leaves <name>.ran behind.
+_fixture_stack_base() {
+  local name="$1"
+  mkdir -p ".ai/profiles/$name"
+  printf 'name: %s\nscope: [explain]\n' "$name" > ".ai/profiles/$name/profile.yaml"
+  cat > ".ai/profiles/$name/verify.sh" <<EOS
+#!/usr/bin/env bash
+if [ -n "\${JIG_VERIFY_EXPLAIN:-}" ]; then
+  echo "PLAN $name: tests: full (fixture)"
+  exit 0
+fi
+touch "$name.ran"
+echo "$name: own: pass"
+exit 0
+EOS
+}
+
+# _fixture_stack_layer <name> <base> [<extra profile.yaml line>...] — a pure
+# layer: a profile.yaml and nothing else.
+_fixture_stack_layer() {
+  local name="$1" base="$2" line
+  shift 2
+  mkdir -p ".ai/profiles/$name"
+  {
+    printf 'name: %s\nextends: %s\n' "$name" "$base"
+    for line in "$@"; do printf '%s\n' "$line"; done
+  } > ".ai/profiles/$name/profile.yaml"
+}
+
+test_verify_runs_the_base_of_a_listed_layer_and_skips_the_layer_quietly() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_stack_base base
+  _fixture_stack_layer top base
+  printf 'profiles: [generic, top]\nadapters: [claude, codex]\n' > .ai/config.yaml
+
+  run jig verify
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "verify: top is a layer over base; its checks run in its bases"
+  assert_contains "$OUT" "RESULT base: pass"
+  assert_file base.ran
+  assert_not_contains "$OUT" "no verify.sh"
+  assert_not_contains "$OUT" "RESULT top"
+  # generic and base: the layer is not counted.
+  assert_contains "$OUT" "verify: 2 profiles, "
+}
+
+test_verify_a_profile_that_is_only_a_base_runs_alone_when_named() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_stack_base base
+  _fixture_stack_layer top base
+  run jig verify --profile base
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "RESULT base: pass"
+  assert_not_contains "$OUT" "layer over"
+}
+
+test_verify_profile_flag_expands_a_layer_to_its_stack() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_stack_base base
+  _fixture_stack_layer top base
+  run jig verify --profile top
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "verify: top is a layer over base; its checks run in its bases"
+  assert_contains "$OUT" "RESULT base: pass"
+  assert_not_contains "$OUT" "RESULT generic"
+}
+
+test_verify_explain_names_a_pure_layer_and_does_not_call_it_unknown() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_stack_base base
+  _fixture_stack_layer top base
+  run jig verify --explain --profile top
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "verify: top is a layer over base; its checks run in its bases"
+  assert_contains "$OUT" "PLAN base: tests: full (fixture)"
+  assert_not_contains "$OUT" "PLAN top"
+  assert_contains "$OUT" "1 profiles explained, 0 unknown, 0 error"
+  assert_no_file base.ran
+}
+
+test_verify_a_profile_with_neither_extends_nor_verify_script_is_still_a_broken_install() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  mkdir -p .ai/profiles/hollow
+  printf 'name: hollow\n' > .ai/profiles/hollow/profile.yaml
+  run jig verify --profile hollow
+  assert_contains "$OUT" "SKIP hollow: no verify.sh"
+}
+
+test_verify_a_layer_with_its_own_verify_script_runs_with_its_base() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_stack_base base
+  _fixture_stack_base top
+  printf 'name: top\nextends: base\nscope: [explain]\n' > .ai/profiles/top/profile.yaml
+  run jig verify --profile top
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "RESULT top: pass"
+  assert_contains "$OUT" "RESULT base: pass"
+  assert_not_contains "$OUT" "layer over"
+  assert_contains "$OUT" "verify: 2 profiles, 2 pass"
+}
+
+test_verify_refuses_before_running_anything_when_a_base_is_missing() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_stack_base other
+  _fixture_stack_layer top ghost
+  printf 'profiles: [generic, other, top]\nadapters: [claude, codex]\n' > .ai/config.yaml
+
+  run jig verify
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "FAIL top: extends 'ghost', which is not installed (run jig upgrade)"
+  assert_no_file other.ran
+  assert_not_contains "$OUT" "RESULT"
+
+  run jig verify --explain
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "PLAN top: error (extends 'ghost', which is not installed (run jig upgrade))"
+  assert_not_contains "$OUT" "PLAN other"
+}
+
+test_verify_refuses_a_cycle_and_a_list_in_extends() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_stack_layer a b
+  _fixture_stack_layer b a
+  run jig verify --profile a
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "FAIL a: extends cycle: a -> b -> a"
+
+  rm -rf .ai/profiles/a .ai/profiles/b
+  _fixture_stack_layer c "[x, y]"
+  run jig verify --profile c
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "FAIL c: extends names one profile, not a list"
+}
+
+test_verify_refuses_a_project_profile_under_a_stock_name() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  # A project's own `php`: no file of it is the shipped one, and it is not tracked.
+  _fixture_stack_base php
+  printf 'profiles: [generic, php]\nadapters: [claude, codex]\n' > .ai/config.yaml
+  run jig verify
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "FAIL php: profile '.ai/profiles/php' is the project's own, but 'php' is a stock profile"
+  assert_no_file php.ran
+}
+
+test_verify_list_shows_layers_and_bases() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_stack_base base
+  _fixture_stack_layer top base
+  printf 'profiles: [generic, top]\nadapters: [claude, codex]\n' > .ai/config.yaml
+  run jig verify --list
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "generic: installed"
+  assert_contains "$OUT" "top: installed (layer over base)"
+  assert_contains "$OUT" "base: installed (base of top)"
+}
+
+# A layer's own check rows are for "A layer overrides a check"; until it lands
+# they would do nothing, and a pass must not hide that.
+test_verify_refuses_a_layer_with_check_table_rows() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_stack_base base
+  _fixture_stack_layer top base 'checks: [tests]' 'checks.tests.args: [--fast]'
+  run jig verify --profile top
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "FAIL top: profile.yaml:4: a layer's check overrides arrive with a later task (A layer overrides a check); remove the checks.* lines"
+  assert_no_file base.ran
+
+  run jig verify --explain --profile top
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "PLAN top: error (profile.yaml:4: a layer's check overrides"
+}
+
+test_verify_accepts_the_plain_checks_list_on_a_layer_and_check_rows_on_a_base() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_stack_base base
+  printf 'checks.tests.args: [--fast]\n' >> .ai/profiles/base/profile.yaml
+  _fixture_stack_layer top base 'checks: [tests]'
+  run jig verify --profile top
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "RESULT base: pass"
+}
