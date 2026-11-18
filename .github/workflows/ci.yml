@@ -48,12 +48,17 @@ jobs:
   # A skipped job reads as passed to a required check, where `paths-ignore`
   # would leave the check waiting forever.
   #
-  # A push is measured from the commit of the last successful run on its
-  # branch, not from the previous tip: GitHub keeps one pending run per
-  # group, so a merge during a run replaces the one queued before it, and
-  # that one's changes would otherwise never be measured. Every success
-  # covered the changes since the success before it, so nothing falls
-  # between two runs.
+  # A push is measured from the newest successful run on its branch whose
+  # head is in the pushed history, not from the previous tip: GitHub keeps
+  # one pending run per group, so a merge during a run replaces the one
+  # queued before it, and that one's changes would otherwise never be
+  # measured. Every success covered the changes since the success before it,
+  # so nothing falls between two runs. The runs are read from the unfiltered
+  # list, and the script waits briefly when a run the base could come from
+  # has not yet been reported finished: the list filtered to successes
+  # lagged a few seconds behind a run that had just ended, and run
+  # 44170402355 (one roadmap line) was measured from before a release and
+  # ran the whole suite. The rules are in .github/scripts/ci-green-base.sh.
   #
   # A change that reaches only some tests runs those (`suite: selected`):
   # ci-scope.sh asks the shell profile which tests the change reaches, the
@@ -120,9 +125,7 @@ jobs:
             push)
               # Empty when there is no successful run yet, or the API cannot
               # answer: ci-scope.sh then runs everything.
-              green=$(gh api -X GET "repos/$REPO/actions/workflows/ci.yml/runs" \
-                -f branch="$BRANCH" -f status=success -f per_page=1 \
-                --jq '.workflow_runs[0].head_sha // empty' 2>/dev/null) || green=""
+              green=$(.github/scripts/ci-green-base.sh "$BRANCH") || green=""
               echo "last successful run on $BRANCH: ${green:-none}"
               # The base of the push, and whether it adds anything: for an
               # epic branch without a green run it is where the branch left
