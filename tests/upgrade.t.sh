@@ -2380,7 +2380,7 @@ test_upgrade_json_reports_a_committed_upgrade() {
   assert_eq 1 "$(printf '%s\n' "$OUT" | grep -c .)" "stdout held more than one line: $OUT"
   sha=$(git rev-parse HEAD)
   assert_contains "$OUT" '"data":{"mode":"copy","dry_run":false,"from":"'"$from"'","to":"9.9.9","outcome":"upgraded","files":{"placed":'
-  assert_contains "$OUT" '"git":{"level":"commit","branch":"jig/upgrade-9.9.9","commit":"'"$sha"'","pushed":false,"pull_request":null,"merged":false,"level_key":"agent.git","path":"checkout","ignored":[],"merge_by":"agent","not_merged":null,"base":null,"superseded":[]}'
+  assert_contains "$OUT" '"git":{"level":"commit","branch":"jig/upgrade-9.9.9","commit":"'"$sha"'","pushed":false,"pull_request":null,"merged":false,"level_key":"agent.git","path":"checkout","ignored":[],"fell_back":null,"merge_by":"agent","not_merged":null,"base":null,"superseded":[]}'
   assert_contains "$OUT" '"would_stop":[]}'
   assert_contains "$ERR" "committed "
   assert_contains "$ERR" "handing the upgrade to 9.9.9"
@@ -3808,7 +3808,7 @@ test_upgrade_ignored_path_fallback_reports_itself_in_json() {
   _up_json upgrade --from "$src" --json
   assert_eq 0 "$RC" "$ERR"
   assert_contains "$OUT" '"level":"merge"'
-  assert_contains "$OUT" '"level_key":"agent.git","path":"checkout","ignored":[".codex/skills/jig-newthing/SKILL.md"]'
+  assert_contains "$OUT" '"level_key":"agent.git","path":"checkout","ignored":[".codex/skills/jig-newthing/SKILL.md"],"fell_back":"gitignored"'
   assert_contains "$OUT" '"merged":true'
   assert_file .codex/skills/jig-newthing/SKILL.md
 
@@ -3862,7 +3862,7 @@ test_upgrade_carry_on_reports_the_tree_path() {
 
   _up_json upgrade --from "$src" --json
   assert_eq 0 "$RC" "$ERR"
-  assert_contains "$OUT" '"path":"tree","ignored":[]'
+  assert_contains "$OUT" '"path":"tree","ignored":[],"fell_back":null'
 
   rm -rf "$src" "$remote"
 }
@@ -3939,28 +3939,134 @@ test_upgrade_merge_human_still_refuses_an_unmerged_branch() {
   rm -rf "$src" "$remote"
 }
 
-# A pre-commit hook that fails in Jig's tree: said by name, and nothing is left —
-# no branch, no tree, no lock, and the checkout was not touched.
-test_upgrade_pre_commit_hook_refusal_leaves_nothing() {
+# A pre-commit hook that needs the project's installed dependencies fails in Jig's tree,
+# which has none: the run gives the tree back, says so (without quoting the hook), and does
+# the whole upgrade in the checkout, where the hook passes; --json reports why.
+test_upgrade_pre_commit_hook_refusal_falls_back_to_the_checkout() {
+  local src remote head
+  remote=$(_upgrade_merge_project pr)
+  PATH="$PWD/stub-bin:$PATH"
+  jig config set --local upgrade.merge human >/dev/null
+  src=$(_unit_source)
+  head=$(git rev-parse HEAD)
+  mkdir -p .git/hooks node_modules
+  printf 'node_modules/\n' >> .git/info/exclude
+  : > node_modules/ok
+  printf '#!/bin/sh\n[ -f node_modules/ok ] || { echo "lint needs the project dependencies" >&2; exit 1; }\n' > .git/hooks/pre-commit
+  chmod +x .git/hooks/pre-commit
+
+  _up_json upgrade --from "$src" --json
+  assert_eq 0 "$RC" "$ERR"
+  assert_contains "$ERR" "note: the project's pre-commit hook refused the commit in Jig's tree, which has none of the project's installed dependencies; the upgrade works in your checkout instead, where it has them"
+  assert_not_contains "$ERR" "lint needs the project dependencies"
+  assert_not_contains "$OUT" "lint needs the project dependencies"
+  assert_contains "$OUT" '"path":"checkout","ignored":[],"fell_back":"pre-commit-hook"'
+  assert_contains "$OUT" '"branch":"jig/upgrade-9.9.9"'
+  _tree_gone
+  if git worktree list | grep -q 'jig/tree'; then fail "git still lists Jig's tree"; fi
+  [ "$head" != "$(git rev-parse jig/upgrade-9.9.9)" ] || fail "nothing was committed on the branch"
+  assert_eq "Upgrade Jig" "$(git log -1 --format=%s jig/upgrade-9.9.9 | cut -c1-11)"
+  assert_eq "" "$(git status --porcelain | grep -v '^??' || true)"
+
+  rm -rf "$src" "$remote"
+}
+
+# The fall-back ships at agent.git, not at upgrade.merge's level: with the default
+# upgrade.merge agent and agent.git none, the change is left staged on the branch in the
+# checkout — nothing pushed, no pull request, nothing merged.
+test_upgrade_pre_commit_hook_fallback_ships_at_agent_git() {
+  local src remote
+  remote=$(_upgrade_merge_project none)
+  PATH="$PWD/stub-bin:$PATH"
+  src=$(_unit_source)
+  mkdir -p .git/hooks node_modules
+  printf 'node_modules/\n' >> .git/info/exclude
+  : > node_modules/ok
+  printf '#!/bin/sh\n[ -f node_modules/ok ] || { echo "lint needs the project dependencies" >&2; exit 1; }\n' > .git/hooks/pre-commit
+  chmod +x .git/hooks/pre-commit
+
+  _up_json upgrade --from "$src" --json
+  assert_eq 0 "$RC" "$ERR"
+  assert_contains "$OUT" '"outcome":"staged"'
+  assert_contains "$OUT" '"level":"none"'
+  assert_contains "$OUT" '"level_key":"agent.git","path":"checkout","ignored":[],"fell_back":"pre-commit-hook","merge_by":"agent"'
+  assert_contains "$OUT" '"pushed":false'
+  assert_contains "$OUT" '"merged":false'
+  assert_eq jig/upgrade-9.9.9 "$(git symbolic-ref --short HEAD)"
+  [ -n "$(git diff --cached --name-only)" ] || fail "the upgrade was not left staged"
+  if git ls-remote --heads "$remote" | grep -q 'jig/upgrade'; then fail "the branch was pushed"; fi
+  assert_no_file stub-bin/merged
+  _tree_gone
+
+  rm -rf "$src" "$remote"
+}
+
+# The hook refuses in the checkout as well: the in-checkout behaviour applies as it is —
+# the commit fails, and the branch with the staged upgrade stays for a repeat to finish.
+test_upgrade_pre_commit_hook_refusing_in_the_checkout_too_leaves_the_branch() {
   local src remote
   remote=$(_upgrade_merge_project pr)
   PATH="$PWD/stub-bin:$PATH"
   src=$(_unit_source)
   mkdir -p .git/hooks
-  printf '#!/bin/sh\necho "lint needs the project dependencies" >&2\nexit 1\n' > .git/hooks/pre-commit
+  printf '#!/bin/sh\necho "hook says no" >&2\nexit 1\n' > .git/hooks/pre-commit
   chmod +x .git/hooks/pre-commit
+
+  run jig upgrade --from "$src"
+  [ "$RC" != 0 ] || fail "the upgrade should have failed"
+  assert_contains "$OUT" "the upgrade works in your checkout instead"
+  assert_contains "$OUT" "git commit failed"
+  assert_eq jig/upgrade-9.9.9 "$(git symbolic-ref --short HEAD)"
+  _tree_gone
+  assert_no_file stub-bin/merged
+
+  rm -rf "$src" "$remote"
+}
+
+# The hook refuses in Jig's tree and the checkout is busy: the checkout preflight stops the
+# run, and nothing is touched there.
+test_upgrade_pre_commit_hook_fallback_stops_on_a_busy_checkout() {
+  local src remote head
+  remote=$(_upgrade_merge_project pr)
+  PATH="$PWD/stub-bin:$PATH"
+  src=$(_unit_source)
+  mkdir -p .git/hooks
+  printf '#!/bin/sh\nexit 1\n' > .git/hooks/pre-commit
+  chmod +x .git/hooks/pre-commit
+  printf 'work\n' >> .gitignore
+  head=$(git rev-parse HEAD)
+
+  _up_json upgrade --from "$src" --json
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" '"code":"upgrade-blocked"'
+  assert_contains "$OUT" "the working tree has uncommitted changes"
+  assert_eq "$head" "$(git rev-parse HEAD)"
+  assert_eq main "$(git symbolic-ref --short HEAD)"
+  assert_contains "$(git status --porcelain)" " M .gitignore"
+  [ -z "$(git branch --list 'jig/upgrade-*')" ] || fail "a branch was left behind"
+  _tree_gone
+
+  rm -rf "$src" "$remote"
+}
+
+# Git refuses the commit in Jig's tree with no pre-commit hook in the project: still
+# commit-refused, nothing left behind, the checkout untouched.
+test_upgrade_commit_refused_without_a_hook_stays_commit_refused() {
+  local src remote
+  remote=$(_upgrade_merge_project pr)
+  PATH="$PWD/stub-bin:$PATH"
+  src=$(_unit_source)
+  git config commit.gpgsign true
+  git config gpg.program false
 
   _up_json upgrade --from "$src" --json
   assert_eq 1 "$RC"
   assert_contains "$OUT" '"code":"commit-refused"'
-  assert_contains "$OUT" "not committed: the project's pre-commit hook refused in Jig's tree: "
-  assert_contains "$OUT" "lint needs the project dependencies"
+  assert_contains "$OUT" "not committed: git refused the commit in Jig's tree: "
   [ -z "$(git branch --list 'jig/upgrade-*')" ] || fail "a branch was left behind"
   _tree_gone
-  if git worktree list | grep -q 'jig/tree'; then fail "git still lists Jig's tree"; fi
   assert_eq main "$(git symbolic-ref --short HEAD)"
   assert_eq "" "$(git status --porcelain | grep -v '^??' || true)"
-  assert_no_file stub-bin/merged
 
   rm -rf "$src" "$remote"
 }

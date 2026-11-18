@@ -89,7 +89,7 @@ be reworded.
 | `base-not-on-origin` | the write's base is not on the remote, at `agent.git: push` or above: a branch cut from it would carry out whatever is on it. Nothing was written; push that base yourself |
 | `write-still-waits` | an earlier edit of the same spec, or of knowledge, still waits where this one cannot go: into another base, because an epic opened or finished since, or as edits that never reached the remote above ones whose pull request was closed or whose branch was deleted there. Nothing was written; the message names the branch and what to do |
 | `tree-in-the-way` | an unfinished write or `jig upgrade` left files at Jig's tree that git will not remove (links and empty directories Jig clears itself). Nothing was written, and trying again does not help: delete the path the message names |
-| `commit-refused` | Git refused the commit, usually a hook of the project; the message says what it said. This edit was not committed (for `jig upgrade`: nothing was left, no branch and no tree); an earlier one already waiting on the branch still waits |
+| `commit-refused` | Git refused the commit; the message says what it said. (A pre-commit hook of the project that refuses an upgrade in Jig's tree is not this: the upgrade goes on in your checkout.) This edit was not committed (for `jig upgrade`: nothing was left, no branch and no tree); an earlier one already waiting on the branch still waits |
 | `epic-missing` | the spec is built on an epic branch that is neither here nor on the remote. Nothing was written |
 | `not-linkable` | the task cannot be linked to the roadmap item, or the item is done. Nothing was written |
 | `not-proposed` | the knowledge document is not a proposal, nor, for `reject`, a stub whose linked file changed since it was approved: it was decided already, perhaps on a branch that still waits. Nothing was written |
@@ -1022,7 +1022,9 @@ checkout, and merges its own pull request on green CI, so one call can last as l
 `git.merge_by`, `git.not_merged` (`{code, reason}` when Jig tried and did not merge) and `git.base`
 (what became of the base branch here) in the data. `git.path` says where the run worked (`tree` or
 `checkout`), `git.ignored` lists the gitignored framework paths that sent it to the checkout (empty
-otherwise), `git.level_key` says which key set the level (`upgrade.merge` or `agent.git`), and
+otherwise), `git.fell_back` says why a run that began in Jig's tree went on in the checkout
+(`gitignored`, or `pre-commit-hook` when the project's hook needs dependencies Jig's tree lacks;
+`null` when it did not), `git.level_key` says which key set the level (`upgrade.merge` or `agent.git`), and
 `git.superseded` names the older, unmerged upgrade branches the merge overtook (the upgrade never
 deletes them; `jig housekeeping` does, when only Jig's commits are on them; one with a commit of
 yours stays). A branch that did not take the new Jig yet, because the base moved but the branch did
@@ -1059,7 +1061,7 @@ the message:
 Where the upgrade works in Jig's own tree, only the line-endings reason can stop it; it can also
 be refused as `write-busy` (a write holds the clone's lock: try again in a moment),
 `tree-in-the-way` (an unfinished run left something at Jig's tree: a person deletes it) and
-`commit-refused` (the project's pre-commit hook refused in Jig's tree; nothing was left behind).
+`commit-refused` (git refused the commit in Jig's tree, with no pre-commit hook involved; nothing was left behind). A run whose commit a pre-commit hook refused in Jig's tree goes on in the checkout, and there the checkout's reasons apply as well: such a run can end `upgrade-blocked` although a dry run listed nothing in `would_stop`, since only a real commit shows the hook failing.
 
 The whole shape is in `schemas/json.md`.
 

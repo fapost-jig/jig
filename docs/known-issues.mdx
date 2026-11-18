@@ -23,23 +23,6 @@ them, see [What's next](/roadmap).
 
 {/* Each entry names the Jig task that closes it. The entry is removed by that task's own pull request, the one that merges the fix. Rule: .ai/knowledge/conventions/documentation.md */}
 
-{/* Closed by task upgrade-precommit-in-own-tree: removed once the upgrade commits in Jig's own tree past a pre-commit hook that needs the project's dependencies. */}
-### A pre-commit hook that needs your dependencies refuses the upgrade
-
-**What you see.** From 0.47.0, in a project with an `origin`, `jig upgrade` commits in Jig's own
-tree, which has none of your project's installed dependencies. A pre-commit hook that needs them
-(husky with lint-staged, say) fails there, and the run ends with `upgrade: not committed: the
-project's pre-commit hook refused in Jig's tree: …` (`commit-refused` in `--json`). Up to 0.46.0
-the same upgrade committed in your checkout.
-
-**What it costs.** The upgrade does not happen; nothing is left behind and your checkout is not
-touched.
-
-**What to do instead.** Make that one run work in your checkout:
-`jig config set --local upgrade.merge human agent.git commit`, then `jig upgrade`, then push the
-branch and open the pull request yourself, and set both keys back. See
-[When the upgrade refuses](/upgrading#when-the-upgrade-refuses).
-
 {/* Closed by task staging-drift-report-findings: removed once a squash promotion is told from drift. */}
 ### A task promoted by a squash merge reads as staging work nobody owns
 
