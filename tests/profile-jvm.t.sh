@@ -16,6 +16,7 @@ _JVM_VERIFY=".ai/profiles/jvm/verify.sh"
 _jvm_install_gradle() {
   fixture_repo
   jig init --from "$JIG_HOME" --profiles jvm >/dev/null
+  profile_checks_env .ai/profiles/jvm
   mkdir -p app lib
   cat > settings.gradle.kts <<'EOF'
 rootProject.name = "demo"
@@ -35,6 +36,7 @@ EOF
 _jvm_install_maven() {
   fixture_repo
   jig init --from "$JIG_HOME" --profiles jvm >/dev/null
+  profile_checks_env .ai/profiles/jvm
   mkdir -p module-a module-b
   : > pom.xml
   : > module-a/pom.xml
@@ -239,14 +241,14 @@ test_profile_jvm_skips_every_check_without_toolchain() {
   # Every check skipped, so the run checked nothing and says so, exit 3
   # (adr-20260925-one-test-run-per-clone-and-a-dead-run-is-not-a-pass).
   assert_eq 3 "$RC" "$OUT"
-  assert_contains "$OUT" "jvm: check: skip (gradlew not found and gradle not found on PATH)"
+  assert_contains "$OUT" "jvm: tests (gradle check): skip (gradlew not found and gradle not found on PATH)"
 
   _jvm_install_maven
   _jvm_no_tools jig verify --profile jvm
   # Every check skipped, so the run checked nothing and says so, exit 3
   # (adr-20260925-one-test-run-per-clone-and-a-dead-run-is-not-a-pass).
   assert_eq 3 "$RC" "$OUT"
-  assert_contains "$OUT" "jvm: test: skip (mvnw not found and mvn not found on PATH)"
+  assert_contains "$OUT" "jvm: tests (mvn test): skip (mvnw not found and mvn not found on PATH)"
 }
 
 test_profile_jvm_skips_both_checks_with_neither_build_file_at_root() {
@@ -256,8 +258,8 @@ test_profile_jvm_skips_both_checks_with_neither_build_file_at_root() {
   # Every check skipped, so the run checked nothing and says so, exit 3
   # (adr-20260925-one-test-run-per-clone-and-a-dead-run-is-not-a-pass).
   assert_eq 3 "$RC" "$OUT"
-  assert_contains "$OUT" "jvm: check: skip (no build.gradle(.kts) or settings.gradle(.kts) at the repository root)"
-  assert_contains "$OUT" "jvm: test: skip (no pom.xml at the repository root)"
+  assert_contains "$OUT" "jvm: tests (gradle check): skip (no build.gradle(.kts) or settings.gradle(.kts) at the repository root)"
+  assert_contains "$OUT" "jvm: tests (mvn test): skip (no pom.xml at the repository root)"
 }
 
 # --- Gradle: pass / fail / version, wrapper preferred over PATH ---------------
@@ -267,12 +269,12 @@ test_profile_jvm_gradle_pass_and_fail_report_version() {
   _gradle_stub 8.5 0 gradle.log
   run jig verify --profile jvm
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "jvm: check: pass (8.5)"
+  assert_contains "$OUT" "jvm: tests (gradle check): pass (8.5)"
 
   _gradle_stub 8.5 1 gradle.log
   run jig verify --profile jvm
   assert_eq 1 "$RC"
-  assert_contains "$OUT" "jvm: check: fail (8.5)"
+  assert_contains "$OUT" "jvm: tests (gradle check): fail (8.5)"
 }
 
 test_profile_jvm_gradlew_preferred_over_path_gradle() {
@@ -292,12 +294,12 @@ test_profile_jvm_maven_pass_and_fail_report_version() {
   _mvn_stub "Apache Maven 3.9.6" 0 mvn.log
   run jig verify --profile jvm
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "jvm: test: pass (Apache Maven 3.9.6)"
+  assert_contains "$OUT" "jvm: tests (mvn test): pass (Apache Maven 3.9.6)"
 
   _mvn_stub "Apache Maven 3.9.6" 1 mvn.log
   run jig verify --profile jvm
   assert_eq 1 "$RC"
-  assert_contains "$OUT" "jvm: test: fail (Apache Maven 3.9.6)"
+  assert_contains "$OUT" "jvm: tests (mvn test): fail (Apache Maven 3.9.6)"
 }
 
 test_profile_jvm_mvnw_preferred_over_path_mvn() {
@@ -319,7 +321,7 @@ test_profile_jvm_gradle_narrows_to_subproject_task() {
 
   _jvm_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "jvm: check: pass (8.5, scope: 1 subprojects)"
+  assert_contains "$OUT" "jvm: tests (gradle check): pass (8.5, scope: 1 subprojects)"
   assert_file_contains gradle.log ":app:check"
 }
 
@@ -330,7 +332,7 @@ test_profile_jvm_gradle_narrows_to_two_subproject_tasks() {
 
   _jvm_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "jvm: check: pass (8.5, scope: 2 subprojects)"
+  assert_contains "$OUT" "jvm: tests (gradle check): pass (8.5, scope: 2 subprojects)"
   assert_file_contains gradle.log ":app:check"
   assert_file_contains gradle.log ":lib:check"
 }
@@ -342,7 +344,7 @@ test_profile_jvm_gradle_root_build_file_runs_full() {
 
   _jvm_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "jvm: check: pass (8.5, scope: not narrowable, ran full set)"
+  assert_contains "$OUT" "jvm: tests (gradle check): pass (8.5, scope: not narrowable, ran full set)"
   assert_file_contains gradle.log "^check$"
 }
 
@@ -355,7 +357,7 @@ test_profile_jvm_gradle_wrapper_dir_change_runs_full() {
 
   _jvm_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "jvm: check: pass (8.5, scope: not narrowable, ran full set)"
+  assert_contains "$OUT" "jvm: tests (gradle check): pass (8.5, scope: not narrowable, ran full set)"
 }
 
 test_profile_jvm_gradle_file_outside_any_subproject_runs_full() {
@@ -366,7 +368,7 @@ test_profile_jvm_gradle_file_outside_any_subproject_runs_full() {
 
   _jvm_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "jvm: check: pass (8.5, scope: not narrowable, ran full set)"
+  assert_contains "$OUT" "jvm: tests (gradle check): pass (8.5, scope: not narrowable, ran full set)"
 }
 
 test_profile_jvm_gradle_zero_selection_skips_check() {
@@ -380,7 +382,7 @@ test_profile_jvm_gradle_zero_selection_skips_check() {
 
   _jvm_scoped "$files"
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "jvm: check: skip (scope: no changed file maps to a subproject)"
+  assert_contains "$OUT" "jvm: tests (gradle check): skip (scope: no changed file maps to a subproject)"
 }
 
 test_profile_jvm_gradle_missing_selected_module_falls_back_to_full() {
@@ -392,7 +394,7 @@ test_profile_jvm_gradle_missing_selected_module_falls_back_to_full() {
   _jvm_scoped "$files" "$mapped"
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" \
-    "jvm: check: pass (8.5, scope: filter 'gone' selects no tests, ran full set)"
+    "jvm: tests (gradle check): pass (8.5, scope: filter 'gone' selects no tests, ran full set)"
 }
 
 # --- Gradle map filters (D5: a subproject path) --------------------------------
@@ -420,7 +422,7 @@ test_profile_jvm_gradle_map_dash_means_no_impact() {
 
   _jvm_scoped "$files" "$mapped"
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "jvm: check: skip (scope: no changed file maps to a subproject)"
+  assert_contains "$OUT" "jvm: tests (gradle check): skip (scope: no changed file maps to a subproject)"
 }
 
 test_profile_jvm_gradle_map_question_mark_falls_back_to_builtin() {
@@ -443,7 +445,7 @@ test_profile_jvm_maven_narrows_to_module() {
 
   _jvm_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "jvm: test: pass (Apache Maven 3.9.6, scope: 1 modules)"
+  assert_contains "$OUT" "jvm: tests (mvn test): pass (Apache Maven 3.9.6, scope: 1 modules)"
   assert_file_contains mvn.log "-pl module-a -am test"
 }
 
@@ -454,7 +456,7 @@ test_profile_jvm_maven_narrows_to_two_modules_joined_by_comma() {
 
   _jvm_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "jvm: test: pass (Apache Maven 3.9.6, scope: 2 modules)"
+  assert_contains "$OUT" "jvm: tests (mvn test): pass (Apache Maven 3.9.6, scope: 2 modules)"
   assert_file_contains mvn.log "-pl module-a,module-b -am test"
 }
 
@@ -465,7 +467,7 @@ test_profile_jvm_maven_root_pom_runs_full() {
 
   _jvm_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "jvm: test: pass (Apache Maven 3.9.6, scope: not narrowable, ran full set)"
+  assert_contains "$OUT" "jvm: tests (mvn test): pass (Apache Maven 3.9.6, scope: not narrowable, ran full set)"
   assert_file_contains mvn.log "^test$"
 }
 
@@ -478,7 +480,7 @@ test_profile_jvm_maven_dot_mvn_dir_change_runs_full() {
 
   _jvm_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "jvm: test: pass (Apache Maven 3.9.6, scope: not narrowable, ran full set)"
+  assert_contains "$OUT" "jvm: tests (mvn test): pass (Apache Maven 3.9.6, scope: not narrowable, ran full set)"
 }
 
 test_profile_jvm_maven_file_outside_any_module_runs_full() {
@@ -489,7 +491,7 @@ test_profile_jvm_maven_file_outside_any_module_runs_full() {
 
   _jvm_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "jvm: test: pass (Apache Maven 3.9.6, scope: not narrowable, ran full set)"
+  assert_contains "$OUT" "jvm: tests (mvn test): pass (Apache Maven 3.9.6, scope: not narrowable, ran full set)"
 }
 
 test_profile_jvm_maven_zero_selection_skips_test() {
@@ -504,7 +506,7 @@ test_profile_jvm_maven_zero_selection_skips_test() {
 
   _jvm_scoped "$files"
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "jvm: test: skip (scope: no changed file maps to a module)"
+  assert_contains "$OUT" "jvm: tests (mvn test): skip (scope: no changed file maps to a module)"
 }
 
 test_profile_jvm_maven_missing_selected_module_falls_back_to_full() {
@@ -516,7 +518,7 @@ test_profile_jvm_maven_missing_selected_module_falls_back_to_full() {
   _jvm_scoped "$files" "$mapped"
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" \
-    "jvm: test: pass (Apache Maven 3.9.6, scope: filter 'module-gone' selects no tests, ran full set)"
+    "jvm: tests (mvn test): pass (Apache Maven 3.9.6, scope: filter 'module-gone' selects no tests, ran full set)"
 }
 
 # --- Maven map filters (D5: a module path) --------------------------------------
@@ -544,7 +546,7 @@ test_profile_jvm_maven_map_dash_means_no_impact() {
 
   _jvm_scoped "$files" "$mapped"
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "jvm: test: skip (scope: no changed file maps to a module)"
+  assert_contains "$OUT" "jvm: tests (mvn test): skip (scope: no changed file maps to a module)"
 }
 
 test_profile_jvm_maven_map_question_mark_falls_back_to_builtin() {
@@ -571,7 +573,7 @@ test_profile_jvm_full_run_ci_leaves_a_gradle_root_build_file_to_ci() {
   unset JIG_VERIFY_FULL_RUN
   # every check skipped: the run reports 2
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "jvm: check: skip (scope: not narrowable, full set left to CI)"
+  assert_contains "$OUT" "jvm: tests (gradle check): skip (scope: not narrowable, full set left to CI)"
   assert_no_file gradle.log
 }
 
@@ -585,7 +587,7 @@ test_profile_jvm_full_run_ci_runs_the_named_subproject_beside_a_gradle_root_buil
   _jvm_scoped "$files"
   unset JIG_VERIFY_FULL_RUN
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "jvm: check: pass (8.5, scope: 1 subprojects, full set left to CI)"
+  assert_contains "$OUT" "jvm: tests (gradle check): pass (8.5, scope: 1 subprojects, full set left to CI)"
   assert_file_contains gradle.log ":app:check"
 }
 
@@ -600,7 +602,7 @@ test_profile_jvm_full_run_ci_leaves_a_maven_root_pom_to_ci() {
   unset JIG_VERIFY_FULL_RUN
   # every check skipped: the run reports 2
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "jvm: test: skip (scope: not narrowable, full set left to CI)"
+  assert_contains "$OUT" "jvm: tests (mvn test): skip (scope: not narrowable, full set left to CI)"
   assert_no_file mvn.log
 }
 
@@ -614,6 +616,109 @@ test_profile_jvm_full_run_ci_runs_the_named_module_beside_a_maven_root_pom() {
   _jvm_scoped "$files"
   unset JIG_VERIFY_FULL_RUN
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "jvm: test: pass (Apache Maven 3.9.6, scope: 1 modules, full set left to CI)"
+  assert_contains "$OUT" "jvm: tests (mvn test): pass (Apache Maven 3.9.6, scope: 1 modules, full set left to CI)"
   assert_file_contains mvn.log "-pl module-a -am test"
+}
+
+# --- the check table (adr-20261117-a-profile-declares-its-checks-in-a-table) --
+
+# _jvm_install_both — a fixture with both build systems: the Gradle build of
+# _jvm_install_gradle, and a Maven reactor with the same `app` module.
+_jvm_install_both() {
+  _jvm_install_gradle
+  : > pom.xml
+  : > app/pom.xml
+  git add -A
+  git commit -q -m "maven beside gradle"
+}
+
+# The command line of each build system, exactly, in a full run, a narrowed
+# run and a fallback to the full set: the table carries only `{selection}`,
+# and the words of the tool (`check`, `test`) stay in verify.sh, so nothing a
+# project runs changes. Each stub logs its arguments as one line.
+test_profile_jvm_check_table_keeps_every_command_line() {
+  _jvm_install_both
+  _gradle_stub 8.5 0 gradle.log
+  _mvn_stub "Apache Maven 3.9.6" 0 mvn.log
+
+  run bash "$_JVM_VERIFY"
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "check" "$(cat gradle.log)"
+  assert_eq "test" "$(cat mvn.log)"
+
+  rm -f gradle.log mvn.log
+  files=$(_files_list app/Foo.kt)
+  _jvm_scoped "$files"
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq ":app:check" "$(cat gradle.log)"
+  assert_eq "-pl app -am test" "$(cat mvn.log)"
+
+  rm -f gradle.log mvn.log
+  files=$(_files_list app/Foo.kt lib/Bar.kt pom.xml)
+  _jvm_scoped "$files"
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "check" "$(cat gradle.log)" "a path outside every subproject runs the full Gradle set"
+  assert_eq "test" "$(cat mvn.log)" "the root pom.xml runs the full Maven set"
+}
+
+# The table is what runs: a changed row changes the command line, and the
+# selection lands where `{selection}` stands.
+test_profile_jvm_check_table_rows_shape_the_command() {
+  _jvm_install_gradle
+  _gradle_stub 8.5 0 gradle.log
+  sed -e 's/^checks.tests.narrowed: .*/checks.tests.narrowed: --parallel {selection} -x lint/' \
+    .ai/profiles/jvm/profile.yaml > profile.tmp
+  rm -f .ai/profiles/jvm/profile.yaml
+  cp profile.tmp .ai/profiles/jvm/profile.yaml
+  profile_checks_env .ai/profiles/jvm
+  files=$(_files_list app/Foo.kt)
+  _jvm_scoped "$files"
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "--parallel :app:check -x lint" "$(cat gradle.log)"
+}
+
+# A profile.yaml from before the table (kept by `upgrade` as modified) beside
+# this verify.sh fails each check it would run, loudly, instead of running
+# another command in silence; --explain names the gap without a verdict.
+test_profile_jvm_check_table_missing_fails_loudly() {
+  _jvm_install_both
+  _gradle_stub 8.5 0 gradle.log
+  _mvn_stub "Apache Maven 3.9.6" 0 mvn.log
+  unset JIG_VERIFY_CHECKS
+  run bash "$_JVM_VERIFY"
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "jvm: tests (gradle check): fail (profile.yaml names no check 'tests'; jig upgrade restores it)"
+  assert_contains "$OUT" "jvm: tests (mvn test): fail (profile.yaml names no check 'tests'; jig upgrade restores it)"
+  assert_no_file gradle.log
+  assert_no_file mvn.log
+
+  JIG_VERIFY_EXPLAIN=1 run bash "$_JVM_VERIFY"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN jvm: tests (gradle check): skip (profile.yaml names no check 'tests'; jig upgrade restores it)"
+  assert_contains "$OUT" "PLAN jvm: tests (mvn test): skip (profile.yaml names no check 'tests'; jig upgrade restores it)"
+}
+
+# The role the profile lists in `checks:` can be taken over by another profile
+# (`covers: [jvm:tests]`): both build systems' checks print jp_covered's line
+# and run no tool.
+test_profile_jvm_every_role_can_be_covered() {
+  _jvm_install_both
+  _gradle_stub 8.5 0 gradle.log
+  _mvn_stub "Apache Maven 3.9.6" 0 mvn.log
+  JIG_VERIFY_COVERED="tests=other"
+  export JIG_VERIFY_COVERED
+  run bash "$_JVM_VERIFY"
+  assert_eq 2 "$RC" "$OUT"
+  assert_contains "$OUT" "jvm: tests (gradle check): skip (scope: covered by other, jvm:tests)"
+  assert_contains "$OUT" "jvm: tests (mvn test): skip (scope: covered by other, jvm:tests)"
+  assert_no_file gradle.log
+  assert_no_file mvn.log
+
+  JIG_VERIFY_EXPLAIN=1 run bash "$_JVM_VERIFY"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN jvm: tests (gradle check): skip (scope: covered by other, jvm:tests)"
+  assert_contains "$OUT" "PLAN jvm: tests (mvn test): skip (scope: covered by other, jvm:tests)"
+  assert_no_file gradle.log
+  assert_no_file mvn.log
+  unset JIG_VERIFY_COVERED
 }

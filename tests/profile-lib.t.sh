@@ -411,7 +411,7 @@ test_profile_lib_jp_end_exits_1_after_a_failure() {
 # verify.sh in the framework source, a copy-mode install (.ai/scripts/lib/)
 # and a link-mode install (design.md predisposition 5). Both are exercised
 # through the real `jig init` / `jig verify` path, with no tool in the
-# project's environment, so a bare `python: ruff: skip` line (rather than a
+# project's environment, so a bare `python: lint (ruff): skip` line (rather than a
 # shell "No such file" or "syntax error") is the proof the relative
 # `../../scripts/lib/profile.sh` resolved correctly in each install mode.
 # The python profile never searches the bare PATH for ruff/mypy/pytest
@@ -426,9 +426,9 @@ test_profile_lib_resolves_from_copy_mode_install() {
   # Every check skipped, so the run checked nothing and says so, exit 3
   # (adr-20260925-one-test-run-per-clone-and-a-dead-run-is-not-a-pass).
   assert_eq 3 "$RC" "$OUT"
-  assert_contains "$OUT" "python: ruff: skip"
-  assert_contains "$OUT" "python: mypy: skip"
-  assert_contains "$OUT" "python: pytest: skip"
+  assert_contains "$OUT" "python: lint (ruff): skip"
+  assert_contains "$OUT" "python: typecheck (mypy): skip"
+  assert_contains "$OUT" "python: tests (pytest): skip"
   assert_contains "$OUT" "RESULT python: skip"
   assert_not_contains "$OUT" "No such file"
   assert_not_contains "$OUT" "syntax error"
@@ -443,9 +443,9 @@ test_profile_lib_resolves_from_link_mode_install() {
   # Every check skipped, so the run checked nothing and says so, exit 3
   # (adr-20260925-one-test-run-per-clone-and-a-dead-run-is-not-a-pass).
   assert_eq 3 "$RC" "$OUT"
-  assert_contains "$OUT" "python: ruff: skip"
-  assert_contains "$OUT" "python: mypy: skip"
-  assert_contains "$OUT" "python: pytest: skip"
+  assert_contains "$OUT" "python: lint (ruff): skip"
+  assert_contains "$OUT" "python: typecheck (mypy): skip"
+  assert_contains "$OUT" "python: tests (pytest): skip"
   assert_contains "$OUT" "RESULT python: skip"
   assert_not_contains "$OUT" "No such file"
   assert_not_contains "$OUT" "syntax error"

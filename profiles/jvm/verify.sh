@@ -3,11 +3,18 @@
 # repository root. Exit 0 = pass, 1 = fail, 2 = skip (no check could run).
 # Prints one line per check: "jvm: <check>: pass|fail|skip (<note>)".
 #
+# One role, `tests` (`checks:` in profile.yaml), run by whichever build
+# systems the project has; the tool is in the label: `tests (gradle check)`,
+# `tests (mvn test)`. Every command line comes from the profile's check table
+# through jp_check_cmd (schemas/profile.md, Check table); what the table leaves
+# to this script is the tool chosen at run time -- the wrapper, and the words
+# `check` (Gradle) and `test` (Maven) that name the tool's own task.
+#
 # Two build systems, each optional and independent (adr-20260918-profiles-narrow-per-check-with-project-tools): Gradle, when
 # a Gradle build file sits at the repository root -- the project's own
-# `./gradlew` first, `gradle` from PATH otherwise; check `check`. Maven,
+# `./gradlew` first, `gradle` from PATH otherwise; `check`. Maven,
 # when a root `pom.xml` exists -- `./mvnw` first, `mvn` from PATH otherwise;
-# check `test`. A project that has both runs both; a project that has
+# `test`. A project that has both runs both; a project that has
 # neither (the profile activated without either manifest) skips both,
 # naming what it looked for. `gradlew`/`mvnw` are run through `sh`, never
 # through their own executable bit: a checkout that lost +x (common coming
@@ -42,14 +49,32 @@ fi
 HAS_MAVEN=0
 [ -f pom.xml ] && HAS_MAVEN=1
 
+# The label of each build system's check: the role, the tool in parentheses.
+GRADLE_LABEL="tests (gradle check)"
+MVN_LABEL="tests (mvn test)"
+
+# The one role covers both build systems: when another profile took `tests`
+# over (jp_covered), the label of each build system the project has prints its
+# own skip line and is left out of everything below, before any tool is looked
+# for. A project with neither asks with both labels, the two lines it prints
+# uncovered.
+gradle_covered=0
+mvn_covered=0
+if [ "$HAS_GRADLE" = 1 ] || [ "$HAS_MAVEN" = 0 ]; then
+  if jp_covered tests "$GRADLE_LABEL"; then gradle_covered=1; fi
+fi
+if [ "$HAS_MAVEN" = 1 ] || [ "$HAS_GRADLE" = 0 ]; then
+  if jp_covered tests "$MVN_LABEL"; then mvn_covered=1; fi
+fi
+
 if [ "$HAS_GRADLE" = 0 ] && [ "$HAS_MAVEN" = 0 ]; then
   if [ "${JIG_VERIFY_EXPLAIN:-}" = 1 ]; then
-    jp_plan check skip "no root Gradle build"
-    jp_plan test skip "no root pom.xml"
+    [ "$gradle_covered" = 1 ] || jp_plan "$GRADLE_LABEL" skip "no root Gradle build"
+    [ "$mvn_covered" = 1 ] || jp_plan "$MVN_LABEL" skip "no root pom.xml"
     exit 0
   fi
-  jp_skip "check" "no build.gradle(.kts) or settings.gradle(.kts) at the repository root"
-  jp_skip "test" "no pom.xml at the repository root"
+  [ "$gradle_covered" = 1 ] || jp_skip "$GRADLE_LABEL" "no build.gradle(.kts) or settings.gradle(.kts) at the repository root"
+  [ "$mvn_covered" = 1 ] || jp_skip "$MVN_LABEL" "no pom.xml at the repository root"
   jp_end
 fi
 
@@ -139,11 +164,28 @@ _jvm_maven_builtin() {
   return 0
 }
 
+# _jvm_explain_cmd <label> <filters> <default-cmd>... -- under `--explain`,
+# exit 0 when the check table can build the command line the planned run
+# would use: `narrowed` for a selection of subprojects or modules, `full`
+# otherwise (everything, or a fallback to the full set). When it cannot,
+# jp_check_cmd has printed the check's PLAN line.
+_jvm_explain_cmd() {
+  local label="$1" filters="$2"
+  shift 2
+  if jp_scoped && [ "$filters" != ALL ]; then
+    jp_check_cmd tests "$label" narrowed "$@" -- "$filters"
+  else
+    jp_check_cmd tests "$label" full "$@"
+  fi
+}
+
 if [ "${JIG_VERIFY_EXPLAIN:-}" = 1 ]; then
-  if [ "$HAS_GRADLE" = 0 ]; then
-    jp_plan check skip "no root Gradle build"
+  if [ "$gradle_covered" = 1 ]; then
+    :
+  elif [ "$HAS_GRADLE" = 0 ]; then
+    jp_plan "$GRADLE_LABEL" skip "no root Gradle build"
   elif [ ! -f ./gradlew ] && ! jp_have gradle; then
-    jp_plan check skip "gradlew not found and gradle not found on PATH"
+    jp_plan "$GRADLE_LABEL" skip "gradlew not found and gradle not found on PATH"
   else
     jp_select _jvm_gradle_builtin
     filters=$JP_SELECTION
@@ -155,12 +197,18 @@ if [ "${JIG_VERIFY_EXPLAIN:-}" = 1 ]; then
 $filters
 EOF
     fi
-    jp_plan_select check "$filters" "Gradle subprojects"
+    if jp_scoped && [ -z "$filters" ]; then
+      jp_plan_select "$GRADLE_LABEL" "$filters" "Gradle subprojects"
+    elif _jvm_explain_cmd "$GRADLE_LABEL" "$filters" gradle check; then
+      jp_plan_select "$GRADLE_LABEL" "$filters" "Gradle subprojects"
+    fi
   fi
-  if [ "$HAS_MAVEN" = 0 ]; then
-    jp_plan test skip "no root pom.xml"
+  if [ "$mvn_covered" = 1 ]; then
+    :
+  elif [ "$HAS_MAVEN" = 0 ]; then
+    jp_plan "$MVN_LABEL" skip "no root pom.xml"
   elif [ ! -f ./mvnw ] && ! jp_have mvn; then
-    jp_plan test skip "mvnw not found and mvn not found on PATH"
+    jp_plan "$MVN_LABEL" skip "mvnw not found and mvn not found on PATH"
   else
     jp_select _jvm_maven_builtin
     filters=$JP_SELECTION
@@ -172,14 +220,18 @@ EOF
 $filters
 EOF
     fi
-    jp_plan_select test "$filters" "Maven modules"
+    if jp_scoped && [ -z "$filters" ]; then
+      jp_plan_select "$MVN_LABEL" "$filters" "Maven modules"
+    elif _jvm_explain_cmd "$MVN_LABEL" "$filters" mvn test; then
+      jp_plan_select "$MVN_LABEL" "$filters" "Maven modules"
+    fi
   fi
   exit 0
 fi
 
 # --- Gradle ------------------------------------------------------------------
 
-if [ "$HAS_GRADLE" = 1 ]; then
+if [ "$gradle_covered" = 0 ] && [ "$HAS_GRADLE" = 1 ]; then
   # The command as words, run through jp_run/jp_exec so it reaches the
   # project's environment: the wrapper via sh (+x-independent), or gradle
   # from the PATH of wherever the project runs.
@@ -191,7 +243,7 @@ if [ "$HAS_GRADLE" = 1 ]; then
   fi
 
   if [ "${#GRADLE_CMD[@]}" -eq 0 ]; then
-    jp_skip "check" "gradlew not found and gradle not found on PATH"
+    jp_skip "$GRADLE_LABEL" "gradlew not found and gradle not found on PATH"
   else
     # Not jp_version: the real Gradle CLI's `--version` banner starts with
     # a blank line, so jp_version's plain first-line capture always reports
@@ -209,14 +261,21 @@ if [ "$HAS_GRADLE" = 1 ]; then
     # _jvm_gradle_builtin <path> — the subproject directory a changed path
     # belongs to (D4), or ALL for an always-ALL file or a path outside every
     # subproject.
-    # _jvm_gradle_run <note> [<task>...] — `check`, or the given tasks.
+    # _jvm_gradle_run <note> [<task>...] — `check`, or the given tasks. The
+    # table holds no tool words for Gradle (the wrapper is chosen above), so
+    # the full run's default is `<gradle> check` and the narrowed run's is
+    # `<gradle>` alone, followed by the tasks the table's `{selection}` places.
     _jvm_gradle_run() {
       local note="$1"
       shift
       if [ $# -eq 0 ]; then
-        jp_run "check" "$note" "${GRADLE_CMD[@]}" check
+        if jp_check_cmd tests "$GRADLE_LABEL" full "${GRADLE_CMD[@]}" check; then
+          jp_run "$GRADLE_LABEL" "$note" "${JP_CMD[@]}"
+        fi
       else
-        jp_run "check" "$note" "${GRADLE_CMD[@]}" "$@"
+        if jp_check_cmd tests "$GRADLE_LABEL" narrowed "${GRADLE_CMD[@]}" -- "$@"; then
+          jp_run "$GRADLE_LABEL" "$note" "${JP_CMD[@]}"
+        fi
       fi
     }
 
@@ -226,9 +285,9 @@ if [ "$HAS_GRADLE" = 1 ]; then
       jp_select _jvm_gradle_builtin
       filters=$JP_SELECTION
       if [ -z "$filters" ]; then
-        jp_skip "check" "scope: no changed file maps to a subproject"
+        jp_skip "$GRADLE_LABEL" "scope: no changed file maps to a subproject"
       elif [ "$filters" = ALL ]; then
-        jp_full_left_to_ci "check" "not narrowable" \
+        jp_full_left_to_ci "$GRADLE_LABEL" "not narrowable" \
           || _jvm_gradle_run "$gv, scope: not narrowable, ran full set"
       else
         IFS='
@@ -239,7 +298,7 @@ if [ "$HAS_GRADLE" = 1 ]; then
         set +f
         IFS=$' \t\n'
         if missing=$(jp_first_missing "$@"); then
-          jp_full_left_to_ci "check" "filter '$missing' selects no tests" \
+          jp_full_left_to_ci "$GRADLE_LABEL" "filter '$missing' selects no tests" \
             || _jvm_gradle_run "$gv, scope: filter '$missing' selects no tests, ran full set"
         else
           n=$#
@@ -265,7 +324,7 @@ fi
 
 # --- Maven -------------------------------------------------------------------
 
-if [ "$HAS_MAVEN" = 1 ]; then
+if [ "$mvn_covered" = 0 ] && [ "$HAS_MAVEN" = 1 ]; then
   MVN_CMD=()
   if [ -f ./mvnw ]; then
     MVN_CMD=(sh ./mvnw)
@@ -274,7 +333,7 @@ if [ "$HAS_MAVEN" = 1 ]; then
   fi
 
   if [ "${#MVN_CMD[@]}" -eq 0 ]; then
-    jp_skip "test" "mvnw not found and mvn not found on PATH"
+    jp_skip "$MVN_LABEL" "mvnw not found and mvn not found on PATH"
   else
     mv_=$(jp_version "${MVN_CMD[@]}" --version)
 
@@ -284,13 +343,21 @@ if [ "$HAS_MAVEN" = 1 ]; then
     # belongs to (D4), or ALL for an always-ALL file or a path outside every
     # module.
     # _jvm_maven_run <note> [-pl <modules> -am] — `test`, narrowed or not.
+    # As for Gradle, the table holds no tool words: the full run's default is
+    # `<mvn> test`; the narrowed run's is `<mvn>` followed by the selection,
+    # and `test` goes after the selection here, because Maven reads its goal
+    # last and the table's `{selection}` is the options before it.
     _jvm_maven_run() {
       local note="$1"
       shift
       if [ $# -eq 0 ]; then
-        jp_run "test" "$note" "${MVN_CMD[@]}" test
+        if jp_check_cmd tests "$MVN_LABEL" full "${MVN_CMD[@]}" test; then
+          jp_run "$MVN_LABEL" "$note" "${JP_CMD[@]}"
+        fi
       else
-        jp_run "test" "$note" "${MVN_CMD[@]}" "$@" test
+        if jp_check_cmd tests "$MVN_LABEL" narrowed "${MVN_CMD[@]}" -- "$@"; then
+          jp_run "$MVN_LABEL" "$note" "${JP_CMD[@]}" test
+        fi
       fi
     }
 
@@ -300,9 +367,9 @@ if [ "$HAS_MAVEN" = 1 ]; then
       jp_select _jvm_maven_builtin
       filters=$JP_SELECTION
       if [ -z "$filters" ]; then
-        jp_skip "test" "scope: no changed file maps to a module"
+        jp_skip "$MVN_LABEL" "scope: no changed file maps to a module"
       elif [ "$filters" = ALL ]; then
-        jp_full_left_to_ci "test" "not narrowable" \
+        jp_full_left_to_ci "$MVN_LABEL" "not narrowable" \
           || _jvm_maven_run "$mv_, scope: not narrowable, ran full set"
       else
         IFS='
@@ -313,7 +380,7 @@ if [ "$HAS_MAVEN" = 1 ]; then
         set +f
         IFS=$' \t\n'
         if missing=$(jp_first_missing "$@"); then
-          jp_full_left_to_ci "test" "filter '$missing' selects no tests" \
+          jp_full_left_to_ci "$MVN_LABEL" "filter '$missing' selects no tests" \
             || _jvm_maven_run "$mv_, scope: filter '$missing' selects no tests, ran full set"
         else
           n=$#

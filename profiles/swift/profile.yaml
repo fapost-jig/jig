@@ -3,3 +3,13 @@ name: swift
 description: Swift projects (swift build, swift test from PATH).
 detect: [Package.swift]
 scope: [changed, map, explain, environment]
+# The checks of this profile by role, and the index of its check table
+# (schemas/profile.md, Check table). Another profile can take any one over by
+# name (`covers: [swift:build]`).
+checks: [build, tests]
+# build: swift build, never narrowed by files.
+checks.build.command: swift
+checks.build.full: build
+# tests: swift test, never narrowed by files.
+checks.tests.command: swift
+checks.tests.full: test

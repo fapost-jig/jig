@@ -3,3 +3,19 @@ name: dart
 description: Dart and Flutter projects (analyze, format, test, from PATH).
 detect: [pubspec.yaml]
 scope: [changed, map, explain, environment]
+# The checks of this profile by role, and the index of its check table
+# (schemas/profile.md, Check table). Another profile can take any one over by
+# name (`covers: [dart:static]`).
+checks: [static, style, tests]
+# static: `<runner> analyze`, the runner (dart, or flutter in a Flutter
+# project) chosen by verify.sh, so the table names no command.
+checks.static.full: analyze
+checks.static.narrowed: analyze {selection}
+# style: dart format, always the `dart` binary; a narrowed run formats the
+# changed .dart files.
+checks.style.command: dart
+checks.style.full: format --output=none --set-exit-if-changed .
+checks.style.narrowed: format --output=none --set-exit-if-changed {selection}
+# tests: `<runner> test`; a narrowed run passes the test files it selected.
+checks.tests.full: test
+checks.tests.narrowed: test {selection}

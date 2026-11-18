@@ -3,3 +3,15 @@ name: go
 description: Go modules (go vet, go test from the module's own toolchain).
 detect: [go.mod]
 scope: [changed, map, explain, environment]
+# The checks of this profile by role, and the index of its check table
+# (schemas/profile.md, Check table). Another profile can take any one over by
+# name (`covers: [go:static]`).
+checks: [static, tests]
+# static: go vet; a narrowed run vets the changed packages.
+checks.static.command: go
+checks.static.full: vet ./...
+checks.static.narrowed: vet {selection}
+# tests: go test; a narrowed run tests the changed packages and their importers.
+checks.tests.command: go
+checks.tests.full: test ./...
+checks.tests.narrowed: test {selection}

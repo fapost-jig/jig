@@ -546,7 +546,7 @@ cmd_verify() {
   local scope=0 base="" nfiles=0 scope_ok note full=0 explicit=0 full_run
   local header="" base_branch base_ref mb map map_ok map_err maps maps_listed map_bad b
   local incomplete=0 covered=0 explained=0 unknown=0 plan_output plan_bad hr_state hr_rt hr_text
-  local table_err table_rows table_listed tb_role covered_needs_install=0 is_fallback=0 run_output ci_left=0 task_base="" task_which="" task_note=""
+  local table_err table_rows covered_needs_install=0 is_fallback=0 run_output ci_left=0 task_base="" task_which="" task_note=""
   JIG_VERIFY_TMP=""
   JIG_VERIFY_MAP_TMP=""
   JIG_VERIFY_MAP_ALL_TMP=""
@@ -942,19 +942,11 @@ EOF
       fi
       continue
     fi
-    table_rows=$(profiles_check_rows "$pdir")
-    table_listed=$(_profiles_list_lines "$pdir" checks)
+    table_rows=$(profiles_check_handdown "$pdir")
     if [ -n "$table_rows" ]; then
       JIG_VERIFY_CHECKS_TMP=$(mktemp "${TMPDIR:-/tmp}/jig-verify-checks.XXXXXX") \
         || jig_die "verify: cannot create temporary file"
-      {
-        while IFS= read -r tb_role; do
-          [ -z "$tb_role" ] || printf '%s\tlisted\t\n' "$tb_role"
-        done <<EOF
-$table_listed
-EOF
-        printf '%s\n' "$table_rows"
-      } > "$JIG_VERIFY_CHECKS_TMP"
+      printf '%s\n' "$table_rows" > "$JIG_VERIFY_CHECKS_TMP"
       JIG_VERIFY_CHECKS="$JIG_VERIFY_CHECKS_TMP"
       export JIG_VERIFY_CHECKS
     else

@@ -128,7 +128,16 @@ rb_mapped() {
   export JIG_VERIFY_MAPPED
 }
 
+# rb_checks_env — the check table of the ruby profile in JIG_VERIFY_CHECKS the
+# way `jig verify` hands it down: these tests run verify.sh directly. A test
+# that wants another table sets RB_PROFILE_DIR to a directory holding its
+# profile.yaml (one with none hands down no table).
+rb_checks_env() {
+  profile_checks_env "${RB_PROFILE_DIR:-$JIG_HOME/profiles/ruby}"
+}
+
 rb_verify() {
+  rb_checks_env
   run bash "$JIG_HOME/profiles/ruby/verify.sh"
 }
 
@@ -161,8 +170,8 @@ test_profile_ruby_skips_everything_without_bundle() {
   bin=$(rb_notools_path)
   PATH="$bin" rb_verify
   assert_eq 2 "$RC"
-  assert_contains "$OUT" "ruby: rubocop: skip (bundle not found on PATH)"
-  assert_contains "$OUT" "ruby: rspec: skip (bundle not found on PATH)"
+  assert_contains "$OUT" "ruby: lint (rubocop): skip (bundle not found on PATH)"
+  assert_contains "$OUT" "ruby: tests (rspec): skip (bundle not found on PATH)"
 }
 
 # --- rubocop: pass, fail, version in the verdict ---------------------------
@@ -172,7 +181,7 @@ test_profile_ruby_rubocop_pass_names_its_version() {
   rb_stub_bundle 0 0 0
   rb_verify
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "ruby: rubocop: pass (rubocop stub-version)"
+  assert_contains "$OUT" "ruby: lint (rubocop): pass (rubocop stub-version)"
 }
 
 test_profile_ruby_rubocop_fail_names_its_version() {
@@ -180,7 +189,7 @@ test_profile_ruby_rubocop_fail_names_its_version() {
   rb_stub_bundle 1 0 0
   rb_verify
   assert_eq 1 "$RC"
-  assert_contains "$OUT" "ruby: rubocop: fail (rubocop stub-version)"
+  assert_contains "$OUT" "ruby: lint (rubocop): fail (rubocop stub-version)"
 }
 
 test_profile_ruby_rubocop_skips_when_not_in_lockfile() {
@@ -188,7 +197,7 @@ test_profile_ruby_rubocop_skips_when_not_in_lockfile() {
   rb_stub_bundle 0 0 0
   rb_verify
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "ruby: rubocop: skip (rubocop not listed in Gemfile.lock)"
+  assert_contains "$OUT" "ruby: lint (rubocop): skip (rubocop not listed in Gemfile.lock)"
 }
 
 # --- rubocop narrowing (D4: changed .rb / .rake files only) ----------------
@@ -203,7 +212,7 @@ test_profile_ruby_rubocop_narrows_to_changed_rb_and_rake_files() {
   rb_scope "$(printf 'app/models/foo.rb\nlib/tasks/x.rake\nREADME.md\n')"
   rb_verify
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "ruby: rubocop: pass (rubocop stub-version, scope: 2 files)"
+  assert_contains "$OUT" "ruby: lint (rubocop): pass (rubocop stub-version, scope: 2 files)"
   assert_eq "app/models/foo.rb lib/tasks/x.rake" "$(cat rubocop.args)"
 }
 
@@ -214,7 +223,7 @@ test_profile_ruby_rubocop_full_run_when_rubocop_yml_changes() {
   rb_scope ".rubocop.yml"
   rb_verify
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "ruby: rubocop: pass (rubocop stub-version, scope: .rubocop.yml changed, whole project)"
+  assert_contains "$OUT" "ruby: lint (rubocop): pass (rubocop stub-version, scope: .rubocop.yml changed, whole project)"
 }
 
 test_profile_ruby_rubocop_scope_selects_nothing_skips() {
@@ -228,8 +237,8 @@ test_profile_ruby_rubocop_scope_selects_nothing_skips() {
   # for rspec either (a doc file, not a project-wide one) — so the profile
   # reports skip on both and exits 2 (ADR-0013: a skip is not a pass).
   assert_eq 2 "$RC"
-  assert_contains "$OUT" "ruby: rubocop: skip (scope: no changed .rb or .rake files)"
-  assert_contains "$OUT" "ruby: rspec: skip (scope: no changed file maps to a test)"
+  assert_contains "$OUT" "ruby: lint (rubocop): skip (scope: no changed .rb or .rake files)"
+  assert_contains "$OUT" "ruby: tests (rspec): skip (scope: no changed file maps to a test)"
 }
 
 # --- rspec narrowing (D4: app/x/y.rb, lib/y.rb, changed spec itself) -------
@@ -245,7 +254,7 @@ test_profile_ruby_rspec_narrows_app_and_lib_and_spec_paths() {
   rb_scope "$(printf 'app/models/foo.rb\nlib/bar.rb\nspec/other_spec.rb\n')"
   rb_verify
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "ruby: rspec: pass (rspec stub-version, scope: 3 test files)"
+  assert_contains "$OUT" "ruby: tests (rspec): pass (rspec stub-version, scope: 3 test files)"
   assert_eq "spec/bar_spec.rb spec/models/foo_spec.rb spec/other_spec.rb" "$(cat rspec.args)"
 }
 
@@ -268,7 +277,7 @@ test_profile_ruby_rspec_full_run_when_gemfile_lock_changes() {
   rb_scope "Gemfile.lock"
   rb_verify
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "ruby: rspec: pass (rspec stub-version, scope: Gemfile.lock can affect any test, ran full set)"
+  assert_contains "$OUT" "ruby: tests (rspec): pass (rspec stub-version, scope: Gemfile.lock can affect any test, ran full set)"
   assert_eq "" "$(cat rspec.args)"
 }
 
@@ -280,7 +289,7 @@ test_profile_ruby_rspec_missing_target_falls_back_to_full_run() {
   rb_scope "app/orphan/missing.rb"
   rb_verify
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "ruby: rspec: pass (rspec stub-version, scope: filter 'spec/orphan/missing_spec.rb' selects no tests, ran full set)"
+  assert_contains "$OUT" "ruby: tests (rspec): pass (rspec stub-version, scope: filter 'spec/orphan/missing_spec.rb' selects no tests, ran full set)"
   assert_eq "" "$(cat rspec.args)"
 }
 
@@ -289,7 +298,7 @@ test_profile_ruby_rspec_fail_names_its_version() {
   rb_stub_bundle 0 1 0
   rb_verify
   assert_eq 1 "$RC"
-  assert_contains "$OUT" "ruby: rspec: fail (rspec stub-version)"
+  assert_contains "$OUT" "ruby: tests (rspec): fail (rspec stub-version)"
 }
 
 # --- minitest: bin/rails (narrowable) and rake (not) -----------------------
@@ -303,7 +312,7 @@ test_profile_ruby_minitest_via_bin_rails_narrows() {
   rb_scope "app/models/foo.rb"
   rb_verify
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "ruby: minitest: pass (Rails stub-version, scope: 1 test files)"
+  assert_contains "$OUT" "ruby: tests (minitest): pass (Rails stub-version, scope: 1 test files)"
   assert_eq "test test/models/foo_test.rb" "$(cat rails.args)"
 }
 
@@ -313,7 +322,7 @@ test_profile_ruby_minitest_via_bin_rails_unscoped_runs_plain_test() {
   rb_stub_bin_rails 0
   rb_verify
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "ruby: minitest: pass (Rails stub-version)"
+  assert_contains "$OUT" "ruby: tests (minitest): pass (Rails stub-version)"
   assert_eq "test" "$(cat rails.args)"
 }
 
@@ -325,7 +334,7 @@ test_profile_ruby_minitest_via_rake_is_never_narrowed() {
   rb_scope "test/foo_test.rb"
   rb_verify
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "ruby: minitest: pass (rake stub-version, scope: not narrowable, ran full set)"
+  assert_contains "$OUT" "ruby: tests (minitest): pass (rake stub-version, scope: not narrowable, ran full set)"
   assert_eq "test" "$(cat rake.args)"
 }
 
@@ -334,8 +343,8 @@ test_profile_ruby_no_test_framework_skips_with_reason() {
   rb_stub_bundle 0 0 0
   rb_verify
   assert_eq 2 "$RC"
-  assert_contains "$OUT" "ruby: rubocop: skip (rubocop not listed in Gemfile.lock)"
-  assert_contains "$OUT" "ruby: test: skip (no rspec or minitest runner found"
+  assert_contains "$OUT" "ruby: lint (rubocop): skip (rubocop not listed in Gemfile.lock)"
+  assert_contains "$OUT" "ruby: tests: skip (no rspec or minitest runner found"
 }
 
 # --- project map (ADR-0041, D5: filters are spec/test file paths) ---------
@@ -368,7 +377,7 @@ test_profile_ruby_rspec_config_glob_not_masked_by_sibling_on_disk() {
   rb_scope "config/routes.rb"
   rb_verify
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "ruby: rspec: pass (rspec stub-version, scope: config/routes.rb can affect any test, ran full set)"
+  assert_contains "$OUT" "ruby: tests (rspec): pass (rspec stub-version, scope: config/routes.rb can affect any test, ran full set)"
 }
 
 # --- IFS regression: rubocop's own file-list narrowing must not corrupt ----
@@ -391,8 +400,8 @@ test_profile_ruby_rspec_map_decision_two_filters_after_rubocop_file_list_path() 
   rb_mapped "$(printf 'app/models/user.rb\tspec/models/user_a_spec.rb spec/models/user_b_spec.rb')"
   rb_verify
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "ruby: rubocop: pass (rubocop stub-version, scope: 1 files)"
-  assert_contains "$OUT" "ruby: rspec: pass (rspec stub-version, scope: 2 test files)"
+  assert_contains "$OUT" "ruby: lint (rubocop): pass (rubocop stub-version, scope: 1 files)"
+  assert_contains "$OUT" "ruby: tests (rspec): pass (rspec stub-version, scope: 2 test files)"
   assert_eq "spec/models/user_a_spec.rb spec/models/user_b_spec.rb" "$(cat rspec.args)"
 }
 
@@ -404,8 +413,8 @@ test_profile_ruby_rspec_runs_full_after_rubocop_file_list_path() {
   rb_scope "$(printf 'app/models/user.rb\nGemfile\n')"
   rb_verify
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "ruby: rubocop: pass (rubocop stub-version, scope: 1 files)"
-  assert_contains "$OUT" "ruby: rspec: pass (rspec stub-version, scope: Gemfile can affect any test, ran full set)"
+  assert_contains "$OUT" "ruby: lint (rubocop): pass (rubocop stub-version, scope: 1 files)"
+  assert_contains "$OUT" "ruby: tests (rspec): pass (rspec stub-version, scope: Gemfile can affect any test, ran full set)"
 }
 
 test_profile_ruby_map_dash_selects_nothing_skips() {
@@ -416,7 +425,7 @@ test_profile_ruby_map_dash_selects_nothing_skips() {
   rb_mapped "$(printf 'app/models/foo.rb\t-')"
   rb_verify
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "ruby: rspec: skip (scope: no changed file maps to a test)"
+  assert_contains "$OUT" "ruby: tests (rspec): skip (scope: no changed file maps to a test)"
 }
 
 # --- front end: what can and cannot change the result of the test run --------
@@ -436,6 +445,7 @@ rb_explain() {
   JIG_VERIFY_EXPLAIN=1
   export JIG_VERIFY_SCOPE JIG_VERIFY_FILES JIG_VERIFY_EXPLAIN
   unset JIG_VERIFY_MAPPED
+  rb_checks_env
   run bash "$JIG_HOME/profiles/ruby/verify.sh"
   unset JIG_VERIFY_SCOPE JIG_VERIFY_FILES JIG_VERIFY_EXPLAIN
 }
@@ -448,7 +458,7 @@ test_profile_ruby_front_end_script_change_runs_no_test() {
   rb_scope "app/javascript/app.js"
   rb_verify
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "ruby: rspec: skip (scope: no changed file maps to a test)"
+  assert_contains "$OUT" "ruby: tests (rspec): skip (scope: no changed file maps to a test)"
   assert_no_file rspec.args
 }
 
@@ -462,8 +472,8 @@ test_profile_ruby_front_end_change_skips_every_check() {
   rb_scope "app/assets/stylesheets/app.css"
   rb_verify
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "ruby: rspec: skip (scope: no changed file maps to a test)"
-  assert_contains "$OUT" "ruby: rubocop: skip (scope: no changed .rb or .rake files)"
+  assert_contains "$OUT" "ruby: tests (rspec): skip (scope: no changed file maps to a test)"
+  assert_contains "$OUT" "ruby: lint (rubocop): skip (scope: no changed .rb or .rake files)"
   assert_no_file rspec.args
   assert_no_file rubocop.args
 }
@@ -476,7 +486,7 @@ test_profile_ruby_package_json_change_runs_full_tests() {
   rb_verify
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" \
-    "ruby: rspec: pass (rspec stub-version, scope: package.json changes the asset build, which browser tests load, ran full set)"
+    "ruby: tests (rspec): pass (rspec stub-version, scope: package.json changes the asset build, which browser tests load, ran full set)"
 }
 
 # vite.config.ts also matches the front-end extension list; the build list is
@@ -525,7 +535,7 @@ test_profile_ruby_front_end_beside_ruby_runs_only_the_named_test() {
   rb_scope "$(printf 'app/javascript/app.js\napp/models/foo.rb\n')"
   rb_verify
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "ruby: rspec: pass (rspec stub-version, scope: 1 test files)"
+  assert_contains "$OUT" "ruby: tests (rspec): pass (rspec stub-version, scope: 1 test files)"
   assert_eq "spec/models/foo_spec.rb" "$(cat rspec.args)"
 }
 
@@ -538,7 +548,7 @@ test_profile_ruby_explain_front_end_change_maps_to_no_test() {
   : > app/javascript/app.js
   rb_explain "app/javascript/app.js"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "PLAN ruby: rspec: skip (no changed file maps to this check)"
+  assert_contains "$OUT" "PLAN ruby: tests (rspec): skip (no changed file maps to this check)"
   assert_no_file rspec.args
 }
 
@@ -549,7 +559,7 @@ test_profile_ruby_explain_names_the_path_that_forces_the_full_set() {
   rb_explain "package.json"
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" \
-    "PLAN ruby: rspec: full (package.json changes the asset build, which browser tests load)"
+    "PLAN ruby: tests (rspec): full (package.json changes the asset build, which browser tests load)"
   assert_no_file rspec.args
 }
 
@@ -564,7 +574,7 @@ test_profile_ruby_full_run_ci_leaves_a_gemfile_lock_change_to_ci() {
   rb_verify
   unset JIG_VERIFY_FULL_RUN
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "ruby: rspec: skip (scope: Gemfile.lock can affect any test, full set left to CI)"
+  assert_contains "$OUT" "ruby: tests (rspec): skip (scope: Gemfile.lock can affect any test, full set left to CI)"
   assert_no_file rspec.args
 }
 
@@ -578,7 +588,7 @@ test_profile_ruby_full_run_ci_runs_the_named_spec_beside_a_gemfile_lock_change()
   rb_verify
   unset JIG_VERIFY_FULL_RUN
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "ruby: rspec: pass (rspec stub-version, scope: 1 test files, full set left to CI)"
+  assert_contains "$OUT" "ruby: tests (rspec): pass (rspec stub-version, scope: 1 test files, full set left to CI)"
   assert_eq "spec/other_spec.rb" "$(cat rspec.args)"
 }
 
@@ -593,7 +603,7 @@ test_profile_ruby_full_run_ci_leaves_minitest_via_rake_to_ci() {
   rb_verify
   unset JIG_VERIFY_FULL_RUN
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "ruby: minitest: skip (scope: not narrowable, full set left to CI)"
+  assert_contains "$OUT" "ruby: tests (minitest): skip (scope: not narrowable, full set left to CI)"
   assert_no_file rake.args
 }
 
@@ -605,5 +615,116 @@ test_profile_ruby_full_run_ci_leaves_a_rubocop_config_change_to_ci() {
   export JIG_VERIFY_FULL_RUN
   rb_verify
   unset JIG_VERIFY_FULL_RUN
-  assert_contains "$OUT" "ruby: rubocop: skip (scope: .rubocop.yml changed, full set left to CI)"
+  assert_contains "$OUT" "ruby: lint (rubocop): skip (scope: .rubocop.yml changed, full set left to CI)"
+}
+
+# --- the check table (adr-20261117-a-profile-declares-its-checks-in-a-table) --
+
+# The command line of every check, exactly, in a full run, in a narrowed run
+# and in a fallback to the full set, for each test runner: the table carries
+# what verify.sh used to write, so nothing a project runs changes. The stubs
+# log their arguments.
+test_profile_ruby_check_table_keeps_every_command_line() {
+  rb_fixture rubocop rspec-core rspec
+  rb_stub_bundle 0 0 0
+  printf 'class Foo\nend\n' > app/models/foo.rb
+  printf 'require "rails_helper"\n' > spec/models/foo_spec.rb
+
+  rb_verify
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "" "$(cat rubocop.args)"
+  assert_eq "" "$(cat rspec.args)"
+
+  rm -f rubocop.args rspec.args
+  rb_scope "app/models/foo.rb"
+  rb_verify
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "app/models/foo.rb" "$(cat rubocop.args)"
+  assert_eq "spec/models/foo_spec.rb" "$(cat rspec.args)"
+
+  rm -f rubocop.args rspec.args
+  rb_scope "Gemfile.lock"
+  rb_verify
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "" "$(cat rspec.args)" "Gemfile.lock widens the tests to the full set"
+}
+
+test_profile_ruby_check_table_keeps_the_minitest_command_lines() {
+  rb_fixture
+  rb_stub_bundle 0 0 0
+  rb_stub_bin_rails 0
+  printf 'class Foo\nend\n' > app/models/foo.rb
+  printf 'require "test_helper"\n' > test/models/foo_test.rb
+  rb_scope "app/models/foo.rb"
+  rb_verify
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "test test/models/foo_test.rb" "$(cat rails.args)"
+
+  rm -f rails.args
+  rb_scope "Gemfile"
+  rb_verify
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "test" "$(cat rails.args)"
+}
+
+# The table is what runs: a changed row changes the command line, and the
+# selection lands where `{selection}` stands.
+test_profile_ruby_check_table_rows_shape_the_command() {
+  rb_fixture rubocop rspec-core rspec
+  rb_stub_bundle 0 0 0
+  printf 'class Foo\nend\n' > app/models/foo.rb
+  mkdir -p table-profile
+  sed -e 's/^checks.lint.narrowed: .*/checks.lint.narrowed: --parallel {selection}/' \
+    "$JIG_HOME/profiles/ruby/profile.yaml" > table-profile/profile.yaml
+  RB_PROFILE_DIR=table-profile
+  rb_scope "app/models/foo.rb"
+  rb_verify
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "--parallel app/models/foo.rb" "$(cat rubocop.args)"
+}
+
+# A profile.yaml from before the table (kept by `upgrade` as modified) beside
+# this verify.sh fails each check it would run, loudly, instead of running
+# another command in silence; --explain names the gap without a verdict.
+test_profile_ruby_check_table_missing_fails_loudly() {
+  rb_fixture rubocop rspec-core rspec
+  rb_stub_bundle 0 0 0
+  RB_PROFILE_DIR=no-table-profile
+  rb_verify
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "ruby: lint (rubocop): fail (profile.yaml names no check 'lint'; jig upgrade restores it)"
+  assert_contains "$OUT" "ruby: tests (rspec): fail (profile.yaml names no check 'tests'; jig upgrade restores it)"
+  assert_no_file rubocop.args
+  assert_no_file rspec.args
+
+  printf 'class Foo\nend\n' > app/models/foo.rb
+  rb_explain "app/models/foo.rb"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN ruby: lint (rubocop): skip (profile.yaml names no check 'lint'; jig upgrade restores it)"
+  assert_contains "$OUT" "PLAN ruby: tests (rspec): skip (profile.yaml names no check 'tests'; jig upgrade restores it)"
+}
+
+# Every role the profile lists in `checks:` can be taken over by another
+# profile (`covers: [ruby:<role>]`): the check prints jp_covered's line and
+# runs no tool.
+test_profile_ruby_every_role_can_be_covered() {
+  rb_fixture rubocop rspec-core rspec
+  rb_stub_bundle 0 0 0
+  JIG_VERIFY_COVERED="lint=other tests=other"
+  export JIG_VERIFY_COVERED
+  rb_verify
+  assert_eq 2 "$RC" "$OUT"
+  assert_contains "$OUT" "ruby: lint (rubocop): skip (scope: covered by other, ruby:lint)"
+  assert_contains "$OUT" "ruby: tests (rspec): skip (scope: covered by other, ruby:tests)"
+  assert_no_file rubocop.args
+  assert_no_file rspec.args
+
+  printf 'class Foo\nend\n' > app/models/foo.rb
+  rb_explain "app/models/foo.rb"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN ruby: lint (rubocop): skip (scope: covered by other, ruby:lint)"
+  assert_contains "$OUT" "PLAN ruby: tests (rspec): skip (scope: covered by other, ruby:tests)"
+  assert_no_file rubocop.args
+  assert_no_file rspec.args
+  unset JIG_VERIFY_COVERED
 }

@@ -133,7 +133,7 @@ test is named after, the profile runs the tests it can name and leaves the full 
 check's line says so:
 
 ```text
-laravel: artisan test: skip (scope: routes/web.php can affect any test, full set left to CI)
+laravel: tests (artisan test): skip (scope: routes/web.php can affect any test, full set left to CI)
 verify: 1 check(s) left their full set to CI (verify.full_run: ci); jig verify --full runs it here
 ```
 
@@ -143,8 +143,8 @@ checks only the changed ones. When the whole tree would be checked — the tool'
 changed, or it cannot narrow (`tsc` and `swift build` never do) — the check is left to CI and says so:
 
 ```text
-node: npm run typecheck: skip (scope: not narrowable, full set left to CI)
-php: phpstan: skip (scope: phpstan configuration changed, full set left to CI)
+node: typecheck (npm run typecheck): skip (scope: not narrowable, full set left to CI)
+php: static (phpstan): skip (scope: phpstan configuration changed, full set left to CI)
 ```
 
 This saves the agent from running the whole suite after every small change, while CI still proves
@@ -387,6 +387,25 @@ skip is never a pass.
 | `dart` | `pubspec.yaml` | analyze, format and test, with `flutter` or `dart`. |
 | `swift` | `Package.swift` | `swift build`, `swift test`. |
 
+Every check is named by its **role** — what it is for — and the tool chosen for it is shown beside
+the name, so a check's line reads `php: tests (phpunit): pass (…)`. The role is the name another
+profile aims at, and it stays the same whichever tool runs it:
+
+| Profile | Checks, by role (tool) |
+|---|---|
+| `shell` | `lint` (shellcheck), `tests` (tests/run.sh) |
+| `php` | `tests` (phpunit or pest), `static` (phpstan), `style` (pint), `manifest` (composer validate) |
+| `laravel` | `tests` (artisan test) |
+| `node` | `tests`, `lint`, `typecheck` (your scripts, run by npm, pnpm, yarn or bun; jest, vitest or eslint for a narrowed run) |
+| `go` | `static` (go vet), `tests` (go test) |
+| `python` | `lint` (ruff), `typecheck` (mypy), `tests` (pytest) |
+| `rust` | `style` (cargo fmt), `lint` (cargo clippy), `tests` (cargo test) |
+| `dotnet` | `style` (dotnet format), `tests` (dotnet test) |
+| `jvm` | `tests` (gradle check or mvn test) |
+| `ruby` | `lint` (rubocop), `tests` (rspec or minitest) |
+| `dart` | `static` (dart or flutter analyze), `style` (dart format), `tests` (dart or flutter test) |
+| `swift` | `build` (swift build), `tests` (swift test) |
+
 When only part of a project changed, every profile except `generic` and `swift` narrows its checks:
 a linter gets the changed files, and tests are narrowed where the stack ties a source file to its
 tests (`foo.py` → `test_foo.py`, a Go package and its importers, a Rust crate). Anything it cannot
@@ -408,12 +427,12 @@ covers: [laravel:tests]
 ```
 
 ```text
-laravel: artisan test: skip (scope: covered by myapp, laravel:tests)
+laravel: tests (artisan test): skip (scope: covered by myapp, laravel:tests)
 ```
 
 `laravel` does the same for `php` (`covers: [php:tests]`), so a Laravel project runs its suite
-once, in `php artisan test`. The check is named by its role, `tests`; `php`, `laravel`, `node` and
-`python` name theirs so far, and a cover of a check a profile does not name prints a warning and
+once, in `php artisan test`. The check is named by its role, `tests` (the roles of every stock profile
+are in the table above), and a cover of a check a profile does not name prints a warning and
 leaves the check running. A cover holds only where the covering profile applies — its `detect`
 matches, is `always`, or is absent. In a run narrowed to changed files, the covered profile's
 `.ai/verify/<profile>.map` goes with its tests, read after the covering profile's own map, so the

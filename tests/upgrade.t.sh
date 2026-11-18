@@ -464,7 +464,7 @@ EOF
   chmod +x tests/run.sh
   run jig verify --profile shell
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "shell: tests/run.sh: pass"
+  assert_contains "$OUT" "shell: tests (tests/run.sh): pass"
   assert_contains "$OUT" "RESULT shell: pass"
 }
 

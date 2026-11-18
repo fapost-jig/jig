@@ -84,6 +84,7 @@ _swift_package() {
 }
 
 _swift_run() {
+  profile_checks_env "$JIG_HOME/profiles/swift"
   run bash "$JIG_HOME/profiles/swift/verify.sh"
 }
 
@@ -109,10 +110,11 @@ test_profile_swift_not_detected_without_package_swift() {
 
 test_profile_swift_skips_both_checks_without_swift() {
   _swift_package
+  profile_checks_env "$JIG_HOME/profiles/swift"
   run_no_tools bash "$JIG_HOME/profiles/swift/verify.sh"
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "swift: build: skip (swift not found on PATH)"
-  assert_contains "$OUT" "swift: test: skip (swift not found on PATH)"
+  assert_contains "$OUT" "swift: build (swift build): skip (swift not found on PATH)"
+  assert_contains "$OUT" "swift: tests (swift test): skip (swift not found on PATH)"
 }
 
 # --- unscoped: pass, fail, version in verdict (AC-05) -----------------------
@@ -122,8 +124,8 @@ test_profile_swift_unscoped_pass_with_version_in_verdict() {
   _swift_stub 0 0
   _swift_run
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "swift: build: pass (Swift version 5.9 (swift-5.9-RELEASE))"
-  assert_contains "$OUT" "swift: test: pass (Swift version 5.9 (swift-5.9-RELEASE))"
+  assert_contains "$OUT" "swift: build (swift build): pass (Swift version 5.9 (swift-5.9-RELEASE))"
+  assert_contains "$OUT" "swift: tests (swift test): pass (Swift version 5.9 (swift-5.9-RELEASE))"
   assert_file_contains swift.log "^build\$"
   assert_file_contains swift.log "^test\$"
 }
@@ -133,8 +135,8 @@ test_profile_swift_unscoped_fail_on_nonzero_exit() {
   _swift_stub 1 1
   _swift_run
   assert_eq 1 "$RC" "$OUT"
-  assert_contains "$OUT" "swift: build: fail"
-  assert_contains "$OUT" "swift: test: fail"
+  assert_contains "$OUT" "swift: build (swift build): fail"
+  assert_contains "$OUT" "swift: tests (swift test): fail"
 }
 
 test_profile_swift_unscoped_build_fail_does_not_skip_test() {
@@ -142,8 +144,8 @@ test_profile_swift_unscoped_build_fail_does_not_skip_test() {
   _swift_stub 1 0
   _swift_run
   assert_eq 1 "$RC" "$OUT"
-  assert_contains "$OUT" "swift: build: fail"
-  assert_contains "$OUT" "swift: test: pass"
+  assert_contains "$OUT" "swift: build (swift build): fail"
+  assert_contains "$OUT" "swift: tests (swift test): pass"
 }
 
 # --- never narrowed (D4 swift row): a scoped run still runs both in full ---
@@ -157,8 +159,8 @@ test_profile_swift_scoped_code_change_runs_full_set_not_narrowable() {
   _swift_run
   unset JIG_VERIFY_SCOPE JIG_VERIFY_FILES
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "swift: build: pass (Swift version 5.9 (swift-5.9-RELEASE), scope: not narrowable, ran full set)"
-  assert_contains "$OUT" "swift: test: pass (Swift version 5.9 (swift-5.9-RELEASE), scope: not narrowable, ran full set)"
+  assert_contains "$OUT" "swift: build (swift build): pass (Swift version 5.9 (swift-5.9-RELEASE), scope: not narrowable, ran full set)"
+  assert_contains "$OUT" "swift: tests (swift test): pass (Swift version 5.9 (swift-5.9-RELEASE), scope: not narrowable, ran full set)"
   assert_file_contains swift.log "^build\$"
   assert_file_contains swift.log "^test\$"
 }
@@ -186,8 +188,8 @@ test_profile_swift_scoped_docs_only_skips_both_checks() {
   _swift_run
   unset JIG_VERIFY_SCOPE JIG_VERIFY_FILES
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "swift: build: skip (scope: only documentation changed)"
-  assert_contains "$OUT" "swift: test: skip (scope: only documentation changed)"
+  assert_contains "$OUT" "swift: build (swift build): skip (scope: only documentation changed)"
+  assert_contains "$OUT" "swift: tests (swift test): skip (scope: only documentation changed)"
   # The version probe always runs (it only names the tool, adr-20260918-profiles-narrow-per-check-with-project-tools); build
   # and test themselves never do.
   assert_not_contains "$(cat swift.log)" "build"
@@ -218,8 +220,8 @@ test_profile_swift_map_dash_on_the_only_changed_file_skips() {
   _swift_run
   unset JIG_VERIFY_SCOPE JIG_VERIFY_FILES JIG_VERIFY_MAPPED
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "swift: build: skip (scope: only documentation changed)"
-  assert_contains "$OUT" "swift: test: skip (scope: only documentation changed)"
+  assert_contains "$OUT" "swift: build (swift build): skip (scope: only documentation changed)"
+  assert_contains "$OUT" "swift: tests (swift test): skip (scope: only documentation changed)"
 }
 
 # A map decision other than "-" forces the full run even when the profile's
@@ -272,8 +274,8 @@ STUB
   # refusal: exit 0, not 3 (verify-knows-a-change-maps-to-no-check).
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" "map .ai/verify/swift.map"
-  assert_contains "$OUT" "swift: build: skip (scope: only documentation changed)"
-  assert_contains "$OUT" "swift: test: skip (scope: only documentation changed)"
+  assert_contains "$OUT" "swift: build (swift build): skip (scope: only documentation changed)"
+  assert_contains "$OUT" "swift: tests (swift test): skip (scope: only documentation changed)"
   assert_contains "$OUT" "RESULT swift: skip"
   assert_contains "$OUT" "verify: every check in scope skipped"
   assert_not_contains "$OUT" "install the project's tools"
@@ -297,8 +299,95 @@ test_profile_swift_full_run_ci_leaves_a_code_change_to_ci() {
   # Nothing ran, so the profile exits 2.
   assert_eq 2 "$RC" "$OUT"
   # build is a whole-project compile check: left to CI as well.
-  assert_contains "$OUT" "swift: build: skip (scope: not narrowable, full set left to CI)"
-  assert_contains "$OUT" "swift: test: skip (scope: not narrowable, full set left to CI)"
+  assert_contains "$OUT" "swift: build (swift build): skip (scope: not narrowable, full set left to CI)"
+  assert_contains "$OUT" "swift: tests (swift test): skip (scope: not narrowable, full set left to CI)"
   assert_not_contains "$(cat swift.log)" "build"
   assert_not_contains "$(cat swift.log)" "test"
+}
+
+# --- the check table ---------------------------------------------------------
+
+# _swift_calls — the build and test command lines the stub logged.
+_swift_calls() {
+  grep -E '^(build|test)' swift.log
+}
+
+# The table carries what verify.sh used to write, so nothing a project runs
+# changes: the argv of each check in a full run and in a scoped run, which
+# swift never narrows.
+test_profile_swift_check_table_keeps_every_command_line() {
+  _swift_package
+  _swift_stub 0 0
+
+  _swift_run
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "build
+test" "$(_swift_calls)"
+
+  rm -f swift.log
+  printf 'Sources/App/main.swift\n' > "$JIG_TEST_TMP.files"
+  JIG_VERIFY_SCOPE=changed JIG_VERIFY_FILES="$JIG_TEST_TMP.files"
+  export JIG_VERIFY_SCOPE JIG_VERIFY_FILES
+  _swift_run
+  unset JIG_VERIFY_SCOPE JIG_VERIFY_FILES
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "build
+test" "$(_swift_calls)"
+}
+
+# The table is what runs: a changed row changes the command line.
+test_profile_swift_check_table_rows_shape_the_command() {
+  _swift_package
+  _swift_stub 0 0
+  mkdir -p prof/swift
+  sed -e 's/^checks.tests.full: .*/checks.tests.full: test --parallel/' \
+    "$JIG_HOME/profiles/swift/profile.yaml" > prof/swift/profile.yaml
+  profile_checks_env prof/swift
+  run bash "$JIG_HOME/profiles/swift/verify.sh"
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "build
+test --parallel" "$(_swift_calls)"
+}
+
+# A profile.yaml from before the table (kept by `upgrade` as modified) beside
+# this verify.sh fails each check it would run, loudly, instead of running
+# another command in silence; --explain names the gap without a verdict.
+test_profile_swift_check_table_missing_fails_loudly() {
+  _swift_package
+  _swift_stub 0 0
+  unset JIG_VERIFY_CHECKS
+  run bash "$JIG_HOME/profiles/swift/verify.sh"
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "swift: build (swift build): fail (profile.yaml names no check 'build'; jig upgrade restores it)"
+  assert_contains "$OUT" "swift: tests (swift test): fail (profile.yaml names no check 'tests'; jig upgrade restores it)"
+  assert_eq "" "$(_swift_calls || true)" "no build or test ran"
+
+  JIG_VERIFY_EXPLAIN=1 run bash "$JIG_HOME/profiles/swift/verify.sh"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN swift: build (swift build): skip (profile.yaml names no check 'build'; jig upgrade restores it)"
+  assert_contains "$OUT" "PLAN swift: tests (swift test): skip (profile.yaml names no check 'tests'; jig upgrade restores it)"
+}
+
+# Every role the profile lists in `checks:` can be taken over by another
+# profile (`covers: [swift:<role>]`): the check prints jp_covered's line and
+# runs no swift at all.
+test_profile_swift_every_role_can_be_covered() {
+  _swift_package
+  _swift_stub 0 0
+  profile_checks_env "$JIG_HOME/profiles/swift"
+  JIG_VERIFY_COVERED="build=other tests=other"
+  export JIG_VERIFY_COVERED
+
+  run bash "$JIG_HOME/profiles/swift/verify.sh"
+  assert_eq 2 "$RC" "$OUT"
+  assert_contains "$OUT" "swift: build (swift build): skip (scope: covered by other, swift:build)"
+  assert_contains "$OUT" "swift: tests (swift test): skip (scope: covered by other, swift:tests)"
+  assert_eq "" "$(cat swift.log 2>/dev/null || true)" "no swift ran"
+
+  JIG_VERIFY_EXPLAIN=1 run bash "$JIG_HOME/profiles/swift/verify.sh"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN swift: build (swift build): skip (scope: covered by other, swift:build)"
+  assert_contains "$OUT" "PLAN swift: tests (swift test): skip (scope: covered by other, swift:tests)"
+  assert_eq "" "$(cat swift.log 2>/dev/null || true)" "no swift ran under explain"
+  unset JIG_VERIFY_COVERED
 }

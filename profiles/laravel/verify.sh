@@ -7,7 +7,9 @@
 # profile declares `covers: [php:tests]`: in a run with both, jig verify hands
 # php's tests over (and php.map with them) and the suite runs once. Its own
 # test check answers to `tests` in turn (`checks: [tests]`), so a project's
-# profile above this one can take it over the same way.
+# profile above this one can take it over the same way. Its command line comes
+# from the check table in profile.yaml (jp_check_cmd, schemas/profile.md): the
+# label of the check is `tests (artisan test)`.
 #
 # Narrowing (ADR-0041, adr-20260918-profiles-narrow-per-check-with-project-tools): the same file-to-test convention as the php
 # profile — a changed *Test.php maps to itself, a changed Foo.php maps to
@@ -33,6 +35,8 @@ set -o pipefail
 . "$(dirname "$0")/../../scripts/lib/profile.sh"
 
 jp_begin laravel
+
+label="tests (artisan test)"
 
 # _laravel_is_test <path> — a PHPUnit/Pest test file by the stack's own
 # naming convention.
@@ -148,10 +152,10 @@ _laravel_all_reason() {
 }
 
 if [ "${JIG_VERIFY_EXPLAIN:-}" = 1 ]; then
-  if jp_covered tests "artisan test"; then
+  if jp_covered tests "$label"; then
     :
   elif [ ! -f artisan ] || ! jp_have php; then
-    jp_plan "artisan test" skip "artisan or php not found"
+    jp_plan "$label" skip "artisan or php not found"
   else
     jp_select _laravel_builtin
     filters=$JP_SELECTION
@@ -169,33 +173,48 @@ if [ "${JIG_VERIFY_EXPLAIN:-}" = 1 ]; then
     else
       why=
     fi
-    jp_plan_select "artisan test" "$filters" "test files" "$why"
+    # The planned command line must exist in the check table: `narrowed` for
+    # a selection of files, `full` otherwise. When it does not, jp_check_cmd
+    # has printed the PLAN skip.
+    if jp_scoped && [ -z "$filters" ]; then
+      jp_plan_select "$label" "$filters" "test files" "$why"
+    elif [ -n "$filters" ] && [ "$filters" != ALL ] && jp_scoped; then
+      if jp_check_cmd tests "$label" narrowed; then
+        jp_plan_select "$label" "$filters" "test files" "$why"
+      fi
+    elif jp_check_cmd tests "$label" full; then
+      jp_plan_select "$label" "$filters" "test files" "$why"
+    fi
   fi
   exit 0
 fi
 
-if jp_covered tests "artisan test"; then
+if jp_covered tests "$label"; then
   jp_end
 fi
 
 if [ ! -f artisan ] || ! jp_have php; then
-  jp_skip "artisan test" "artisan or php not found"
+  jp_skip "$label" "artisan or php not found"
   jp_end
 fi
 
 v=$(jp_version php --version)
 
 if ! jp_scoped; then
-  jp_run "artisan test" "$v" php artisan test
+  if jp_check_cmd tests "$label" full; then
+    jp_run "$label" "$v" "${JP_CMD[@]}"
+  fi
 else
   jp_select _laravel_builtin
   filters=$JP_SELECTION
   if [ -z "$filters" ]; then
-    jp_skip "artisan test" "scope: no changed file maps to a test"
+    jp_skip "$label" "scope: no changed file maps to a test"
   elif [ "$filters" = ALL ]; then
     why=$(_laravel_all_reason "$(jp_decide_cause _laravel_builtin)")
-    jp_full_left_to_ci "artisan test" "$why" \
-      || jp_run "artisan test" "$v, scope: $why, ran full set" php artisan test
+    jp_full_left_to_ci "$label" "$why" \
+      || if jp_check_cmd tests "$label" full; then
+        jp_run "$label" "$v, scope: $why, ran full set" "${JP_CMD[@]}"
+      fi
   else
     IFS='
 '
@@ -205,10 +224,12 @@ else
     set +f
     IFS=$' \t\n'
     if missing=$(jp_first_missing "$@"); then
-      jp_full_left_to_ci "artisan test" "filter '$missing' selects no tests" \
-        || jp_run "artisan test" "$v, scope: filter '$missing' selects no tests, ran full set" php artisan test
-    else
-      jp_run "artisan test" "$v, scope: $# test files$JP_SELECTION_NOTE" php artisan test "$@"
+      jp_full_left_to_ci "$label" "filter '$missing' selects no tests" \
+        || if jp_check_cmd tests "$label" full; then
+          jp_run "$label" "$v, scope: filter '$missing' selects no tests, ran full set" "${JP_CMD[@]}"
+        fi
+    elif jp_check_cmd tests "$label" narrowed -- "$@"; then
+      jp_run "$label" "$v, scope: $# test files$JP_SELECTION_NOTE" "${JP_CMD[@]}"
     fi
   fi
 fi

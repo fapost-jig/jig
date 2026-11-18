@@ -3,3 +3,16 @@ name: dotnet
 description: .NET projects (dotnet format, dotnet test from PATH).
 detect: [*.sln, *.csproj, *.fsproj]
 scope: [changed, map, explain, environment]
+# The checks of this profile by role, and the index of its check table
+# (schemas/profile.md, Check table). Another profile can take any one over by
+# name (`covers: [dotnet:style]`).
+checks: [style, tests]
+# style: dotnet format; a narrowed run checks the changed .cs/.fs/.vb files.
+checks.style.command: dotnet
+checks.style.full: format --verify-no-changes
+checks.style.narrowed: format --verify-no-changes --include {selection}
+# tests: dotnet test; a narrowed run names one test project, and `dotnet test`
+# takes only one, so verify.sh runs it once per project.
+checks.tests.command: dotnet
+checks.tests.full: test
+checks.tests.narrowed: test {selection}

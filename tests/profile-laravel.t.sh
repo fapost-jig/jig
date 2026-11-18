@@ -18,6 +18,7 @@ _LARAVEL_VERIFY=".ai/profiles/laravel/verify.sh"
 _laravel_install() {
   fixture_repo
   jig init --from "$JIG_HOME" --profiles laravel >/dev/null
+  profile_checks_env .ai/profiles/laravel
   : > artisan
 }
 
@@ -109,7 +110,7 @@ test_profile_laravel_skips_without_artisan_or_php() {
   # Every check skipped, so the run checked nothing and says so, exit 3
   # (adr-20260925-one-test-run-per-clone-and-a-dead-run-is-not-a-pass).
   assert_eq 3 "$RC" "$OUT"
-  assert_contains "$OUT" "laravel: artisan test: skip (artisan or php not found)"
+  assert_contains "$OUT" "laravel: tests (artisan test): skip (artisan or php not found)"
   assert_contains "$OUT" "RESULT laravel: skip"
 }
 
@@ -131,12 +132,12 @@ test_profile_laravel_full_mode_pass_and_fail() {
   _artisan_stub 0 artisan.log
   run jig verify --profile laravel
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "laravel: artisan test: pass"
+  assert_contains "$OUT" "laravel: tests (artisan test): pass"
 
   _artisan_stub 1 artisan.log
   run jig verify --profile laravel
   assert_eq 1 "$RC"
-  assert_contains "$OUT" "laravel: artisan test: fail"
+  assert_contains "$OUT" "laravel: tests (artisan test): fail"
 }
 
 # --- narrowing: same php-> test convention as the php profile (D4) ----------
@@ -150,7 +151,7 @@ test_profile_laravel_changed_test_file_maps_to_itself() {
 
   _laravel_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "laravel: artisan test: pass (PHP 8.3.0, scope: 1 test files)"
+  assert_contains "$OUT" "laravel: tests (artisan test): pass (PHP 8.3.0, scope: 1 test files)"
   assert_file_contains artisan.log "tests/FooTest.php"
 }
 
@@ -164,7 +165,7 @@ test_profile_laravel_changed_source_maps_to_named_test_under_tests() {
 
   _laravel_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "laravel: artisan test: pass (PHP 8.3.0, scope: 1 test files)"
+  assert_contains "$OUT" "laravel: tests (artisan test): pass (PHP 8.3.0, scope: 1 test files)"
   assert_file_contains artisan.log "tests/FooTest.php"
 }
 
@@ -177,7 +178,7 @@ test_profile_laravel_unmapped_source_runs_full() {
 
   _laravel_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "laravel: artisan test: pass (PHP 8.3.0, scope: no test is named after app/Orphan.php, ran full set)"
+  assert_contains "$OUT" "laravel: tests (artisan test): pass (PHP 8.3.0, scope: no test is named after app/Orphan.php, ran full set)"
   assert_file_contains artisan.log '^$'
 }
 
@@ -188,7 +189,7 @@ test_profile_laravel_doc_only_change_skips() {
 
   _laravel_scoped "$files"
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "laravel: artisan test: skip (scope: no changed file maps to a test)"
+  assert_contains "$OUT" "laravel: tests (artisan test): skip (scope: no changed file maps to a test)"
   assert_no_file artisan.log
 }
 
@@ -203,7 +204,7 @@ test_profile_laravel_missing_selected_test_falls_back_to_full() {
   _laravel_scoped "$files" "$mapped"
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" \
-    "laravel: artisan test: pass (PHP 8.3.0, scope: filter 'tests/GoneTest.php' selects no tests, ran full set)"
+    "laravel: tests (artisan test): pass (PHP 8.3.0, scope: filter 'tests/GoneTest.php' selects no tests, ran full set)"
 }
 
 # --- always-ALL triggers (D4: php's own set, plus routes/, config/, --------
@@ -216,7 +217,7 @@ test_profile_laravel_runs_full_when_phpunit_xml_changed() {
 
   _laravel_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "laravel: artisan test: pass (PHP 8.3.0, scope: phpunit.xml.dist can affect any test, ran full set)"
+  assert_contains "$OUT" "laravel: tests (artisan test): pass (PHP 8.3.0, scope: phpunit.xml.dist can affect any test, ran full set)"
 }
 
 test_profile_laravel_runs_full_when_composer_json_changed() {
@@ -226,7 +227,7 @@ test_profile_laravel_runs_full_when_composer_json_changed() {
 
   _laravel_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "laravel: artisan test: pass (PHP 8.3.0, scope: composer.json can affect any test, ran full set)"
+  assert_contains "$OUT" "laravel: tests (artisan test): pass (PHP 8.3.0, scope: composer.json can affect any test, ran full set)"
 }
 
 test_profile_laravel_runs_full_when_routes_changed() {
@@ -236,7 +237,7 @@ test_profile_laravel_runs_full_when_routes_changed() {
 
   _laravel_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "laravel: artisan test: pass (PHP 8.3.0, scope: routes/web.php can affect any test, ran full set)"
+  assert_contains "$OUT" "laravel: tests (artisan test): pass (PHP 8.3.0, scope: routes/web.php can affect any test, ran full set)"
 }
 
 test_profile_laravel_runs_full_when_config_changed() {
@@ -246,7 +247,7 @@ test_profile_laravel_runs_full_when_config_changed() {
 
   _laravel_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "laravel: artisan test: pass (PHP 8.3.0, scope: config/app.php can affect any test, ran full set)"
+  assert_contains "$OUT" "laravel: tests (artisan test): pass (PHP 8.3.0, scope: config/app.php can affect any test, ran full set)"
 }
 
 test_profile_laravel_runs_full_when_database_changed() {
@@ -256,7 +257,7 @@ test_profile_laravel_runs_full_when_database_changed() {
 
   _laravel_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "laravel: artisan test: pass (PHP 8.3.0, scope: database/migrations/2024_01_01_create_foo_table.php can affect any test, ran full set)"
+  assert_contains "$OUT" "laravel: tests (artisan test): pass (PHP 8.3.0, scope: database/migrations/2024_01_01_create_foo_table.php can affect any test, ran full set)"
 }
 
 test_profile_laravel_runs_full_when_bootstrap_changed() {
@@ -266,7 +267,7 @@ test_profile_laravel_runs_full_when_bootstrap_changed() {
 
   _laravel_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "laravel: artisan test: pass (PHP 8.3.0, scope: bootstrap/providers.php can affect any test, ran full set)"
+  assert_contains "$OUT" "laravel: tests (artisan test): pass (PHP 8.3.0, scope: bootstrap/providers.php can affect any test, ran full set)"
 }
 
 # --- map filters (D5: a test file path) --------------------------------------
@@ -295,7 +296,7 @@ test_profile_laravel_map_dash_means_no_test() {
 
   _laravel_scoped "$files" "$mapped"
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "laravel: artisan test: skip (scope: no changed file maps to a test)"
+  assert_contains "$OUT" "laravel: tests (artisan test): skip (scope: no changed file maps to a test)"
 }
 
 # --- glob-list regression: an always-ALL glob must not be expanded --------
@@ -318,7 +319,7 @@ test_profile_laravel_deleted_config_file_runs_full_despite_sibling_on_disk() {
 
   _laravel_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "laravel: artisan test: pass (PHP 8.3.0, scope: config/app.php can affect any test, ran full set)"
+  assert_contains "$OUT" "laravel: tests (artisan test): pass (PHP 8.3.0, scope: config/app.php can affect any test, ran full set)"
   # Old bug: config/* expanded to config/database.php (the only sibling on
   # disk), missed config/app.php, and fell through to stem "app" ->
   # tests/appTest.php, running only that one test instead of the full suite.
@@ -336,7 +337,7 @@ test_profile_laravel_nested_config_file_runs_full_despite_sibling_on_disk() {
 
   _laravel_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "laravel: artisan test: pass (PHP 8.3.0, scope: config/nested/extra.php can affect any test, ran full set)"
+  assert_contains "$OUT" "laravel: tests (artisan test): pass (PHP 8.3.0, scope: config/nested/extra.php can affect any test, ran full set)"
   # Old bug: config/* expanded via real pathname globbing (never crosses
   # `/`), matching only the direct child config/app.php on disk, so a
   # nested config/nested/extra.php never matched and fell through to stem
@@ -388,7 +389,7 @@ test_profile_laravel_front_end_script_change_runs_no_test() {
 
   _laravel_scoped "$files"
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "laravel: artisan test: skip (scope: no changed file maps to a test)"
+  assert_contains "$OUT" "laravel: tests (artisan test): skip (scope: no changed file maps to a test)"
   assert_no_file artisan.log
 }
 
@@ -402,7 +403,7 @@ test_profile_laravel_front_end_component_and_style_change_runs_no_test() {
 
   _laravel_scoped "$files"
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "laravel: artisan test: skip (scope: no changed file maps to a test)"
+  assert_contains "$OUT" "laravel: tests (artisan test): skip (scope: no changed file maps to a test)"
   assert_no_file artisan.log
 }
 
@@ -415,7 +416,7 @@ test_profile_laravel_package_json_change_runs_full_set() {
   _laravel_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" \
-    "laravel: artisan test: pass (PHP 8.3.0, scope: package.json changes the asset build, which browser tests load, ran full set)"
+    "laravel: tests (artisan test): pass (PHP 8.3.0, scope: package.json changes the asset build, which browser tests load, ran full set)"
   assert_file_contains artisan.log '^$'
 }
 
@@ -501,7 +502,7 @@ test_profile_laravel_front_end_beside_php_runs_only_the_named_test() {
 
   _laravel_scoped "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "laravel: artisan test: pass (PHP 8.3.0, scope: 1 test files)"
+  assert_contains "$OUT" "laravel: tests (artisan test): pass (PHP 8.3.0, scope: 1 test files)"
   assert_file_contains artisan.log "tests/FooTest.php"
 }
 
@@ -516,7 +517,7 @@ test_profile_laravel_explain_front_end_change_maps_to_no_test() {
 
   _laravel_explain "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "PLAN laravel: artisan test: skip (no changed file maps to this check)"
+  assert_contains "$OUT" "PLAN laravel: tests (artisan test): skip (no changed file maps to this check)"
   assert_no_file artisan.log
 }
 
@@ -529,7 +530,7 @@ test_profile_laravel_explain_names_the_path_that_forces_the_full_set() {
   _laravel_explain "$files"
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" \
-    "PLAN laravel: artisan test: full (package.json changes the asset build, which browser tests load)"
+    "PLAN laravel: tests (artisan test): full (package.json changes the asset build, which browser tests load)"
   assert_no_file artisan.log
 }
 
@@ -542,7 +543,7 @@ test_profile_laravel_explain_says_no_test_is_named_after_the_file() {
 
   _laravel_explain "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "PLAN laravel: artisan test: full (no test is named after app/Orphan.php)"
+  assert_contains "$OUT" "PLAN laravel: tests (artisan test): full (no test is named after app/Orphan.php)"
 }
 
 # --- verify.full_run: ci leaves the full set to CI (adr-0041, 2026-10-08) ---
@@ -570,7 +571,7 @@ test_profile_laravel_full_run_ci_leaves_a_routes_change_to_ci() {
   run jig verify --profile laravel
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" \
-    "laravel: artisan test: skip (scope: routes/web.php can affect any test, full set left to CI)"
+    "laravel: tests (artisan test): skip (scope: routes/web.php can affect any test, full set left to CI)"
   assert_contains "$OUT" "verify: 1 check(s) left their full set to CI (verify.full_run: ci); jig verify --full runs it here"
   assert_contains "$OUT" "left its full set to CI, so this run verified nothing here"
   assert_no_file artisan.log
@@ -588,7 +589,7 @@ test_profile_laravel_full_run_ci_runs_the_named_tests_beside_a_migration() {
   run jig verify --profile laravel
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" \
-    "laravel: artisan test: pass (PHP 8.3.0, scope: 1 test files, full set left to CI)"
+    "laravel: tests (artisan test): pass (PHP 8.3.0, scope: 1 test files, full set left to CI)"
   assert_contains "$OUT" "verify: 1 check(s) left their full set to CI (verify.full_run: ci); jig verify --full runs it here"
   assert_eq "tests/FooTest.php" "$(cat artisan.log)"
 }
@@ -607,7 +608,7 @@ test_profile_laravel_full_run_ci_leaves_a_filter_that_selects_nothing_to_ci() {
   unset JIG_VERIFY_FULL_RUN
   assert_eq 2 "$RC" "$OUT"
   assert_contains "$OUT" \
-    "laravel: artisan test: skip (scope: filter 'tests/GoneTest.php' selects no tests, full set left to CI)"
+    "laravel: tests (artisan test): skip (scope: filter 'tests/GoneTest.php' selects no tests, full set left to CI)"
   assert_no_file artisan.log
 }
 
@@ -619,7 +620,7 @@ test_profile_laravel_full_run_ci_full_flag_runs_the_full_set() {
   run jig verify --full --profile laravel
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" "verify: full run (--full)"
-  assert_contains "$OUT" "laravel: artisan test: pass (PHP 8.3.0)"
+  assert_contains "$OUT" "laravel: tests (artisan test): pass (PHP 8.3.0)"
   assert_not_contains "$OUT" "left to CI"
   assert_file_contains artisan.log '^$'
 }
@@ -635,7 +636,7 @@ test_profile_laravel_full_run_local_still_runs_the_full_set() {
   run jig verify --changed --profile laravel
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" \
-    "laravel: artisan test: pass (PHP 8.3.0, scope: routes/web.php can affect any test, ran full set)"
+    "laravel: tests (artisan test): pass (PHP 8.3.0, scope: routes/web.php can affect any test, ran full set)"
   assert_not_contains "$OUT" "left to CI"
   assert_file_contains artisan.log '^$'
 }
@@ -651,7 +652,7 @@ test_profile_laravel_full_run_ci_explain_says_the_full_set_is_left_to_ci() {
   unset JIG_VERIFY_FULL_RUN
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" \
-    "PLAN laravel: artisan test: skip (scope: routes/web.php can affect any test, full set left to CI)"
+    "PLAN laravel: tests (artisan test): skip (scope: routes/web.php can affect any test, full set left to CI)"
   assert_no_file artisan.log
 }
 
@@ -709,7 +710,7 @@ test_profile_laravel_and_php_run_the_suite_once() {
   assert_eq 0 "$RC" "$OUT"
   assert_file artisan.log
   assert_no_file phpunit.log
-  assert_contains "$OUT" "php: phpunit: skip (scope: covered by laravel, php:tests)"
+  assert_contains "$OUT" "php: tests (phpunit): skip (scope: covered by laravel, php:tests)"
 }
 
 test_profile_laravel_and_php_explain_plans_the_suite_once() {
@@ -718,8 +719,8 @@ test_profile_laravel_and_php_explain_plans_the_suite_once() {
   _phpunit_stub phpunit.log
   run jig verify --explain
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "PLAN php: phpunit: skip (scope: covered by laravel, php:tests)"
-  assert_contains "$OUT" "PLAN laravel: artisan test: full"
+  assert_contains "$OUT" "PLAN php: tests (phpunit): skip (scope: covered by laravel, php:tests)"
+  assert_contains "$OUT" "PLAN laravel: tests (artisan test): full"
   assert_no_file phpunit.log
 }
 
@@ -730,7 +731,7 @@ test_profile_php_alone_runs_its_tests_beside_an_artisan() {
   run jig verify --profile php
   assert_eq 0 "$RC" "$OUT"
   assert_file phpunit.log
-  assert_contains "$OUT" "php: phpunit: pass"
+  assert_contains "$OUT" "php: tests (phpunit): pass"
 }
 
 test_profile_php_runs_its_tests_when_laravel_has_no_artisan() {
@@ -742,9 +743,9 @@ test_profile_php_runs_its_tests_when_laravel_has_no_artisan() {
   # laravel's stack is not here (its `detect` matches nothing), so it covers
   # nothing and the suite runs where it can.
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "laravel: artisan test: skip (artisan or php not found)"
+  assert_contains "$OUT" "laravel: tests (artisan test): skip (artisan or php not found)"
   assert_file phpunit.log
-  assert_contains "$OUT" "php: phpunit: pass"
+  assert_contains "$OUT" "php: tests (phpunit): pass"
 }
 
 test_profile_laravel_doc_only_change_beside_php_is_scope_narrowing() {
@@ -761,7 +762,7 @@ test_profile_laravel_doc_only_change_beside_php_is_scope_narrowing() {
   # Every check skipped because this change is not theirs: not a gap in
   # coverage, so not "no verdict" (domains/verify RULES, the third state).
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "php: phpunit: skip (scope: covered by laravel, php:tests)"
+  assert_contains "$OUT" "php: tests (phpunit): skip (scope: covered by laravel, php:tests)"
   assert_no_file phpunit.log
 }
 
@@ -778,7 +779,7 @@ test_profile_laravel_reads_php_map_with_the_tests_it_covers() {
   # php.map's decision follows the tests to laravel: the full suite runs once,
   # in artisan test, and php does not run it a second time.
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "php: phpunit: skip (scope: covered by laravel, php:tests)"
+  assert_contains "$OUT" "php: tests (phpunit): skip (scope: covered by laravel, php:tests)"
   assert_no_file phpunit.log
   assert_file artisan.log
   assert_eq "" "$(cat artisan.log)"
@@ -796,8 +797,8 @@ test_profile_laravel_explain_reads_php_map_with_the_tests_it_covers() {
   printf 'x\n' > resources/js/app.js
   run jig verify --changed --explain
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "PLAN php: phpunit: skip (scope: covered by laravel, php:tests)"
-  assert_contains "$OUT" "PLAN laravel: artisan test: full"
+  assert_contains "$OUT" "PLAN php: tests (phpunit): skip (scope: covered by laravel, php:tests)"
+  assert_contains "$OUT" "PLAN laravel: tests (artisan test): full"
   assert_no_file artisan.log
 }
 
@@ -855,8 +856,8 @@ test_profile_laravel_tests_go_to_a_project_profile_with_php_map() {
   printf 'x\n' > resources/js/app.js
   run jig verify --changed
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "laravel: artisan test: skip (scope: covered by myapp, laravel:tests)"
-  assert_contains "$OUT" "php: phpunit: skip (scope: covered by myapp, php:tests)"
+  assert_contains "$OUT" "laravel: tests (artisan test): skip (scope: covered by myapp, laravel:tests)"
+  assert_contains "$OUT" "php: tests (phpunit): skip (scope: covered by myapp, php:tests)"
   assert_contains "$OUT" "myapp: mapped=resources/js/app.js:ALL;"
   assert_contains "$OUT" "map .ai/verify/php.map)"
   assert_no_file artisan.log
@@ -870,10 +871,74 @@ test_profile_laravel_explain_plans_its_tests_covered() {
   JIG_VERIFY_EXPLAIN=1
   export JIG_VERIFY_COVERED JIG_VERIFY_EXPLAIN
   run bash .ai/profiles/laravel/verify.sh
-  assert_contains "$OUT" "PLAN laravel: artisan test: skip (scope: covered by myapp, laravel:tests)"
+  assert_contains "$OUT" "PLAN laravel: tests (artisan test): skip (scope: covered by myapp, laravel:tests)"
   unset JIG_VERIFY_EXPLAIN
   run bash .ai/profiles/laravel/verify.sh
   unset JIG_VERIFY_COVERED
-  assert_contains "$OUT" "laravel: artisan test: skip (scope: covered by myapp, laravel:tests)"
+  assert_contains "$OUT" "laravel: tests (artisan test): skip (scope: covered by myapp, laravel:tests)"
   assert_no_file artisan.log
+}
+
+# --- the check table (adr-20261117-a-profile-declares-its-checks-in-a-table) --
+
+# The command line of the check, exactly, in a full and in a narrowed run, and in
+# each fallback to the full set: the table carries what verify.sh used to write.
+test_profile_laravel_check_table_keeps_every_command_line() {
+  _laravel_install
+  _artisan_stub 0 artisan.log
+  mkdir -p app tests
+  : > app/Foo.php
+  : > tests/FooTest.php
+
+  run bash "$_LARAVEL_VERIFY"
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "" "$(cat artisan.log)"
+
+  rm -f artisan.log
+  files=$(_files_list app/Foo.php)
+  _laravel_scoped "$files"
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "tests/FooTest.php" "$(cat artisan.log)"
+
+  rm -f artisan.log
+  files=$(_files_list composer.json)
+  _laravel_scoped "$files"
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "" "$(cat artisan.log)" "composer.json widens the tests to the full set"
+}
+
+# The table is what runs: a changed row changes the command line, and the
+# selection lands where `{selection}` stands.
+test_profile_laravel_check_table_rows_shape_the_command() {
+  _laravel_install
+  _artisan_stub 0 artisan.log
+  mkdir -p app tests
+  : > app/Foo.php
+  : > tests/FooTest.php
+  sed -e 's/^checks.tests.narrowed: .*/checks.tests.narrowed: --parallel {selection}/' \
+    .ai/profiles/laravel/profile.yaml > profile.tmp
+  rm -f .ai/profiles/laravel/profile.yaml
+  cp profile.tmp .ai/profiles/laravel/profile.yaml
+  profile_checks_env .ai/profiles/laravel
+  files=$(_files_list app/Foo.php)
+  _laravel_scoped "$files"
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "--parallel tests/FooTest.php" "$(cat artisan.log)"
+}
+
+# A profile.yaml from before the table beside this verify.sh fails the check
+# loudly instead of running another command in silence; --explain names the gap
+# without a verdict.
+test_profile_laravel_check_table_missing_fails_loudly() {
+  _laravel_install
+  _artisan_stub 0 artisan.log
+  unset JIG_VERIFY_CHECKS
+  run bash "$_LARAVEL_VERIFY"
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "laravel: tests (artisan test): fail (profile.yaml names no check 'tests'; jig upgrade restores it)"
+  assert_no_file artisan.log
+
+  JIG_VERIFY_EXPLAIN=1 run bash "$_LARAVEL_VERIFY"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN laravel: tests (artisan test): skip (profile.yaml names no check 'tests'; jig upgrade restores it)"
 }

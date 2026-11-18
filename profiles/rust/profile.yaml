@@ -3,3 +3,19 @@ name: rust
 description: Rust projects (cargo fmt, cargo clippy, cargo test from PATH).
 detect: [Cargo.toml]
 scope: [changed, map, explain, environment]
+# The checks of this profile by role, and the index of its check table
+# (schemas/profile.md, Check table). Another profile can take any one over by
+# name (`covers: [rust:style]`).
+checks: [style, lint, tests]
+# style: cargo fmt; a narrowed run passes `-p <crate>` for each changed crate.
+checks.style.command: cargo
+checks.style.full: fmt --check
+checks.style.narrowed: fmt --check {selection}
+# lint: cargo clippy, warnings are errors.
+checks.lint.command: cargo
+checks.lint.full: clippy --all-targets -- -D warnings
+checks.lint.narrowed: clippy --all-targets {selection} -- -D warnings
+# tests: cargo test.
+checks.tests.command: cargo
+checks.tests.full: test
+checks.tests.narrowed: test {selection}

@@ -543,7 +543,7 @@ test_runenv_verify_runs_laravel_through_sail() {
   run jig verify --profile laravel
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" "verify: checks run in docker compose exec -T -u sail -w /var/www/html laravel.test (Laravel Sail, detected)"
-  assert_contains "$OUT" "laravel: artisan test: pass (PHP 8.4.0)"
+  assert_contains "$OUT" "laravel: tests (artisan test): pass (PHP 8.4.0)"
   assert_contains "$(cat docker.log)" "compose exec -T -u sail -w /var/www/html laravel.test php artisan test"
   assert_contains "$(cat docker.log)" "compose exec -T -u sail -w /var/www/html laravel.test php --version"
 }

@@ -73,6 +73,14 @@ test_profile_python_detect_absent_without_any_manifest() {
 
 # --- helpers: direct invocation, stubs, scope files -------------------------
 
+# _py_fixture — a fixture repository, and the check table of the python
+# profile in JIG_VERIFY_CHECKS the way `jig verify` hands it down: these tests
+# run verify.sh directly.
+_py_fixture() {
+  fixture_repo
+  profile_checks_env "$JIG_HOME/profiles/python"
+}
+
 # _py_verify — run profiles/python/verify.sh straight from the framework
 # source tree, from the current (fixture) directory, the way the profile
 # brief allows for testing scope directly: JIG_VERIFY_SCOPE/FILES/MAPPED are
@@ -158,7 +166,7 @@ PY_WHERE="not found in \$VIRTUAL_ENV, .venv, venv or the poetry environment"
 # --- tool resolution order (D2) ---------------------------------------------
 
 test_profile_python_tool_resolution_prefers_virtual_env_over_dot_venv() {
-  fixture_repo
+  _py_fixture
   _py_stub "$PWD/customenv/bin/ruff" "ruff 9.9.9-virtualenv"
   _py_stub "$PWD/.venv/bin/ruff" "ruff 1.1.1-dotvenv"
   VIRTUAL_ENV="$PWD/customenv"
@@ -166,21 +174,21 @@ test_profile_python_tool_resolution_prefers_virtual_env_over_dot_venv() {
   _py_verify
   unset VIRTUAL_ENV
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "python: ruff: pass (ruff 9.9.9-virtualenv)"
+  assert_contains "$OUT" "python: lint (ruff): pass (ruff 9.9.9-virtualenv)"
 }
 
 test_profile_python_tool_resolution_uses_dot_venv_when_no_virtual_env() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/ruff" "ruff 1.1.1-dotvenv"
   _py_stub "$PWD/venv/bin/ruff" "ruff 2.2.2-venv"
   _py_verify
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "python: ruff: pass (ruff 1.1.1-dotvenv)"
+  assert_contains "$OUT" "python: lint (ruff): pass (ruff 1.1.1-dotvenv)"
 }
 
 test_profile_python_tool_resolution_uses_venv_when_no_dot_venv() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/venv/bin/ruff" "ruff 2.2.2-venv"
   printf 'poetry.lock\n' > poetry.lock
@@ -188,53 +196,53 @@ test_profile_python_tool_resolution_uses_venv_when_no_dot_venv() {
   _py_stub "$PWD/poetryenv/bin/ruff" "ruff 3.3.3-poetry"
   _py_verify
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "python: ruff: pass (ruff 2.2.2-venv)"
+  assert_contains "$OUT" "python: lint (ruff): pass (ruff 2.2.2-venv)"
 }
 
 test_profile_python_tool_resolution_uses_poetry_env_when_no_venvs() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   printf 'poetry.lock\n' > poetry.lock
   _py_poetry_stub "$PWD/poetryenv"
   _py_stub "$PWD/poetryenv/bin/ruff" "ruff 3.3.3-poetry"
   _py_verify
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "python: ruff: pass (ruff 3.3.3-poetry)"
+  assert_contains "$OUT" "python: lint (ruff): pass (ruff 3.3.3-poetry)"
 }
 
 test_profile_python_tool_resolution_scripts_layout_plain_name() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/Scripts/ruff" "ruff 4.4.4-scripts"
   _py_verify
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "python: ruff: pass (ruff 4.4.4-scripts)"
+  assert_contains "$OUT" "python: lint (ruff): pass (ruff 4.4.4-scripts)"
 }
 
 test_profile_python_tool_resolution_scripts_layout_exe_name() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/Scripts/ruff.exe" "ruff 5.5.5-exe"
   _py_verify
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "python: ruff: pass (ruff 5.5.5-exe)"
+  assert_contains "$OUT" "python: lint (ruff): pass (ruff 5.5.5-exe)"
 }
 
 test_profile_python_tool_resolution_skips_with_reason_when_absent() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_verify
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "python: ruff: skip ($PY_WHERE)"
-  assert_contains "$OUT" "python: mypy: skip ($PY_WHERE)"
-  assert_contains "$OUT" "python: pytest: skip ($PY_WHERE)"
+  assert_contains "$OUT" "python: lint (ruff): skip ($PY_WHERE)"
+  assert_contains "$OUT" "python: typecheck (mypy): skip ($PY_WHERE)"
+  assert_contains "$OUT" "python: tests (pytest): skip ($PY_WHERE)"
 }
 
 # The profile only ever looks in $VIRTUAL_ENV/.venv/venv/poetry env for
 # pytest/ruff/mypy — never the bare PATH, even when something answering to
 # the same name sits right there (D2: "a global pytest ... is never used").
 test_profile_python_tool_resolution_ignores_a_global_pytest_on_path() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   mkdir -p decoy-bin
   cat > decoy-bin/pytest <<'EOF'
@@ -249,24 +257,24 @@ EOF
   PATH="$PWD/decoy-bin:$PATH"
   export PATH
   _py_verify
-  assert_contains "$OUT" "python: pytest: skip ($PY_WHERE)"
+  assert_contains "$OUT" "python: tests (pytest): skip ($PY_WHERE)"
   assert_not_contains "$OUT" "0.0.0-decoy"
 }
 
 # --- ruff --------------------------------------------------------------------
 
 test_profile_python_ruff_full_run_when_unscoped() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/ruff" "ruff 1.0.0"
   _py_verify
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "python: ruff: pass (ruff 1.0.0)"
+  assert_contains "$OUT" "python: lint (ruff): pass (ruff 1.0.0)"
   assert_eq "$(printf 'check\n.\n---')" "$(cat .venv/bin/ruff.log)"
 }
 
 test_profile_python_ruff_scoped_to_changed_py_files() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/ruff" "ruff 1.0.0"
   printf 'a=1\n' > foo.py
@@ -276,14 +284,14 @@ test_profile_python_ruff_scoped_to_changed_py_files() {
   _py_verify
   _py_unscope
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "python: ruff: pass (ruff 1.0.0, scope: 2 files)"
+  assert_contains "$OUT" "python: lint (ruff): pass (ruff 1.0.0, scope: 2 files)"
   assert_file_contains .venv/bin/ruff.log foo.py
   assert_file_contains .venv/bin/ruff.log bar.py
   assert_not_contains "$(cat .venv/bin/ruff.log)" "notes.txt"
 }
 
 test_profile_python_ruff_config_change_runs_whole_project() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/ruff" "ruff 1.0.0"
   _py_scope "pyproject.toml"
@@ -291,12 +299,12 @@ test_profile_python_ruff_config_change_runs_whole_project() {
   _py_unscope
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" \
-    "python: ruff: pass (ruff 1.0.0, scope: ruff configuration changed, whole project)"
+    "python: lint (ruff): pass (ruff 1.0.0, scope: ruff configuration changed, whole project)"
   assert_eq "$(printf 'check\n.\n---')" "$(cat .venv/bin/ruff.log)"
 }
 
 test_profile_python_ruff_skips_when_no_changed_py_files() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/ruff" "ruff 1.0.0"
   printf 'x\n' > notes.md
@@ -307,73 +315,73 @@ test_profile_python_ruff_skips_when_no_changed_py_files() {
   # narrows to it): no check produced a pass or fail, so the contract's
   # "nothing ran" exit code applies (jp_end).
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "python: ruff: skip (scope: no changed .py files)"
+  assert_contains "$OUT" "python: lint (ruff): skip (scope: no changed .py files)"
   assert_no_file .venv/bin/ruff.log
 }
 
 test_profile_python_ruff_fails_and_exits_1_on_lint_failure() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/ruff" "ruff 1.0.0" 1
   _py_verify
   assert_eq 1 "$RC" "$OUT"
-  assert_contains "$OUT" "python: ruff: fail (ruff 1.0.0)"
+  assert_contains "$OUT" "python: lint (ruff): fail (ruff 1.0.0)"
 }
 
 # --- mypy ----------------------------------------------------------------------
 
 test_profile_python_mypy_skipped_when_not_configured() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/mypy" "mypy 1.0.0"
   _py_verify
   assert_contains "$OUT" \
-    "python: mypy: skip (not configured: no mypy.ini, .mypy.ini, [tool.mypy] or [mypy] in setup.cfg)"
+    "python: typecheck (mypy): skip (not configured: no mypy.ini, .mypy.ini, [tool.mypy] or [mypy] in setup.cfg)"
   assert_no_file .venv/bin/mypy.log
 }
 
 test_profile_python_mypy_configured_via_mypy_ini() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/mypy" "mypy 1.0.0"
   printf '[mypy]\n' > mypy.ini
   _py_verify
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "python: mypy: pass (mypy 1.0.0)"
+  assert_contains "$OUT" "python: typecheck (mypy): pass (mypy 1.0.0)"
 }
 
 test_profile_python_mypy_configured_via_dot_mypy_ini() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/mypy" "mypy 1.0.0"
   printf '[mypy]\n' > .mypy.ini
   _py_verify
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "python: mypy: pass (mypy 1.0.0)"
+  assert_contains "$OUT" "python: typecheck (mypy): pass (mypy 1.0.0)"
 }
 
 test_profile_python_mypy_configured_via_pyproject_tool_mypy() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/mypy" "mypy 1.0.0"
   printf '[tool.mypy]\nstrict = true\n' > pyproject.toml
   _py_verify
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "python: mypy: pass (mypy 1.0.0)"
+  assert_contains "$OUT" "python: typecheck (mypy): pass (mypy 1.0.0)"
 }
 
 test_profile_python_mypy_configured_via_setup_cfg_mypy() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/mypy" "mypy 1.0.0"
   printf '[mypy]\nignore_missing_imports = True\n' > setup.cfg
   _py_verify
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "python: mypy: pass (mypy 1.0.0)"
+  assert_contains "$OUT" "python: typecheck (mypy): pass (mypy 1.0.0)"
 }
 
 test_profile_python_mypy_always_runs_full_even_when_scoped() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/mypy" "mypy 1.0.0"
   printf '[mypy]\n' > mypy.ini
@@ -382,12 +390,12 @@ test_profile_python_mypy_always_runs_full_even_when_scoped() {
   _py_verify
   _py_unscope
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "python: mypy: pass (mypy 1.0.0, scope: not narrowable, ran full set)"
+  assert_contains "$OUT" "python: typecheck (mypy): pass (mypy 1.0.0, scope: not narrowable, ran full set)"
   assert_eq "$(printf '.\n--exclude\n(^|/)(\\.venv|venv)/\n---')" "$(cat .venv/bin/mypy.log)"
 }
 
 test_profile_python_mypy_excludes_venv_directories() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/mypy" "mypy 1.0.0"
   printf '[mypy]\n' > mypy.ini
@@ -399,17 +407,17 @@ test_profile_python_mypy_excludes_venv_directories() {
 # --- pytest --------------------------------------------------------------------
 
 test_profile_python_pytest_full_run_when_unscoped() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/pytest" "pytest 7.0.0"
   _py_verify
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "python: pytest: pass (pytest 7.0.0)"
+  assert_contains "$OUT" "python: tests (pytest): pass (pytest 7.0.0)"
   assert_eq "$(printf '%s' '---')" "$(cat .venv/bin/pytest.log)"
 }
 
 test_profile_python_pytest_scoped_test_file_maps_to_itself() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/pytest" "pytest 7.0.0"
   mkdir -p tests
@@ -418,12 +426,12 @@ test_profile_python_pytest_scoped_test_file_maps_to_itself() {
   _py_verify
   _py_unscope
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "python: pytest: pass (pytest 7.0.0, scope: 1 test files)"
+  assert_contains "$OUT" "python: tests (pytest): pass (pytest 7.0.0, scope: 1 test files)"
   assert_eq "$(printf 'tests/test_foo.py\n---')" "$(cat .venv/bin/pytest.log)"
 }
 
 test_profile_python_pytest_scoped_module_maps_to_test_prefix_and_suffix() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/pytest" "pytest 7.0.0"
   mkdir -p tests
@@ -434,13 +442,13 @@ test_profile_python_pytest_scoped_module_maps_to_test_prefix_and_suffix() {
   _py_verify
   _py_unscope
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "python: pytest: pass (pytest 7.0.0, scope: 2 test files)"
+  assert_contains "$OUT" "python: tests (pytest): pass (pytest 7.0.0, scope: 2 test files)"
   assert_file_contains .venv/bin/pytest.log tests/test_foo.py
   assert_file_contains .venv/bin/pytest.log tests/foo_test.py
 }
 
 test_profile_python_pytest_unmapped_module_runs_full_with_reason() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/pytest" "pytest 7.0.0"
   printf 'a=1\n' > lonely.py
@@ -448,12 +456,12 @@ test_profile_python_pytest_unmapped_module_runs_full_with_reason() {
   _py_verify
   _py_unscope
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "python: pytest: pass (pytest 7.0.0, scope: no test is named after lonely.py, ran full set)"
+  assert_contains "$OUT" "python: tests (pytest): pass (pytest 7.0.0, scope: no test is named after lonely.py, ran full set)"
   assert_eq "$(printf '%s' '---')" "$(cat .venv/bin/pytest.log)"
 }
 
 test_profile_python_pytest_docs_only_change_skips() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/pytest" "pytest 7.0.0"
   mkdir -p docs
@@ -465,30 +473,30 @@ test_profile_python_pytest_docs_only_change_skips() {
   # pytest is the only tool in the environment and it skips too: nothing
   # produced a pass or fail, so jp_end reports "nothing ran".
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "python: pytest: skip (scope: no changed file maps to a test)"
+  assert_contains "$OUT" "python: tests (pytest): skip (scope: no changed file maps to a test)"
   assert_no_file .venv/bin/pytest.log
 }
 
 test_profile_python_pytest_all_trigger_pyproject_toml() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/pytest" "pytest 7.0.0"
   _py_scope "pyproject.toml"
   _py_verify
   _py_unscope
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "python: pytest: pass (pytest 7.0.0, scope: pyproject.toml can affect any test, ran full set)"
+  assert_contains "$OUT" "python: tests (pytest): pass (pytest 7.0.0, scope: pyproject.toml can affect any test, ran full set)"
 }
 
 test_profile_python_pytest_all_trigger_requirements_dev() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/pytest" "pytest 7.0.0"
   _py_scope "requirements-dev.txt"
   _py_verify
   _py_unscope
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "python: pytest: pass (pytest 7.0.0, scope: requirements-dev.txt can affect any test, ran full set)"
+  assert_contains "$OUT" "python: tests (pytest): pass (pytest 7.0.0, scope: requirements-dev.txt can affect any test, ran full set)"
 }
 
 test_profile_python_pytest_all_trigger_requirements_dev_not_masked_by_sibling_on_disk() {
@@ -498,7 +506,7 @@ test_profile_python_pytest_all_trigger_requirements_dev_not_masked_by_sibling_on
   # (here requirements.txt) instead of staying the literal pattern — and a
   # changed requirements-dev.txt (deleted, never created on disk) no longer
   # matched it.
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/pytest" "pytest 7.0.0"
   : > requirements.txt
@@ -506,55 +514,55 @@ test_profile_python_pytest_all_trigger_requirements_dev_not_masked_by_sibling_on
   _py_verify
   _py_unscope
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "python: pytest: pass (pytest 7.0.0, scope: requirements-dev.txt can affect any test, ran full set)"
+  assert_contains "$OUT" "python: tests (pytest): pass (pytest 7.0.0, scope: requirements-dev.txt can affect any test, ran full set)"
 }
 
 test_profile_python_pytest_all_trigger_conftest_in_subdir() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/pytest" "pytest 7.0.0"
   _py_scope "tests/sub/conftest.py"
   _py_verify
   _py_unscope
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "python: pytest: pass (pytest 7.0.0, scope: tests/sub/conftest.py can affect any test, ran full set)"
+  assert_contains "$OUT" "python: tests (pytest): pass (pytest 7.0.0, scope: tests/sub/conftest.py can affect any test, ran full set)"
 }
 
 test_profile_python_pytest_all_trigger_poetry_lock() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/pytest" "pytest 7.0.0"
   _py_scope "poetry.lock"
   _py_verify
   _py_unscope
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "python: pytest: pass (pytest 7.0.0, scope: poetry.lock can affect any test, ran full set)"
+  assert_contains "$OUT" "python: tests (pytest): pass (pytest 7.0.0, scope: poetry.lock can affect any test, ran full set)"
 }
 
 test_profile_python_pytest_exit_5_is_skip_no_tests_collected() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/pytest" "pytest 7.0.0" 5
   _py_verify
   # A skip is not a pass (RULES.md, ADR-0013): with pytest the only tool
   # present, "no tests collected" leaves nothing that ran, so jp_end exits 2.
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "python: pytest: skip (no tests collected; pytest 7.0.0)"
+  assert_contains "$OUT" "python: tests (pytest): skip (no tests collected; pytest 7.0.0)"
 }
 
 test_profile_python_pytest_failure_fails_profile_and_exits_1() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/pytest" "pytest 7.0.0" 1
   _py_verify
   assert_eq 1 "$RC" "$OUT"
-  assert_contains "$OUT" "python: pytest: fail (pytest 7.0.0)"
+  assert_contains "$OUT" "python: tests (pytest): fail (pytest 7.0.0)"
 }
 
 # --- pytest: map decisions (JIG_VERIFY_MAPPED) ------------------------------
 
 test_profile_python_pytest_map_filter_wins_over_builtin() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/pytest" "pytest 7.0.0"
   printf 'a=1\n' > foo.py
@@ -565,12 +573,12 @@ test_profile_python_pytest_map_filter_wins_over_builtin() {
   _py_verify
   _py_unscope
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "python: pytest: pass (pytest 7.0.0, scope: 1 test files)"
+  assert_contains "$OUT" "python: tests (pytest): pass (pytest 7.0.0, scope: 1 test files)"
   assert_eq "$(printf 'tests/custom_test.py\n---')" "$(cat .venv/bin/pytest.log)"
 }
 
 test_profile_python_pytest_map_dash_excludes_the_file() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/pytest" "pytest 7.0.0"
   printf 'a=1\n' > foo.py
@@ -580,12 +588,12 @@ test_profile_python_pytest_map_dash_excludes_the_file() {
   _py_unscope
   # pytest is the only tool present and skips: nothing ran (jp_end).
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "python: pytest: skip (scope: no changed file maps to a test)"
+  assert_contains "$OUT" "python: tests (pytest): skip (scope: no changed file maps to a test)"
   assert_no_file .venv/bin/pytest.log
 }
 
 test_profile_python_pytest_map_all_forces_full_run() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/pytest" "pytest 7.0.0"
   mkdir -p tests
@@ -595,12 +603,12 @@ test_profile_python_pytest_map_all_forces_full_run() {
   _py_verify
   _py_unscope
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "python: pytest: pass (pytest 7.0.0, scope: not narrowable, ran full set)"
+  assert_contains "$OUT" "python: tests (pytest): pass (pytest 7.0.0, scope: not narrowable, ran full set)"
   assert_eq "$(printf '%s' '---')" "$(cat .venv/bin/pytest.log)"
 }
 
 test_profile_python_pytest_map_question_mark_falls_back_to_builtin_rule() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/pytest" "pytest 7.0.0"
   mkdir -p tests
@@ -610,14 +618,14 @@ test_profile_python_pytest_map_question_mark_falls_back_to_builtin_rule() {
   _py_verify
   _py_unscope
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "python: pytest: pass (pytest 7.0.0, scope: 1 test files)"
+  assert_contains "$OUT" "python: tests (pytest): pass (pytest 7.0.0, scope: 1 test files)"
   assert_eq "$(printf 'tests/test_foo.py\n---')" "$(cat .venv/bin/pytest.log)"
 }
 
 # A map filter naming a file that does not exist selects no test: the
 # narrowing is void, not a pass over nothing (ADR-0041).
 test_profile_python_pytest_map_filter_naming_missing_file_runs_full_with_reason() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/pytest" "pytest 7.0.0"
   printf 'a=1\n' > foo.py
@@ -627,7 +635,7 @@ test_profile_python_pytest_map_filter_naming_missing_file_runs_full_with_reason(
   _py_unscope
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" \
-    "python: pytest: pass (pytest 7.0.0, scope: filter 'tests/does_not_exist_test.py' selects no tests, ran full set)"
+    "python: tests (pytest): pass (pytest 7.0.0, scope: filter 'tests/does_not_exist_test.py' selects no tests, ran full set)"
   assert_eq "$(printf '%s' '---')" "$(cat .venv/bin/pytest.log)"
 }
 
@@ -642,7 +650,7 @@ test_profile_python_pytest_map_filter_naming_missing_file_runs_full_with_reason(
 # these two tests exercise it taking the changed-file-list path first.
 
 test_profile_python_pytest_map_decision_two_filters_after_ruff_file_list_path() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/ruff" "ruff 1.0.0"
   _py_stub "$PWD/.venv/bin/pytest" "pytest 7.0.0"
@@ -655,14 +663,14 @@ test_profile_python_pytest_map_decision_two_filters_after_ruff_file_list_path() 
   _py_verify
   _py_unscope
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "python: ruff: pass (ruff 1.0.0, scope: 1 files)"
-  assert_contains "$OUT" "python: pytest: pass (pytest 7.0.0, scope: 2 test files)"
+  assert_contains "$OUT" "python: lint (ruff): pass (ruff 1.0.0, scope: 1 files)"
+  assert_contains "$OUT" "python: tests (pytest): pass (pytest 7.0.0, scope: 2 test files)"
   assert_file_contains .venv/bin/pytest.log tests/test_a.py
   assert_file_contains .venv/bin/pytest.log tests/test_b.py
 }
 
 test_profile_python_pytest_runs_full_after_ruff_file_list_path_with_conftest() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/ruff" "ruff 1.0.0"
   _py_stub "$PWD/.venv/bin/pytest" "pytest 7.0.0"
@@ -673,14 +681,14 @@ test_profile_python_pytest_runs_full_after_ruff_file_list_path_with_conftest() {
   _py_verify
   _py_unscope
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "python: ruff: pass (ruff 1.0.0, scope: 2 files)"
-  assert_contains "$OUT" "python: pytest: pass (pytest 7.0.0, scope: no test is named after pkg/foo.py, ran full set)"
+  assert_contains "$OUT" "python: lint (ruff): pass (ruff 1.0.0, scope: 2 files)"
+  assert_contains "$OUT" "python: tests (pytest): pass (pytest 7.0.0, scope: no test is named after pkg/foo.py, ran full set)"
 }
 
 # --- version in every verdict -------------------------------------------------
 
 test_profile_python_every_verdict_names_the_tool_version() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/ruff" "ruff 1.2.3"
   _py_stub "$PWD/.venv/bin/pytest" "pytest 4.5.6"
@@ -688,15 +696,15 @@ test_profile_python_every_verdict_names_the_tool_version() {
   _py_stub "$PWD/.venv/bin/mypy" "mypy 7.8.9"
   _py_verify
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "python: ruff: pass (ruff 1.2.3)"
-  assert_contains "$OUT" "python: mypy: pass (mypy 7.8.9)"
-  assert_contains "$OUT" "python: pytest: pass (pytest 4.5.6)"
+  assert_contains "$OUT" "python: lint (ruff): pass (ruff 1.2.3)"
+  assert_contains "$OUT" "python: typecheck (mypy): pass (mypy 7.8.9)"
+  assert_contains "$OUT" "python: tests (pytest): pass (pytest 4.5.6)"
 }
 
 # --- a path with a space is passed to the tool as one argument -------------
 
 test_profile_python_ruff_scoped_path_with_a_space_stays_one_argument() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/ruff" "ruff 1.0.0"
   printf 'a=1\n' > "my file.py"
@@ -704,20 +712,20 @@ test_profile_python_ruff_scoped_path_with_a_space_stays_one_argument() {
   _py_verify
   _py_unscope
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "python: ruff: pass (ruff 1.0.0, scope: 1 files)"
+  assert_contains "$OUT" "python: lint (ruff): pass (ruff 1.0.0, scope: 1 files)"
   assert_eq "$(printf 'check\nmy file.py\n---')" "$(cat .venv/bin/ruff.log)"
 }
 
 # --- overall exit code (contract: 2 when nothing could run) ----------------
 
 test_profile_python_exits_2_when_every_check_is_skipped() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_verify
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "python: ruff: skip"
-  assert_contains "$OUT" "python: mypy: skip"
-  assert_contains "$OUT" "python: pytest: skip"
+  assert_contains "$OUT" "python: lint (ruff): skip"
+  assert_contains "$OUT" "python: typecheck (mypy): skip"
+  assert_contains "$OUT" "python: tests (pytest): skip"
 }
 
 # --- front end: what can and cannot change the result of the test run --------
@@ -741,7 +749,7 @@ _py_explain() {
 }
 
 test_profile_python_front_end_script_change_runs_no_test() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   mkdir -p assets/js
   : > assets/js/app.js
@@ -750,14 +758,14 @@ test_profile_python_front_end_script_change_runs_no_test() {
   _py_verify
   _py_unscope
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "python: pytest: skip (scope: no changed file maps to a test)"
+  assert_contains "$OUT" "python: tests (pytest): skip (scope: no changed file maps to a test)"
   assert_no_file .venv/bin/pytest.log
 }
 
 # The cut must not have widened ruff either: it narrows on its own terms and
 # a change with no .py in it reaches none of the checks.
 test_profile_python_front_end_change_skips_every_check() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   mkdir -p assets/css
   : > assets/css/app.css
@@ -767,14 +775,14 @@ test_profile_python_front_end_change_skips_every_check() {
   _py_verify
   _py_unscope
   assert_eq 2 "$RC" "$OUT"
-  assert_contains "$OUT" "python: pytest: skip (scope: no changed file maps to a test)"
-  assert_contains "$OUT" "python: ruff: skip (scope: no changed .py files)"
+  assert_contains "$OUT" "python: tests (pytest): skip (scope: no changed file maps to a test)"
+  assert_contains "$OUT" "python: lint (ruff): skip (scope: no changed .py files)"
   assert_no_file .venv/bin/pytest.log
   assert_no_file .venv/bin/ruff.log
 }
 
 test_profile_python_package_json_change_runs_full_tests() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   printf '{}\n' > package.json
   _py_stub "$PWD/.venv/bin/pytest" "pytest 7.0.0"
@@ -783,13 +791,13 @@ test_profile_python_package_json_change_runs_full_tests() {
   _py_unscope
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" \
-    "python: pytest: pass (pytest 7.0.0, scope: package.json changes the asset build, which browser tests load, ran full set)"
+    "python: tests (pytest): pass (pytest 7.0.0, scope: package.json changes the asset build, which browser tests load, ran full set)"
 }
 
 # vite.config.ts also matches the front-end extension list; the build list is
 # checked first, and that order is what this pins.
 test_profile_python_bundler_config_change_runs_full_tests() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   : > vite.config.ts
   _py_stub "$PWD/.venv/bin/pytest" "pytest 7.0.0"
@@ -801,7 +809,7 @@ test_profile_python_bundler_config_change_runs_full_tests() {
 }
 
 test_profile_python_built_asset_under_staticfiles_runs_full_tests() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   mkdir -p staticfiles/js
   : > staticfiles/js/app.js
@@ -815,7 +823,7 @@ test_profile_python_built_asset_under_staticfiles_runs_full_tests() {
 }
 
 test_profile_python_front_end_fixture_under_tests_runs_full_tests() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   mkdir -p tests/fixtures
   : > tests/fixtures/sample.js
@@ -829,7 +837,7 @@ test_profile_python_front_end_fixture_under_tests_runs_full_tests() {
 }
 
 test_profile_python_front_end_beside_python_runs_only_the_named_test() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   mkdir -p assets/js tests
   printf 'a=1\n' > foo.py
@@ -840,14 +848,14 @@ test_profile_python_front_end_beside_python_runs_only_the_named_test() {
   _py_verify
   _py_unscope
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "python: pytest: pass (pytest 7.0.0, scope: 1 test files)"
+  assert_contains "$OUT" "python: tests (pytest): pass (pytest 7.0.0, scope: 1 test files)"
   assert_file_contains .venv/bin/pytest.log tests/test_foo.py
 }
 
 # --- explain: the plan says why, not just what -------------------------------
 
 test_profile_python_explain_front_end_change_maps_to_no_test() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   mkdir -p assets/js
   : > assets/js/app.js
@@ -856,12 +864,12 @@ test_profile_python_explain_front_end_change_maps_to_no_test() {
   printf 'assets/js/app.js\n' > "$files"
   _py_explain "$files"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "PLAN python: pytest: skip (no changed file maps to this check)"
+  assert_contains "$OUT" "PLAN python: tests (pytest): skip (no changed file maps to this check)"
   assert_no_file .venv/bin/pytest.log
 }
 
 test_profile_python_explain_names_the_path_that_forces_the_full_set() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   printf '{}\n' > package.json
   _py_stub "$PWD/.venv/bin/pytest" "pytest 7.0.0"
@@ -870,7 +878,7 @@ test_profile_python_explain_names_the_path_that_forces_the_full_set() {
   _py_explain "$files"
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" \
-    "PLAN python: pytest: full (package.json changes the asset build, which browser tests load)"
+    "PLAN python: tests (pytest): full (package.json changes the asset build, which browser tests load)"
   assert_no_file .venv/bin/pytest.log
 }
 
@@ -879,7 +887,7 @@ test_profile_python_explain_names_the_path_that_forces_the_full_set() {
 # in DEBUG mode, not only a top-level static/ or the collected
 # staticfiles/. PY_FRONTEND_NOT_GLOBS must exclude that depth too.
 test_profile_python_nested_app_static_asset_runs_full_tests() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   mkdir -p myapp/static/myapp
   : > myapp/static/myapp/app.js
@@ -895,7 +903,7 @@ test_profile_python_nested_app_static_asset_runs_full_tests() {
 # --- verify.full_run: ci leaves the full set to CI ---------------------------
 
 test_profile_python_full_run_ci_leaves_a_forced_full_set_to_ci() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   printf '{}\n' > package.json
   _py_stub "$PWD/.venv/bin/pytest" "pytest 7.0.0"
@@ -907,12 +915,12 @@ test_profile_python_full_run_ci_leaves_a_forced_full_set_to_ci() {
   _py_unscope
   assert_eq 2 "$RC" "$OUT"
   assert_contains "$OUT" \
-    "python: pytest: skip (scope: package.json changes the asset build, which browser tests load, full set left to CI)"
+    "python: tests (pytest): skip (scope: package.json changes the asset build, which browser tests load, full set left to CI)"
   assert_no_file .venv/bin/pytest.log
 }
 
 test_profile_python_full_run_ci_runs_the_named_tests_beside_a_forced_full_set() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   mkdir -p tests
   printf 'a=1\n' > foo.py
@@ -927,14 +935,14 @@ test_profile_python_full_run_ci_runs_the_named_tests_beside_a_forced_full_set() 
   _py_unscope
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" \
-    "python: pytest: pass (pytest 7.0.0, scope: 1 test files, full set left to CI)"
+    "python: tests (pytest): pass (pytest 7.0.0, scope: 1 test files, full set left to CI)"
   assert_file_contains .venv/bin/pytest.log tests/test_foo.py
 }
 
 # --- verify.full_run: ci leaves whole-tree linters to CI ---------------------
 
 test_profile_python_full_run_ci_leaves_a_ruff_config_change_to_ci() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/ruff" "ruff 0.1.0"
   _py_scope "ruff.toml"
@@ -943,12 +951,12 @@ test_profile_python_full_run_ci_leaves_a_ruff_config_change_to_ci() {
   _py_verify
   unset JIG_VERIFY_FULL_RUN
   _py_unscope
-  assert_contains "$OUT" "python: ruff: skip (scope: ruff configuration changed, full set left to CI)"
+  assert_contains "$OUT" "python: lint (ruff): skip (scope: ruff configuration changed, full set left to CI)"
   assert_no_file .venv/bin/ruff.log
 }
 
 test_profile_python_full_run_ci_narrows_mypy_to_the_changed_files() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/mypy" "mypy 1.0.0"
   printf '[mypy]\n' > mypy.ini
@@ -960,12 +968,12 @@ test_profile_python_full_run_ci_narrows_mypy_to_the_changed_files() {
   unset JIG_VERIFY_FULL_RUN
   _py_unscope
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "python: mypy: pass (mypy 1.0.0, scope: 1 files, full set left to CI)"
+  assert_contains "$OUT" "python: typecheck (mypy): pass (mypy 1.0.0, scope: 1 files, full set left to CI)"
   assert_eq "$(printf 'foo.py\n---')" "$(cat .venv/bin/mypy.log)"
 }
 
 test_profile_python_full_run_ci_skips_mypy_when_no_python_file_changed() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/mypy" "mypy 1.0.0"
   printf '[mypy]\n' > mypy.ini
@@ -975,12 +983,12 @@ test_profile_python_full_run_ci_skips_mypy_when_no_python_file_changed() {
   _py_verify
   unset JIG_VERIFY_FULL_RUN
   _py_unscope
-  assert_contains "$OUT" "python: mypy: skip (scope: no changed .py files)"
+  assert_contains "$OUT" "python: typecheck (mypy): skip (scope: no changed .py files)"
   assert_no_file .venv/bin/mypy.log
 }
 
 test_profile_python_full_run_ci_leaves_a_mypy_config_change_to_ci() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/mypy" "mypy 1.0.0"
   printf '[mypy]\n' > mypy.ini
@@ -991,12 +999,12 @@ test_profile_python_full_run_ci_leaves_a_mypy_config_change_to_ci() {
   _py_verify
   unset JIG_VERIFY_FULL_RUN
   _py_unscope
-  assert_contains "$OUT" "python: mypy: skip (scope: mypy configuration changed, full set left to CI)"
+  assert_contains "$OUT" "python: typecheck (mypy): skip (scope: mypy configuration changed, full set left to CI)"
   assert_no_file .venv/bin/mypy.log
 }
 
 test_profile_python_full_run_ci_explain_names_the_mypy_files() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   _py_stub "$PWD/.venv/bin/mypy" "mypy 1.0.0"
   printf '[mypy]\n' > mypy.ini
@@ -1007,11 +1015,11 @@ test_profile_python_full_run_ci_explain_names_the_mypy_files() {
   _py_verify
   unset JIG_VERIFY_FULL_RUN JIG_VERIFY_EXPLAIN
   _py_unscope
-  assert_contains "$OUT" "PLAN python: mypy: filtered (changed .py files: foo.py, full set left to CI)"
+  assert_contains "$OUT" "PLAN python: typecheck (mypy): filtered (changed .py files: foo.py, full set left to CI)"
 }
 
 test_profile_python_full_run_ci_explain_poetry_does_not_promise_a_full_set() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   printf 'poetry.lock\n' > poetry.lock
   _py_poetry_stub "$PWD/poetryenv"
@@ -1021,27 +1029,157 @@ test_profile_python_full_run_ci_explain_poetry_does_not_promise_a_full_set() {
   _py_verify
   unset JIG_VERIFY_FULL_RUN JIG_VERIFY_EXPLAIN
   _py_unscope
-  assert_contains "$OUT" "PLAN python: ruff: conditional (poetry environment needs a tool query)"
+  assert_contains "$OUT" "PLAN python: lint (ruff): conditional (poetry environment needs a tool query)"
   assert_not_contains "$OUT" "full set possible"
 }
 
 # --- a covered test check (JIG_VERIFY_COVERED) --------------------------------
 
 test_profile_python_hands_pytest_over_when_its_tests_are_covered() {
-  fixture_repo
+  _py_fixture
   unset VIRTUAL_ENV
   : > pyproject.toml
   _py_stub .venv/bin/pytest "pytest 8.0.0"
   JIG_VERIFY_COVERED="tests=upper"
   export JIG_VERIFY_COVERED
   _py_verify
-  assert_contains "$OUT" "python: pytest: skip (scope: covered by upper, python:tests)"
+  assert_contains "$OUT" "python: tests (pytest): skip (scope: covered by upper, python:tests)"
   assert_no_file .venv/bin/pytest.log
 
   JIG_VERIFY_EXPLAIN=1
   export JIG_VERIFY_EXPLAIN
   _py_verify
   unset JIG_VERIFY_EXPLAIN JIG_VERIFY_COVERED
-  assert_contains "$OUT" "PLAN python: pytest: skip (scope: covered by upper, python:tests)"
-  assert_not_contains "$OUT" "PLAN python: pytest: full"
+  assert_contains "$OUT" "PLAN python: tests (pytest): skip (scope: covered by upper, python:tests)"
+  assert_not_contains "$OUT" "PLAN python: tests (pytest): full"
+}
+
+# --- the check table (adr-20261117-a-profile-declares-its-checks-in-a-table) --
+
+# The command line of every check, exactly (one argument per line, a "---"
+# after each call), in a full run, in a narrowed run and in a fallback to the
+# full set: the table carries what verify.sh used to write, so nothing a
+# project runs changes.
+test_profile_python_check_table_keeps_every_command_line() {
+  _py_fixture
+  unset VIRTUAL_ENV
+  _py_stub "$PWD/.venv/bin/ruff" "ruff 1.0.0"
+  _py_stub "$PWD/.venv/bin/mypy" "mypy 1.0.0"
+  _py_stub "$PWD/.venv/bin/pytest" "pytest 7.0.0"
+  printf '[mypy]\n' > mypy.ini
+  mkdir -p pkg tests
+  : > pkg/foo.py
+  : > tests/foo_test.py
+
+  _py_verify
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "$(printf 'check\n.\n---')" "$(cat .venv/bin/ruff.log)"
+  assert_eq "$(printf '.\n--exclude\n(^|/)(\\.venv|venv)/\n---')" "$(cat .venv/bin/mypy.log)"
+  assert_eq "---" "$(cat .venv/bin/pytest.log)"
+
+  rm -f .venv/bin/ruff.log .venv/bin/mypy.log .venv/bin/pytest.log
+  _py_scope pkg/foo.py tests/foo_test.py
+  _py_verify
+  _py_unscope
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "$(printf 'check\npkg/foo.py\ntests/foo_test.py\n---')" "$(cat .venv/bin/ruff.log)"
+  assert_eq "$(printf '.\n--exclude\n(^|/)(\\.venv|venv)/\n---')" "$(cat .venv/bin/mypy.log)"
+  assert_eq "$(printf 'tests/foo_test.py\n---')" "$(cat .venv/bin/pytest.log)"
+
+  # Under `verify.full_run: ci` mypy checks the changed files only.
+  rm -f .venv/bin/ruff.log .venv/bin/mypy.log .venv/bin/pytest.log
+  _py_scope pkg/foo.py
+  JIG_VERIFY_FULL_RUN=ci
+  export JIG_VERIFY_FULL_RUN
+  _py_verify
+  unset JIG_VERIFY_FULL_RUN
+  _py_unscope
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "$(printf 'pkg/foo.py\n---')" "$(cat .venv/bin/mypy.log)"
+
+  # A project-wide file widens ruff and pytest to the full set.
+  rm -f .venv/bin/ruff.log .venv/bin/mypy.log .venv/bin/pytest.log
+  _py_scope pyproject.toml
+  _py_verify
+  _py_unscope
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "$(printf 'check\n.\n---')" "$(cat .venv/bin/ruff.log)"
+  assert_eq "---" "$(cat .venv/bin/pytest.log)"
+}
+
+# The table is what runs: a changed row changes the command line, and the
+# selection lands where `{selection}` stands.
+test_profile_python_check_table_rows_shape_the_command() {
+  _py_fixture
+  unset VIRTUAL_ENV
+  _py_stub "$PWD/.venv/bin/ruff" "ruff 1.0.0"
+  : > foo.py
+  sed -e 's/^checks.lint.narrowed: .*/checks.lint.narrowed: check --fix {selection}/' \
+    "$JIG_HOME/profiles/python/profile.yaml" > profile.tmp
+  mkdir -p table-profile
+  cp profile.tmp table-profile/profile.yaml
+  profile_checks_env table-profile
+  _py_scope foo.py
+  _py_verify
+  _py_unscope
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "$(printf 'check\n--fix\nfoo.py\n---')" "$(cat .venv/bin/ruff.log)"
+}
+
+# A profile.yaml from before the table (kept by `upgrade` as modified) beside
+# this verify.sh fails each check it would run, loudly, instead of running
+# another command in silence; --explain names the gap without a verdict.
+test_profile_python_check_table_missing_fails_loudly() {
+  _py_fixture
+  unset VIRTUAL_ENV JIG_VERIFY_CHECKS
+  _py_stub "$PWD/.venv/bin/ruff" "ruff 1.0.0"
+  _py_stub "$PWD/.venv/bin/mypy" "mypy 1.0.0"
+  _py_stub "$PWD/.venv/bin/pytest" "pytest 7.0.0"
+  printf '[mypy]\n' > mypy.ini
+  _py_verify
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "python: lint (ruff): fail (profile.yaml names no check 'lint'; jig upgrade restores it)"
+  assert_contains "$OUT" "python: typecheck (mypy): fail (profile.yaml names no check 'typecheck'; jig upgrade restores it)"
+  assert_contains "$OUT" "python: tests (pytest): fail (profile.yaml names no check 'tests'; jig upgrade restores it)"
+  assert_no_file .venv/bin/ruff.log
+  assert_no_file .venv/bin/mypy.log
+  assert_no_file .venv/bin/pytest.log
+
+  JIG_VERIFY_EXPLAIN=1 run bash "$JIG_HOME/profiles/python/verify.sh"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN python: lint (ruff): skip (profile.yaml names no check 'lint'; jig upgrade restores it)"
+  assert_contains "$OUT" "PLAN python: typecheck (mypy): skip (profile.yaml names no check 'typecheck'; jig upgrade restores it)"
+  assert_contains "$OUT" "PLAN python: tests (pytest): skip (profile.yaml names no check 'tests'; jig upgrade restores it)"
+}
+
+# Every role the profile lists in `checks:` can be taken over by another
+# profile (`covers: [python:<role>]`): the check prints jp_covered's line and
+# runs no tool.
+test_profile_python_every_role_can_be_covered() {
+  _py_fixture
+  unset VIRTUAL_ENV
+  _py_stub "$PWD/.venv/bin/ruff" "ruff 1.0.0"
+  _py_stub "$PWD/.venv/bin/mypy" "mypy 1.0.0"
+  _py_stub "$PWD/.venv/bin/pytest" "pytest 7.0.0"
+  printf '[mypy]\n' > mypy.ini
+  JIG_VERIFY_COVERED="lint=other typecheck=other tests=other"
+  export JIG_VERIFY_COVERED
+  _py_verify
+  assert_eq 2 "$RC" "$OUT"
+  assert_contains "$OUT" "python: lint (ruff): skip (scope: covered by other, python:lint)"
+  assert_contains "$OUT" "python: typecheck (mypy): skip (scope: covered by other, python:typecheck)"
+  assert_contains "$OUT" "python: tests (pytest): skip (scope: covered by other, python:tests)"
+  assert_no_file .venv/bin/ruff.log
+  assert_no_file .venv/bin/mypy.log
+  assert_no_file .venv/bin/pytest.log
+
+  JIG_VERIFY_EXPLAIN=1 run bash "$JIG_HOME/profiles/python/verify.sh"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN python: lint (ruff): skip (scope: covered by other, python:lint)"
+  assert_contains "$OUT" "PLAN python: typecheck (mypy): skip (scope: covered by other, python:typecheck)"
+  assert_contains "$OUT" "PLAN python: tests (pytest): skip (scope: covered by other, python:tests)"
+  assert_no_file .venv/bin/ruff.log
+  assert_no_file .venv/bin/mypy.log
+  assert_no_file .venv/bin/pytest.log
+  unset JIG_VERIFY_COVERED
 }

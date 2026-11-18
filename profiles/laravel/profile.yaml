@@ -7,6 +7,12 @@ scope: [changed, map, explain, environment]
 # `php artisan test` runs the suite php's phpunit/pest would: in a run with
 # both, php's tests are handed over here and run once.
 covers: [php:tests]
-# Checks another profile can take over by name (`covers: [laravel:tests]`).
+# The checks of this profile by role, and the index of its check table
+# (schemas/profile.md, Check table). Another profile can take one over by name
+# (`covers: [laravel:tests]`).
 checks: [tests]
+# tests: `php artisan test`; a full run adds no words, a narrowed run passes the
+# test files it selected.
+checks.tests.command: php artisan test
+checks.tests.narrowed: {selection}
 carry: [.env]
