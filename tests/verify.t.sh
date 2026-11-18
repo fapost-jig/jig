@@ -4098,6 +4098,8 @@ test_verify_a_profile_whose_every_check_was_dropped_is_named_not_blamed_on_tools
   assert_eq 3 "$RC" "$OUT"
   assert_contains "$OUT" "verify: nothing was checked, so this is not a pass — every check of base was dropped by top; nothing verified it"
   assert_not_contains "$OUT" "install the project's tools"
+  # the combined ending replaces the plain line, it does not follow it
+  assert_eq 1 "$(printf '%s\n' "$OUT" | grep -c 'was dropped by top')" "$OUT"
 
   # narrowed to changed files: the exit code and the ending are what they were
   # (every skip names a scope), and the dropped checks are said beside it
@@ -4127,6 +4129,27 @@ test_verify_a_dropped_base_beside_a_scope_skipping_profile_does_not_refuse_a_nar
   assert_contains "$OUT" "verify: every check of base was dropped by top; nothing verified it"
   assert_contains "$OUT" "this change touches nothing any profile covers"
   assert_not_contains "$OUT" "so this is not a pass"
+}
+
+# The sentence is true whatever else passed or failed, so it is said on every run
+# where it is true — the exit code stays what the other profiles made it.
+test_verify_a_dropped_base_is_named_beside_a_passing_or_failing_profile() {
+  _override_project 'checks.tests.drop: true' 'checks.lint.drop: true'
+  mkdir -p .ai/profiles/other
+  printf 'name: other\n' > .ai/profiles/other/profile.yaml
+  printf '#!/usr/bin/env bash\necho "other: tests: pass (cmd t)"\nexit 0\n' > .ai/profiles/other/verify.sh
+  printf 'profiles: [generic, top, other]\nadapters: [claude, codex]\n' > .ai/config.yaml
+  run jig verify
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "verify: every check of base was dropped by top; nothing verified it"
+  assert_eq 1 "$(printf '%s\n' "$OUT" | grep -c 'was dropped by top')" "$OUT"
+  assert_not_contains "$OUT" "so this is not a pass"
+
+  printf '#!/usr/bin/env bash\necho "other: tests: FAIL"\nexit 1\n' > .ai/profiles/other/verify.sh
+  run jig verify
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "verify: every check of base was dropped by top; nothing verified it"
+  assert_eq 1 "$(printf '%s\n' "$OUT" | grep -c 'was dropped by top')" "$OUT"
 }
 
 test_verify_dropping_only_some_checks_still_passes() {
