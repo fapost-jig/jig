@@ -113,6 +113,10 @@ case "\$*" in
     [ -d "$PWD/plan-\$id" ] && [ -n "\$dir" ] || exit 1
     cp "$PWD/plan-\$id/"* "\$dir/"
     ;;
+  "issue list "*)
+    [ ! -f "$PWD/issue-fails" ] || exit 1
+    [ ! -f "$PWD/issue.txt" ] || cat "$PWD/issue.txt"
+    ;;
   */pulls*)
     [ -f "$PWD/pulls.txt" ] || exit 1
     cat "$PWD/pulls.txt"
@@ -192,6 +196,7 @@ test_ci_reuse_full_run_of_an_up_to_date_branch_is_reused() {
   run cr_check "$repo" "$before"
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" "reuse (https://github.com/example/jig/actions/runs/7 tested tree"
+  assert_contains "$OUT" "; suite: all)"
   # The question asked is the successful pull-request runs of ci.
   # The pull request is the one into main merged as HEAD, and its runs are
   # asked for by its head commit.
@@ -487,8 +492,15 @@ test_ci_reuse_all_suffix_matches_the_workflow() {
   # shellcheck disable=SC2016 # workflow expressions, matched literally
   grep -qF '${{ matrix.shard }} (${{ needs.scope.outputs.suite }})' "$file" \
     || fail "the test jobs no longer end their names in the suite; update CR_ALL_SUFFIX"
-  grep -qF "printf 'full=true\\nsuite=all\\n'" "$file" \
-    || fail "scope no longer calls the whole suite 'all'; update CR_ALL_SUFFIX"
+  # The names the suite takes are written by ci-outputs.sh (F5: both suffixes
+  # are held to it, since a rename of either would switch reuse off).
+  # shellcheck disable=SC2016
+  [ "$(sed -n 's/^CR_SELECTED_SUFFIX="\(.*\)"$/\1/p' "$JIG_HOME/.github/scripts/ci-reuse.sh")" = " (selected)" ] \
+    || fail "CR_SELECTED_SUFFIX is not ' (selected)'"
+  run "$JIG_HOME/.github/scripts/ci-outputs.sh" "full (x)" "test (y)"
+  assert_contains "$OUT" "suite=all" "ci-outputs.sh no longer calls the whole suite 'all'; update CR_ALL_SUFFIX"
+  run "$JIG_HOME/.github/scripts/ci-outputs.sh" "selected (x)" "test (y)"
+  assert_contains "$OUT" "suite=selected" "ci-outputs.sh no longer calls selected tests 'selected'; update CR_SELECTED_SUFFIX"
 }
 
 # --- selected tests ----------------------------------------------------------
@@ -505,6 +517,7 @@ test_ci_reuse_selected_run_with_a_superset_of_filters_is_reused() {
   run cr_check "$repo" "$CR_BEFORE" selected "$PWD/filters"
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" "reuse (https://github.com/example/jig/actions/runs/7 tested tree"
+  assert_contains "$OUT" "; suite: selected)"
   assert_file_contains "$PWD/gh.log" "run download 7 -R example/jig -n plan -D"
 }
 
@@ -586,6 +599,7 @@ test_ci_reuse_selected_push_reuses_a_run_of_the_whole_suite() {
   run cr_check "$repo" "$CR_BEFORE" selected "$PWD/filters"
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" "reuse (https://github.com/example/jig/actions/runs/7 tested tree"
+  assert_contains "$OUT" "; suite: all)"
 }
 
 # The default suite is `all`: a run of selected tests does not count, plan or
@@ -642,4 +656,326 @@ test_ci_reuse_workflow_passes_the_suite_and_the_filters() {
   # shellcheck disable=SC2016 # workflow expressions, matched literally
   grep -qF '.github/scripts/ci-reuse.sh "$BEFORE" "$suite" "$plan/filters"' "$file" \
     || fail "scope does not hand the suite and the filters to ci-reuse.sh"
+}
+
+# --- narrow ------------------------------------------------------------------
+
+# cr_narrow_history <dir> — main with a commit, a branch `pr` that never
+# merged main back, the commit `base` the pull request's run merged onto, a
+# further commit on main (`before`, which the run never saw) and HEAD at the
+# merge of `pr`. The merge has a tree no run tested, but merging `pr` onto
+# `base` gives the tree the run did.
+cr_narrow_history() {
+  local dir="$1"
+  mkdir -p "$dir"
+  (
+    cd "$dir" || exit 1
+    fixture_repo
+    git checkout -q -b pr
+    printf 'feature\n' > feature.txt
+    git add feature.txt
+    git commit -q -m feature
+    git checkout -q main
+    printf 'other\n' > other.txt
+    git add other.txt
+    git commit -q -m "main moves"
+    git tag base
+    printf 'later\n' > later.txt
+    git add later.txt
+    git commit -q -m "main moves again, while the run goes"
+    git tag before
+    git merge -q --no-ff --no-edit pr
+  )
+}
+
+# cr_tested <id> <base> <head> <tree> — the `plan` artifact of run <id> with
+# its `tested` record.
+cr_tested() {
+  mkdir -p "$PWD/plan-$1"
+  printf 'base=%s\nhead=%s\ntree=%s\n' "$2" "$3" "$4" > "$PWD/plan-$1/tested"
+}
+
+# cr_narrow_setup <dir> — a narrow history, a stub, and a whole-suite run 7 of
+# the pull request with a true record; sets CR_PR, CR_BEFORE, CR_BASE, CR_TREE.
+cr_narrow_setup() {
+  cr_narrow_history "$1"
+  CR_PR=$(cr_sha "$1" pr)
+  CR_BEFORE=$(cr_sha "$1" before)
+  CR_BASE=$(cr_sha "$1" base)
+  CR_TREE=$(git -C "$1" merge-tree --write-tree "$CR_BASE" "$CR_PR")
+  cr_gh
+  cr_pulls "$CR_PR"
+  cr_runs "7 $CR_PR https://github.com/example/jig/actions/runs/7"
+  cr_full_jobs 7
+  cr_tested 7 "$CR_BASE" "$CR_PR" "$CR_TREE"
+}
+
+# A pull request that was behind main when it merged: its whole-suite run
+# tested the tree of the merge onto an older main. The answer names a commit
+# with that tree on top of that main, and nothing is pushed or configured.
+test_ci_reuse_a_stale_whole_suite_run_narrows() {
+  local repo="$PWD/repo" commit
+  cr_narrow_setup "$repo"
+
+  run cr_check "$repo" "$CR_BEFORE"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "narrow "
+  assert_contains "$OUT" "(https://github.com/example/jig/actions/runs/7 tested tree $CR_TREE in full; main has moved since)"
+  commit=${OUT#narrow }
+  commit=${commit%% *}
+  assert_eq "$CR_TREE" "$(git -C "$repo" rev-parse "$commit^{tree}")" "the commit must hold the tested tree"
+  assert_eq "$CR_BASE" "$(git -C "$repo" rev-parse "$commit^")" "the commit must sit on the base the run merged onto"
+  assert_file_contains "$PWD/gh.log" "run download 7"
+  # Main's own history and configuration are as they were.
+  assert_eq "$(cr_sha "$repo" HEAD)" "$(git -C "$repo" rev-parse main)" "HEAD must not move"
+  [ -z "$(git -C "$repo" config --local --get user.name || true)" ] || fail "the script must not set a git identity"
+}
+
+# The same answer for a push that needs selected tests: a narrow commit is
+# measured from the whole suite either way.
+test_ci_reuse_a_selected_push_narrows_from_a_whole_suite_run() {
+  local repo="$PWD/repo"
+  cr_narrow_setup "$repo"
+  cr_filters "$PWD/filters" "ci-reuse"
+
+  run cr_check "$repo" "$CR_BEFORE" selected "$PWD/filters"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "narrow "
+}
+
+# The commonest behind-main shape: the branch was behind main when its run
+# started and nothing landed on main while it went (B is main's tip). The merge
+# main made has the tree the run tested, though no commit of the run's has it.
+# That is exact reuse of a whole-suite run, not a narrowing from an empty
+# difference (which would test the whole suite again).
+test_ci_reuse_a_stale_branch_whose_main_did_not_move_is_reused_exactly() {
+  local repo="$PWD/repo" pr base tree
+  mkdir -p "$repo"
+  (
+    cd "$repo" || exit 1
+    fixture_repo
+    git checkout -q -b pr
+    printf 'feature\n' > feature.txt
+    git add feature.txt
+    git commit -q -m feature
+    git checkout -q main
+    printf 'other\n' > other.txt
+    git add other.txt
+    git commit -q -m "main moves before the run"
+    git tag base
+    git merge -q --no-ff --no-edit pr
+  )
+  pr=$(cr_sha "$repo" pr)
+  base=$(cr_sha "$repo" base)
+  tree=$(git -C "$repo" merge-tree --write-tree "$base" "$pr")
+  assert_eq "$tree" "$(git -C "$repo" rev-parse 'HEAD^{tree}')" "the fixture must make the tested tree HEAD's"
+  cr_gh
+  cr_pulls "$pr"
+  cr_runs "7 $pr https://github.com/example/jig/actions/runs/7"
+  cr_full_jobs 7
+  cr_tested 7 "$base" "$pr" "$tree"
+
+  run cr_check "$repo" "$base"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "reuse (https://github.com/example/jig/actions/runs/7 tested tree $tree"
+  assert_contains "$OUT" "; suite: all"
+  assert_not_contains "$OUT" "narrow "
+
+  # A run of selected tests is no whole-suite run: it still does not reuse.
+  cr_selected_jobs 7
+  cr_plan 7 "ci-reuse"
+  cr_filters "$PWD/filters" "ci-reuse"
+  run cr_check "$repo" "$base" selected "$PWD/filters"
+  assert_eq 0 "$RC" "$OUT"
+  assert_not_contains "$OUT" "narrow "
+}
+
+# Exact reuse is the stronger claim: a run that tested this very tree wins
+# over a run that could narrow.
+test_ci_reuse_exact_reuse_wins_over_narrow() {
+  local repo="$PWD/repo" pr before
+  cr_history "$repo" yes
+  pr=$(cr_sha "$repo" pr)
+  before=$(cr_sha "$repo" before)
+  cr_gh
+  cr_pulls "$pr"
+  cr_runs "7 $pr https://github.com/example/jig/actions/runs/7"
+  cr_full_jobs 7
+  cr_tested 7 "$before" "$pr" "$(git -C "$repo" merge-tree --write-tree "$before" "$pr")"
+
+  run cr_check "$repo" "$before"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "reuse (https://github.com/example/jig/actions/runs/7 tested tree"
+  assert_not_contains "$OUT" "narrow"
+}
+
+# Main is red while an open `red-main` issue exists: no narrowing, the whole
+# suite runs; and the same when the question cannot be answered.
+test_ci_reuse_a_red_main_does_not_narrow() {
+  local repo="$PWD/repo"
+  cr_narrow_setup "$repo"
+  echo 42 > "$PWD/issue.txt"
+
+  run cr_check "$repo" "$CR_BEFORE"
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "test (main is red (#42); a pull request's run cannot narrow it)" "$(printf '%s\n' "$OUT" | tail -n 1)" "the answer must be test"
+  assert_file_contains "$PWD/gh.log" "issue list -R example/jig --label red-main --state open"
+}
+
+test_ci_reuse_an_unreadable_red_main_state_does_not_narrow() {
+  local repo="$PWD/repo"
+  cr_narrow_setup "$repo"
+  : > "$PWD/issue-fails"
+
+  run cr_check "$repo" "$CR_BEFORE"
+  assert_eq 0 "$RC" "$OUT"
+  assert_not_contains "$OUT" "narrow "
+  assert_contains "$OUT" "test (main's state cannot be read"
+}
+
+test_ci_reuse_exact_reuse_works_while_main_is_red() {
+  local repo="$PWD/repo" pr before
+  cr_history "$repo" yes
+  pr=$(cr_sha "$repo" pr)
+  before=$(cr_sha "$repo" before)
+  cr_gh
+  cr_pulls "$pr"
+  cr_runs "7 $pr https://github.com/example/jig/actions/runs/7"
+  cr_full_jobs 7
+  echo 42 > "$PWD/issue.txt"
+
+  run cr_check "$repo" "$before"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "reuse (https://github.com/example/jig/actions/runs/7 tested tree"
+}
+
+# A run of selected tests tested part of its tree: nothing narrows from it,
+# even with a record and a plan.
+test_ci_reuse_a_selected_pull_request_run_does_not_narrow() {
+  local repo="$PWD/repo"
+  cr_narrow_setup "$repo"
+  cr_selected_jobs 7
+  cr_plan 7 "ci-reuse"
+  cr_filters "$PWD/filters" "ci-reuse"
+
+  run cr_check "$repo" "$CR_BEFORE" selected "$PWD/filters"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "test ("
+  assert_not_contains "$OUT" "narrow "
+  assert_contains "$OUT" "did not run the whole suite"
+}
+
+test_ci_reuse_a_run_without_windows_does_not_narrow() {
+  local repo="$PWD/repo"
+  cr_narrow_setup "$repo"
+  cr_jobs 7 "success scope" "skipped knowledge" "success ubuntu-latest 1/2 (all)" \
+    "success macos-latest 1/3 (all)" "success windows-latest smoke (install.ps1)" \
+    "success changelog" "skipped epic-pr" "skipped release" "success ci-ok"
+
+  run cr_check "$repo" "$CR_BEFORE"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "it skipped the Windows Git Bash shares"
+  assert_contains "$OUT" "test ("
+  assert_not_contains "$OUT" "narrow "
+}
+
+test_ci_reuse_a_run_without_a_plan_artifact_does_not_narrow() {
+  local repo="$PWD/repo"
+  cr_narrow_setup "$repo"
+  rm -rf "$PWD/plan-7"
+
+  run cr_check "$repo" "$CR_BEFORE"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "no record of the tree it tested"
+  assert_contains "$OUT" "test ("
+  assert_not_contains "$OUT" "narrow "
+}
+
+# A plan artifact from before the record existed holds filters, not `tested`.
+test_ci_reuse_a_plan_without_a_tested_record_does_not_narrow() {
+  local repo="$PWD/repo"
+  cr_narrow_setup "$repo"
+  rm -f "$PWD/plan-7/tested"
+  cr_plan 7 "ci-reuse"
+
+  run cr_check "$repo" "$CR_BEFORE"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "no record of the tree it tested"
+  assert_not_contains "$OUT" "narrow "
+}
+
+test_ci_reuse_an_incomplete_record_does_not_narrow() {
+  local repo="$PWD/repo"
+  cr_narrow_setup "$repo"
+  printf 'base=%s\nhead=%s\n' "$CR_BASE" "$CR_PR" > "$PWD/plan-7/tested"
+
+  run cr_check "$repo" "$CR_BEFORE"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "incomplete"
+  assert_not_contains "$OUT" "narrow "
+
+  printf 'base=nonsense\nhead=%s\ntree=%s\n' "$CR_PR" "$CR_TREE" > "$PWD/plan-7/tested"
+  run cr_check "$repo" "$CR_BEFORE"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "not readable"
+  assert_not_contains "$OUT" "narrow "
+}
+
+# The record names a head other than the run's own.
+test_ci_reuse_a_record_of_another_head_does_not_narrow() {
+  local repo="$PWD/repo"
+  cr_narrow_setup "$repo"
+  cr_tested 7 "$CR_BASE" "$CR_BASE" "$CR_TREE"
+
+  run cr_check "$repo" "$CR_BEFORE"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "names another head than the run"
+  assert_not_contains "$OUT" "narrow "
+}
+
+# The base the run merged onto is not in main's history before the push: it
+# was, say, a commit of a branch main never took.
+test_ci_reuse_a_base_that_is_not_an_ancestor_does_not_narrow() {
+  local repo="$PWD/repo" stray tree
+  cr_narrow_setup "$repo"
+  stray=$(cd "$repo" && git checkout -q -b stray base && printf 's\n' > stray.txt \
+    && git add stray.txt && git commit -q -m stray && git rev-parse HEAD && git checkout -q main)
+  tree=$(git -C "$repo" merge-tree --write-tree "$stray" "$CR_PR")
+  cr_tested 7 "$stray" "$CR_PR" "$tree"
+
+  run cr_check "$repo" "$CR_BEFORE"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "is not in main's history up to $CR_BEFORE"
+  assert_not_contains "$OUT" "narrow "
+}
+
+# The record says a tree the merge does not give.
+test_ci_reuse_a_tree_that_does_not_reproduce_does_not_narrow() {
+  local repo="$PWD/repo" other
+  cr_narrow_setup "$repo"
+  other=$(git -C "$repo" rev-parse 'HEAD^{tree}')
+  cr_tested 7 "$CR_BASE" "$CR_PR" "$other"
+
+  run cr_check "$repo" "$CR_BEFORE"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "not the $other it recorded"
+  assert_not_contains "$OUT" "narrow "
+}
+
+# Base and head that conflict: merge-tree cannot reproduce any tree. The base
+# is in main's history before the push, so it is the merge that fails.
+test_ci_reuse_a_merge_conflict_does_not_narrow() {
+  local repo="$PWD/repo" left
+  cr_narrow_setup "$repo"
+  left=$(cd "$repo" && git checkout -q -b left base && printf 'left\n' > feature.txt \
+    && git add feature.txt && git commit -q -m left && git rev-parse HEAD)
+  (cd "$repo" && git checkout -q -b w before && git merge -q --no-edit left >/dev/null \
+    && git tag -f before >/dev/null && git checkout -q main)
+  CR_BEFORE=$(cr_sha "$repo" before)
+  cr_tested 7 "$left" "$CR_PR" "$CR_TREE"
+
+  run cr_check "$repo" "$CR_BEFORE"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "does not reproduce its tree"
+  assert_not_contains "$OUT" "narrow "
 }

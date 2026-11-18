@@ -81,6 +81,14 @@ jobs:
   # (adr-20261027-main-is-not-retested-when-a-pull-request-tested-its-tree).
   # A manual run and an epic branch never reuse.
   #
+  # When no run tested this very tree because main moved while the pull
+  # request's run was going, ci-reuse.sh may answer `narrow <commit>` instead:
+  # that run tested the whole suite on a tree recorded in its plan artifact
+  # (the `tested` file the scope job of a pull request writes), and the push
+  # is measured from it, so only what landed on main since is tested; `whole`
+  # then still says the proof is the whole suite
+  # (adr-20261118-main-tests-what-changed-since-a-full-pull-request-run).
+  #
   # The nightly run tests the whole suite unless that was already done: when
   # the newest finished run on main succeeded and the newest successful
   # nightly run tested the very tree main has, the night is light — the
@@ -91,11 +99,14 @@ jobs:
     permissions:
       contents: read
       actions: read
+      # ci-reuse.sh asks for an open `red-main` issue before it narrows.
+      issues: read
     outputs:
       full: ${{ steps.scope.outputs.full }}
       suite: ${{ steps.scope.outputs.suite }}
       windows: ${{ steps.scope.outputs.windows }}
       reuse: ${{ steps.scope.outputs.reuse }}
+      whole: ${{ steps.scope.outputs.whole }}
       matrix_unix: ${{ steps.plan.outputs.matrix_unix }}
       matrix_windows: ${{ steps.plan.outputs.matrix_windows }}
     steps:
@@ -128,6 +139,15 @@ jobs:
           push_empty=""
           if [ "$EVENT" = pull_request ]; then
             pr_base=$(git rev-parse --verify --quiet 'HEAD^1') || pr_base=""
+            # What this run tests, for ci-reuse.sh on the push that merges the
+            # pull request: the merge it checked out (main as it is now, the
+            # pull request's head, the tree of the two). Written only when
+            # both parents are there; the file travels in the `plan` artifact.
+            pr_head=$(git rev-parse --verify --quiet 'HEAD^2') || pr_head=""
+            pr_tree=$(git rev-parse --verify --quiet 'HEAD^{tree}') || pr_tree=""
+            if [ -n "$pr_base" ] && [ -n "$pr_head" ] && [ -n "$pr_tree" ]; then
+              printf 'base=%s\nhead=%s\ntree=%s\n' "$pr_base" "$pr_head" "$pr_tree" > "$plan/tested"
+            fi
           fi
           case "$EVENT" in
             pull_request) line=$(.github/scripts/ci-scope.sh "$pr_base") ;;
@@ -166,28 +186,49 @@ jobs:
             esac
           fi
           echo "scope: $line"
-          suite=all
-          case "$line" in
-            light*) suite=none; printf 'full=false\nsuite=none\n' >> "$GITHUB_OUTPUT" ;;
-            selected*) suite=selected; printf 'full=true\nsuite=selected\n' >> "$GITHUB_OUTPUT" ;;
-            *) printf 'full=true\nsuite=all\n' >> "$GITHUB_OUTPUT" ;;
-          esac
 
           # Whether a pull request's run already tested this tree, what this
           # push needs of the suite. Asked on a push to main that tests
-          # anything; a light run tests nothing anyway.
+          # anything; a light run tests nothing anyway. The answer may also be
+          # `narrow <commit>`: no run tested this very tree, but one tested
+          # the whole suite on the tree this push differs from only by what
+          # other pull requests landed meanwhile.
           reuse="test ($EVENT to $BRANCH is always tested)"
           case "$EVENT:$BRANCH:$line" in
             push:main:full* | push:main:selected*)
+              suite=all
+              case "$line" in selected*) suite=selected ;; esac
               reuse=$(.github/scripts/ci-reuse.sh "$BEFORE" "$suite" "$plan/filters") \
                 || reuse="test (ci-reuse.sh failed; testing everything)"
               ;;
           esac
           echo "reuse: $reuse"
+
+          # For a narrow answer the tests to run are chosen from the
+          # difference the proof leaves open: the one from the tree the pull
+          # request tested, measured by the same script, in place of the
+          # selection above (its filters are overwritten).
+          nline=""
           case "$reuse" in
-            reuse*) echo "reuse=true" >> "$GITHUB_OUTPUT" ;;
-            *) echo "reuse=false" >> "$GITHUB_OUTPUT" ;;
+            narrow*)
+              nbase=${reuse#narrow }; nbase=${nbase%% *}
+              nline=$(.github/scripts/ci-scope.sh "$nbase") \
+                || nline="full (ci-scope.sh failed; testing everything)"
+              echo "narrow scope: $nline"
+              ;;
           esac
+
+          # What the outputs are, from these answers, is decided in
+          # .github/scripts/ci-outputs.sh (which has tests and the rules), and
+          # written once, after every decision above. A `filters=` line is the
+          # selection the shares must run (the knowledge check, for a narrow
+          # run whose difference is light), kept out of the outputs.
+          outputs=$(.github/scripts/ci-outputs.sh "$line" "$reuse" "$nline") \
+            || outputs=$(.github/scripts/ci-outputs.sh "full (ci-outputs.sh failed; testing everything)" "test (ci-outputs.sh failed)")
+          echo "outputs: $(printf '%s' "$outputs" | tr '\n' ' ')"
+          printf '%s\n' "$outputs" | sed -n 's/^filters=//p' > "$plan/filters.narrow"
+          if [ -s "$plan/filters.narrow" ]; then mv "$plan/filters.narrow" "$plan/filters"; else rm -f "$plan/filters.narrow"; fi
+          printf '%s\n' "$outputs" | grep -v '^filters=' >> "$GITHUB_OUTPUT"
 
           # Whether the Windows shards run, per
           # adr-20260924-windows-runs-on-a-pull-request-that-touches-platform-behaviour.
@@ -581,11 +622,18 @@ jobs:
   # Write access is granted to this job alone: the rest of the workflow keeps
   # `contents: read`. Pull requests and manual runs never tag.
   #
-  # Only a run of the whole suite tags: a light one tested nothing, a
-  # selected one tested part of it, and a version bump whose own run was
-  # replaced in the queue waits for the next such run — the nightly one —
-  # instead of being tagged untested. A change of JIG_VERSION always runs the
-  # whole suite, so a release's own run tags it.
+  # Only a run whose proof is the whole suite tags: scope's `whole`, which is
+  # true when the run ran the whole suite, reused a pull request's run of it,
+  # or narrowed from such a run (the pull request's whole-suite run on the
+  # tree it recorded, plus the tests of what differs on this commit; a
+  # narrowed run is never skipped: it is `selected` at the least, and
+  # holds the knowledge check). A light run tested nothing, a selected one
+  # that is not narrowed or a reuse of a pull request's selected tests proves
+  # part of the suite, and a version bump whose own run only tested part of it
+  # waits for the next whole run, the nightly one, instead of being tagged
+  # unproven. A change of JIG_VERSION always runs the whole suite, so a
+  # release's own run tags it, or a narrowed one when it lagged behind main
+  # (adr-20261118-main-tests-what-changed-since-a-full-pull-request-run).
   #
   # A run whose scope found the tree already tested by a pull request
   # (`reuse`) skips the suite and still tags: a skipped job is neither a
@@ -595,7 +643,7 @@ jobs:
     needs: [scope, test, test-windows, smoke-windows]
     if: >-
       !cancelled() && !failure() && needs.scope.outputs.full == 'true'
-      && needs.scope.outputs.suite == 'all'
+      && needs.scope.outputs.whole == 'true'
       && (github.event_name == 'push' || github.event_name == 'schedule')
       && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
