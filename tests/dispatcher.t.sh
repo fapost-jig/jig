@@ -266,15 +266,37 @@ test_jig_has_line_matches_whole_lines_as_strings() {
 # cure — `grep -m 1` on the file — costs nothing and removes a question a
 # reader would otherwise answer from the size of someone else's file.
 #
+# An awk reader is judged differently, on purpose. `| awk` whose program has an
+# `exit` outside its END block is reported whatever writes into it. awk cannot
+# be told "short writer, safe" the way `sed … | head` is: the flag cure
+# (`!f && NF { print; f = 1 }`) costs nothing and reads to the end, and it is
+# the only way to catch a shell-function writer — `my_rows | awk '… exit …'`
+# names no external writer at all, yet is the case that dies. An `exit` inside
+# END has read all input and is fine. Everything from `END {` on counts as the
+# END block: counting braces breaks on a `"{"` in an awk string. The accepted
+# limitation is a rule written after END that exits, which is missed. A
+# multi-line program is joined while the quotes after the awk are odd in
+# number; `NAME=value awk` prefixes are allowed. `||` is not a pipe.
+#
 # _pipe_guard_hits <dir>… — one line per pipeline found, `<file>:<line>:
 # <joined text>`, the line being where the pipeline starts. No pipe of its
 # own: `find … -exec … +` keeps this guard out of its own scan.
 _pipe_guard_hits() {
   find "$@" -type f -exec awk '
-    function flag(text) {
-      if (text ~ /(printf|echo|grep|find|sort|git|awk)[^|#]*\|[[:space:]]*(grep -[a-zA-Z]*[qm]|head([[:space:]]|$))/)
+    function quotes(s) { return gsub(/\047/, "", s) }
+    function flag(text,   prog) {
+      if (text ~ /(printf|echo|grep|find|sort|git|awk)[^|#]*\|[[:space:]]*(grep -[a-zA-Z]*[qm]|head([[:space:]]|$))/) {
         printf "%s:%d: %s\n", origin, start, text
+        return
+      }
+      if (match(text, AWKPIPE)) {
+        prog = substr(text, RSTART + RLENGTH)
+        sub(/(^|[^a-zA-Z_])END[[:space:]]*\{.*/, "", prog)
+        if (prog ~ /(^|[^a-zA-Z_])exit([^a-zA-Z_]|$)/)
+          printf "%s:%d: %s\n", origin, start, text
+      }
     }
+    BEGIN { AWKPIPE = "(^|[^|])\\|[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*awk[[:space:]]" }
     # One awk reads every file `find` hands over, so a pipeline still being
     # joined when a file ends is flushed here rather than dropped — and it is
     # reported against the file it started in, which by now is not FILENAME.
@@ -291,13 +313,17 @@ _pipe_guard_hits() {
       # the record where MSYS awk has not already dropped it.
       sub(/\r$/, "", line)
       if (line ~ /\\$/) { sub(/\\$/, " ", line); buf = buf line; next }
-      flag(buf line)
+      buf = buf line
+      # A single-quoted awk program still open at the end of the line goes on
+      # to the next one; an odd number of quotes after the awk says so.
+      if (match(buf, AWKPIPE) && quotes(substr(buf, RSTART)) % 2 == 1) { buf = buf " "; next }
+      flag(buf)
       buf = ""
     }
     END { flag(buf) }
   ' {} +
-
 }
+
 test_no_script_pipes_into_an_early_quitting_reader() {
   local hits
   hits=$(_pipe_guard_hits "$JIG_HOME/scripts" "$JIG_HOME/profiles" \
@@ -329,6 +355,54 @@ EOF
   assert_contains "$hits" "| head -n 1"
   assert_not_contains "$hits" "blessed"
   assert_eq 1 "$(printf '%s' "$hits" | grep -c .)"
+}
+
+# The awk half of the guard, planted both ways: an `exit` outside END is
+# reported on one line, across lines, behind an env prefix and behind a shell
+# function; an `exit` only inside END, the flag form and a harmless pipeline
+# after a multi-line program are not. The clean multi-line program in
+# `after.sh` must stop being joined where its quote closes, or the real
+# violation behind it would be swallowed.
+test_pipe_guard_reads_an_awk_that_quits_early() {
+  mkdir -p sample
+  cat > sample/hits.sh <<'EOF'
+one=$(printf '%s\n' "$x" | awk 'NF { print; exit }')
+multi=$(printf '%s\n' "$x" | awk -F '\t' '
+  $1 == k { print $2 }
+  $1 == z {
+    print $3
+    exit
+  }')
+pref=$(printf '%s\n' "$x" | VAR=x OTHER=y awk '$1 == k { print; exit }')
+fn=$(my_rows | awk '$1 == k { print; exit }')
+EOF
+  cat > sample/clean.sh <<'EOF'
+a=$(printf '%s\n' "$x" | awk 'END { if (n) exit 1 }')
+b=$(printf '%s\n' "$x" | awk '
+  $1 == k { n++ }
+  END {
+    if (n) { print n; exit }
+    else { print 0 }
+  }')
+c=$(printf '%s\n' "$x" | awk '!f && NF { print; f = 1 }')
+d=$(cmd || awk 'NF { exit }' file)
+e=$(printf '%s\n' "$x" | sed -n 1p | wc -l)
+EOF
+  cat > sample/after.sh <<'EOF'
+a=$(printf '%s\n' "$x" | awk '
+  NF { n++ }
+  END { print n }')
+b=$(printf '%s\n' "$y" | awk 'NF { print; exit }')
+EOF
+  local hits
+  hits=$(_pipe_guard_hits sample)
+  assert_eq 5 "$(printf '%s' "$hits" | grep -c .)"
+  assert_contains "$hits" "sample/hits.sh:1:"
+  assert_contains "$hits" "sample/hits.sh:2:"
+  assert_contains "$hits" "sample/hits.sh:8:"
+  assert_contains "$hits" "sample/hits.sh:9:"
+  assert_contains "$hits" "sample/after.sh:4:"
+  assert_not_contains "$hits" "clean.sh"
 }
 
 # One awk call reads every file find hands over, and the directories scanned

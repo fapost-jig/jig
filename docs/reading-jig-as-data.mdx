@@ -89,7 +89,7 @@ be reworded.
 | `base-not-on-origin` | the write's base is not on the remote, at `agent.git: push` or above: a branch cut from it would carry out whatever is on it. Nothing was written; push that base yourself |
 | `write-still-waits` | an earlier edit of the same spec, or of knowledge, still waits where this one cannot go: into another base, because an epic opened or finished since, or as edits that never reached the remote above ones whose pull request was closed or whose branch was deleted there. Nothing was written; the message names the branch and what to do |
 | `tree-in-the-way` | an unfinished write or `jig upgrade` left files at Jig's tree that git will not remove (links and empty directories Jig clears itself). Nothing was written, and trying again does not help: delete the path the message names |
-| `commit-refused` | Git refused the commit, usually a hook of the project; the message says what it said. This edit was not committed (for `jig upgrade`: nothing was left, no branch and no tree); an earlier one already waiting on the branch still waits |
+| `commit-refused` | Git refused the commit; the message says what it said. (A pre-commit hook of the project that refuses an upgrade in Jig's tree is not this: the upgrade goes on in your checkout.) This edit was not committed (for `jig upgrade`: nothing was left, no branch and no tree); an earlier one already waiting on the branch still waits |
 | `epic-missing` | the spec is built on an epic branch that is neither here nor on the remote. Nothing was written |
 | `not-linkable` | the task cannot be linked to the roadmap item, or the item is done. Nothing was written |
 | `not-proposed` | the knowledge document is not a proposal, nor, for `reject`, a stub whose linked file changed since it was approved: it was decided already, perhaps on a branch that still waits. Nothing was written |
@@ -389,7 +389,7 @@ while one stands for your machine's version or a newer one `upgrade-available` i
 the project needs is the merge and `jig upgrade --land`, not a second upgrade. One for an older
 version, such as a pull request nobody merged or closed, does not hide the newer upgrade.
 
-The `todo` of a `pull-request-waiting` item names the `--by human` command unless the agent is on the task (an autopilot run, or a `jig task ship` waiting for CI) or, for a merge, its checks are red or pending or it conflicts with its base; then it says why instead. The `todo` of `pull-request-was-open` follows the same rule after "if it is still open". A land under `git.staging_land: external` or a ship gate still names its command: the todo does not look at those. In a `phase-stopped` item the `todo` adds the clause "add --by human for the unattended: <ids>", naming only the runs that were started unattended, before its closing sentence.
+The `todo` of a `pull-request-waiting` item names the `--by human` command unless the agent is on the task (an autopilot run, or a `jig task ship` waiting for CI) or, for a merge, its checks are red or pending or it conflicts with its base; then it says why instead. The `todo` of `pull-request-was-open` follows the same rule after "if it is still open". A land under `git.staging_land: external` or a ship gate still names its command: the todo does not look at those. In a `phase-stopped` item the `todo` adds the clause `add --by human for the unattended: <ids>`, naming only the runs that were started unattended, before its closing sentence.
 
 The items about a task's open pull request (`pull-request-waiting`, `pull-request-was-open`) carry
 what the forge cache says and what a person can do, so a card needs no second read:
@@ -452,7 +452,7 @@ as they are. It never stashes or forces, and changes in the checkout stop it onl
 fast-forward would overwrite them. A base that cannot move is an answer, not an error: the command
 exits 0 and `base.outcome` says why — `blocked-by-changes` with git's message naming the files,
 `checked-out-elsewhere` with the worktree (git refuses to move a branch another worktree has checked out), `diverged`, `missing` — so the page can say it in words. `writes` lists each write it closed, with why.
-The fields are in [`schemas/json.md`](https://github.com/fapost-lab/jig/blob/main/schemas/json.md#jig-refresh---json).
+The fields are in [`schemas/json.md`](https://github.com/fapost-jig/jig/blob/main/schemas/json.md#jig-refresh---json).
 
 ## The queue
 
@@ -500,7 +500,7 @@ that holds a candidate back, in `state` `open`, `broken`
 always `false`). `blocked` lists the tasks a watcher could not start now, each with its `kind`: a run stopped for a person (`stopped`) or ended not merged (`not_merged`), a task whose `task.md` holds only the stub (`stub`) or a release's notes task (`version`); none of them is advised, and a queue held only by such stops answers `blocked`, not `empty`. `not_queued` counts the active tasks outside the queue. `resume` lists the answered autopilot runs
 to resume before anything new (`ref`, `id`, `priority`, `stopped_at`, `answered_at`), which are not in
 `in_progress`; `slots` is `{"limit", "building", "free"}`; a dependency on a task whose run is stopped
-reads `state` `waiting`. The fields are in [the schema](https://github.com/fapost-lab/jig/blob/main/schemas/json.md).
+reads `state` `waiting`. The fields are in [the schema](https://github.com/fapost-jig/jig/blob/main/schemas/json.md).
 
 ## Who may review a pull request
 
@@ -514,7 +514,7 @@ Only people, never teams or bots, and never the account that opens the pull requ
 ```
 
 It asks the forge, so call it when a person is about to choose, not on a timer. When the forge cannot
-be asked it is refused with the code `forge-unavailable`. The fields are in [the schema](https://github.com/fapost-lab/jig/blob/main/schemas/json.md#jig-pr-reviewers---json).
+be asked it is refused with the code `forge-unavailable`. The fields are in [the schema](https://github.com/fapost-jig/jig/blob/main/schemas/json.md#jig-pr-reviewers---json).
 
 ## A pull request's state now
 
@@ -533,7 +533,7 @@ protection asks, and `blockers`, the codes `jig task merge-pr` would refuse it w
 It is the second read that asks the forge (the first is `jig pr reviewers`), so call it when a person
 presses a button, not on a timer. It writes nothing and does not change the revision. Without the
 forge it is refused with `forge-unavailable`. The fields are in
-[the schema](https://github.com/fapost-lab/jig/blob/main/schemas/json.md#jig-task-pr-status---json).
+[the schema](https://github.com/fapost-jig/jig/blob/main/schemas/json.md#jig-task-pr-status---json).
 
 ## A person's pull request actions
 
@@ -554,7 +554,7 @@ or running checks with `ci-red` and `ci-pending`. While the agent works the task
 `ship-running`. A write is checked against the revision your program read (`--revision <n>`, as in
 [the queue](#changing-the-queue)): `stale-revision` means nothing was sent to the forge. The answer
 carries the refreshed task. The fields and every refusal are in
-[the schema](https://github.com/fapost-lab/jig/blob/main/schemas/json.md#jig-task-land---by-human---json).
+[the schema](https://github.com/fapost-jig/jig/blob/main/schemas/json.md#jig-task-land---by-human---json).
 
 ## Changing the queue
 
@@ -641,7 +641,7 @@ edits, or of a branch the remote deleted: it answers `not-found`, the edit leave
 next edit takes a new name. An edit still waiting is never left out of sight: when an epic opened or
 finished since it was made, or when it never reached the remote above edits that were turned down, the
 next write is refused with `write-still-waits` until you merge, close or move it. The full shape is in
-[the schema](https://github.com/fapost-lab/jig/blob/main/schemas/json.md).
+[the schema](https://github.com/fapost-jig/jig/blob/main/schemas/json.md).
 
 ### Changing a roadmap
 
@@ -893,7 +893,7 @@ An id Jig does not accept — a space, a leading dash — and a goal that is emp
 `usage`.
 
 The full field list is in the repository, in
-[`schemas/json.md`](https://github.com/fapost-lab/jig/blob/main/schemas/json.md).
+[`schemas/json.md`](https://github.com/fapost-jig/jig/blob/main/schemas/json.md).
 
 ## A task's documents
 
@@ -1022,7 +1022,9 @@ checkout, and merges its own pull request on green CI, so one call can last as l
 `git.merge_by`, `git.not_merged` (`{code, reason}` when Jig tried and did not merge) and `git.base`
 (what became of the base branch here) in the data. `git.path` says where the run worked (`tree` or
 `checkout`), `git.ignored` lists the gitignored framework paths that sent it to the checkout (empty
-otherwise), `git.level_key` says which key set the level (`upgrade.merge` or `agent.git`), and
+otherwise), `git.fell_back` says why a run that began in Jig's tree went on in the checkout
+(`gitignored`, or `pre-commit-hook` when the project's hook needs dependencies Jig's tree lacks;
+`null` when it did not), `git.level_key` says which key set the level (`upgrade.merge` or `agent.git`), and
 `git.superseded` names the older, unmerged upgrade branches the merge overtook (the upgrade never
 deletes them; `jig housekeeping` does, when only Jig's commits are on them; one with a commit of
 yours stays). A branch that did not take the new Jig yet, because the base moved but the branch did
@@ -1059,7 +1061,7 @@ the message:
 Where the upgrade works in Jig's own tree, only the line-endings reason can stop it; it can also
 be refused as `write-busy` (a write holds the clone's lock: try again in a moment),
 `tree-in-the-way` (an unfinished run left something at Jig's tree: a person deletes it) and
-`commit-refused` (the project's pre-commit hook refused in Jig's tree; nothing was left behind).
+`commit-refused` (git refused the commit in Jig's tree, with no pre-commit hook involved; nothing was left behind). A run whose commit a pre-commit hook refused in Jig's tree goes on in the checkout, and there the checkout's reasons apply as well: such a run can end `upgrade-blocked` although a dry run listed nothing in `would_stop`, since only a real commit shows the hook failing.
 
 The whole shape is in `schemas/json.md`.
 

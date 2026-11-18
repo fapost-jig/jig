@@ -3,8 +3,8 @@
 # Run by the `scope` job of .github/workflows/ci.yml in the root of the
 # checkout, with the commit the change is measured from: for a pull request the
 # first parent of the merge commit CI checks out — its base branch as it is now,
-# not where the branch started — or for a push the commit of the last
-# successful run on the branch.
+# not where the branch started — or for a push the commit ci-green-base.sh
+# names: the newest successful run on the branch in the pushed history.
 #
 # Prints one line, `full`, `selected` or `light`, and why:
 #

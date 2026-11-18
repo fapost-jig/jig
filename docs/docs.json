@@ -3,7 +3,12 @@
   "theme": "mint",
   "name": "JIG",
   "description": "Build software with your AI agent: clear plans, checked changes, and project knowledge that lasts.",
-  "favicon": "/favicon.svg",
+  "logo": {
+    "light": "/logo/light.png",
+    "dark": "/logo/dark.png",
+    "href": "https://jig.fapost.in"
+  },
+  "favicon": "/favicon.png",
   "colors": {
     "primary": "#2563EB",
     "light": "#60A5FA",
@@ -22,7 +27,7 @@
     ],
     "primary": {
       "type": "github",
-      "href": "https://github.com/fapost-lab/jig"
+      "href": "https://github.com/fapost-jig/jig"
     }
   },
   "navigation": {
@@ -71,7 +76,7 @@
   },
   "footer": {
     "socials": {
-      "github": "https://github.com/fapost-lab/jig"
+      "github": "https://github.com/fapost-jig/jig"
     }
   }
 }

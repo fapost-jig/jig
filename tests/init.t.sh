@@ -1110,7 +1110,7 @@ test_init_copy_mode_refuses_a_source_without_git() {
 
 test_init_unreleased_installs_and_records_the_build() {
   fixture_repo
-  fixture_unreleased_source src
+  fixture_unreleased_source src || fail "could not build the unreleased source"
   local sha declared
   sha=$(git -C src rev-parse --short=7 HEAD)
   declared=$(sed -n 's/^JIG_VERSION="\([^"]*\)".*/\1/p' src/scripts/lib/version.sh)
@@ -1120,6 +1120,21 @@ test_init_unreleased_installs_and_records_the_build() {
   assert_file .ai/manifest
   assert_file_contains .ai/manifest "jig.version: $declared+$sha"
   assert_file_contains .ai/manifest "jig.mode: copy"
+}
+
+# A source checkout's index is not rewritten, so a parallel copy of it never meets index.lock.
+test_init_from_a_source_leaves_its_index_alone() {
+  fixture_repo
+  fixture_unreleased_source src || fail "could not build the unreleased source"
+  # Stale stat info: a bare `git status` would refresh (rewrite) the index.
+  find src -path src/.git -prune -o -type f -exec touch -t 203001010000 {} +
+  local before after
+  before=$(cksum < src/.git/index)
+
+  run jig init --from "$PWD/src" --unreleased
+  assert_eq 0 "$RC"
+  after=$(cksum < src/.git/index)
+  assert_eq "$before" "$after"
 }
 
 test_init_unreleased_flag_changes_nothing_for_a_released_source() {

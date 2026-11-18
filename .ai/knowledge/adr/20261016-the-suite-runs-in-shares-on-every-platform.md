@@ -9,6 +9,7 @@ paths:
   - .github/workflows/ci.yml
   - tests/ci-workflow.t.sh
 summary: "Why the suite runs in shares on Linux (two), macOS (three) and Windows (ten): CI measurements of where the time went, why more runners and not more workers, how the shares of one matrix over two platforms are held to 1/n..n/n, and why ci-ok needed no change."
+reviewed_at: 2026-11-18
 ---
 # The suite runs in shares on every platform: Linux in two, macOS in three, Windows in ten
 
@@ -105,3 +106,25 @@ one that does, and main, in about 22 instead of 34–37.
   about the process-count lever; its number six is replaced here.
 
 > **Superseded in part (2026-11-10)** by adr-20261110-a-pull-request-runs-the-tests-its-change-reaches: the number of shares is no longer fixed. `.github/scripts/ci-matrix.sh` sizes each platform by the estimated work of the selected tests, with ceilings of 4 Linux, 4 macOS and 10 Windows shares, and the tests are divided by measured duration instead of round-robin.
+
+> **Amendment (2026-11-17).** Shares run in parallel without a ceiling, and the organisation
+> this repository lives in (GitHub Free) has one small limit of concurrent jobs, shared by all
+> its repositories and every run of this one. The first push of a new epic held nineteen of
+> them for a tree that differed from `main` by a specification, and every other run waited for
+> runners for about fifteen minutes (the repository has since moved to an organisation of its
+> own; the limit is still small). The matrices now carry `max-parallel` off `main`: `test` six, `test-windows` five,
+> through `${{ github.ref == 'refs/heads/main' && 20 || N }}`. On `main`, push and nightly
+> alike, the value is above every ceiling `ci-matrix.sh` sets (4 and 10), so a release is not
+> slowed. The price is paid by a pull request that touches the platform: its Windows shards
+> run in two waves of five, about twice the ~22 minutes, while the unix matrix (at most eight
+> jobs) loses little. Nothing changes in how the suite is divided; the number of shares is
+> still `ci-matrix.sh`'s answer. A queue that is empty gets nothing from the limit and a
+> queue that is not gets room for the other runs, which is what it is for.
+>
+> The price is not only a pull request that touches the platform. A pull request that changes
+> `JIG_VERSION` always runs Windows (adr-20260924-windows-runs-on-a-pull-request-that-touches-platform-behaviour),
+> and with `max-parallel: 5` that is two waves, about 44 minutes instead of 22, on the run that
+> a push to `main` then reuses (adr-20261027-main-is-not-retested-when-a-pull-request-tested-its-tree)
+> to tag the release. The release is slowed there, before the merge, not after it. The limit is
+> not raised for it: five of the twenty concurrent jobs is what other runs are left with,
+> and a release is rare.

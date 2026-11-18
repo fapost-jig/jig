@@ -39,7 +39,7 @@ if you want to inspect the script or see what it changes first.
     Paste this into Terminal:
 
     ```bash
-    curl -fsSL https://raw.githubusercontent.com/fapost-lab/jig/main/install.sh | bash
+    curl -fsSL https://raw.githubusercontent.com/fapost-jig/jig/main/install.sh | bash
     ```
 
     Open a **new terminal window** when it finishes.
@@ -74,7 +74,7 @@ if you want to inspect the script or see what it changes first.
     Paste this into PowerShell:
 
     ```powershell
-    irm https://raw.githubusercontent.com/fapost-lab/jig/main/install.ps1 | iex
+    irm https://raw.githubusercontent.com/fapost-jig/jig/main/install.ps1 | iex
     ```
 
     Follow its questions. For a new project, you can let it create and set up your project folder.
@@ -120,7 +120,7 @@ if you want to inspect the script or see what it changes first.
     the session hook out, or `-Uninstall` to remove Jig again:
 
     ```powershell
-    & ([scriptblock]::Create((irm https://raw.githubusercontent.com/fapost-lab/jig/main/install.ps1))) -NoSessionHook
+    & ([scriptblock]::Create((irm https://raw.githubusercontent.com/fapost-jig/jig/main/install.ps1))) -NoSessionHook
     ```
 
     Other options: `-Project <folder>`, `-Yes` (no questions, defaults), `-GitName`, `-GitEmail`,
@@ -148,7 +148,7 @@ If it says the project is not initialized, continue to step 2. If it says
   To read the macOS/Linux installer first:
 
   ```bash
-  curl -fsSLo /tmp/jig-install.sh https://raw.githubusercontent.com/fapost-lab/jig/main/install.sh
+  curl -fsSLo /tmp/jig-install.sh https://raw.githubusercontent.com/fapost-jig/jig/main/install.sh
   less /tmp/jig-install.sh
   bash /tmp/jig-install.sh
   ```
@@ -165,7 +165,7 @@ If it says the project is not initialized, continue to step 2. If it says
   Without the installer, clone Jig into a permanent folder and put its executable on `PATH`:
 
   ```bash
-  git clone https://github.com/fapost-lab/jig.git "$HOME/.local/share/jig"
+  git clone https://github.com/fapost-jig/jig.git "$HOME/.local/share/jig"
   ln -s "$HOME/.local/share/jig/scripts/jig" "$HOME/.local/bin/jig"
   ```
 
@@ -411,7 +411,9 @@ jig upgrade --dry-run    # in a project: what would change
 jig upgrade              # in a project: update its copy of Jig
 ```
 
-`self-update` refuses a checkout with uncommitted changes and changes no project. In a project with
+`self-update` refuses a checkout with uncommitted changes and changes no project. Jig moved from
+`fapost-lab/jig` to `fapost-jig/jig`; an install still fetching from the old address gets its
+`origin` repointed by `self-update`, which says so in one line. In a project with
 an `origin`, `upgrade` pushes, opens and merges its own pull request by default, unless
 `upgrade.merge` is `human` ([Upgrading](/upgrading#where-the-upgrade-works-and-who-merges-it)).
 `upgrade` downloads no Jig: it copies from the Jig on your machine, updates only files Jig installed

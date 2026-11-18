@@ -19,7 +19,7 @@ co_run() {
   fi
   run env FULL="$full" SUITE="$suite" WINDOWS="$windows" REUSE="${CO_REUSE:-}" EVENT="$event" \
     BASE_REF="$base" HEAD_REF="$head" \
-    "$JIG_HOME/.github/scripts/ci-ok.sh" "$@"
+    REF_NAME="${CO_REF:-}" "$JIG_HOME/.github/scripts/ci-ok.sh" "$@"
 }
 
 # A full push: everything but `knowledge`, `changelog` and `epic-pr` ran.
@@ -258,4 +258,40 @@ test_ci_ok_fails_when_the_suite_does_not_fit_the_scope() {
     scope=success knowledge=success test=skipped test-windows=skipped \
     smoke-windows=skipped changelog=success epic-pr=skipped
   assert_eq 1 "$RC"
+}
+
+# A push to an epic branch asks ci-windows-scope.sh like a pull request does,
+# so scope may say windows=false there. The verdict follows scope's answer, not
+# the event: the shards are then decided-skipped and the run passes, and when
+# scope asked for them a skip is still a failure.
+test_ci_ok_passes_an_epic_push_that_skips_the_windows_shards() {
+  CO_REF=epic/profile-layers co_run true false push "" "" \
+    scope=success knowledge=skipped test=success test-windows=skipped \
+    smoke-windows=success changelog=skipped epic-pr=skipped
+  assert_eq 0 "$RC" "$OUT"
+}
+
+test_ci_ok_fails_an_epic_push_whose_windows_shards_were_asked_for_and_skipped() {
+  CO_REF=epic/profile-layers co_run true true push "" "" \
+    scope=success knowledge=skipped test=success test-windows=skipped \
+    smoke-windows=success changelog=skipped epic-pr=skipped
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "'test-windows' was skipped"
+}
+
+# The second line of defence: scope's `windows` answer alone must not excuse
+# the shards where nothing may decide them away. Main's push, the nightly run
+# and a dispatch run every platform, so `windows=false` there is refused even
+# though test-windows ended skipped.
+test_ci_ok_refuses_windows_decided_away_outside_a_pull_request_and_an_epic_push() {
+  local ev ref
+  for pair in push:main push:feature schedule:main workflow_dispatch:main; do
+    ev=${pair%%:*}
+    ref=${pair#*:}
+    CO_REF=$ref co_run true false "$ev" "" "" \
+      scope=success knowledge=skipped test=success test-windows=skipped \
+      smoke-windows=success changelog=skipped epic-pr=skipped
+    assert_eq 1 "$RC" "$pair: $OUT"
+    assert_contains "$OUT" "only a pull request or a push to an epic branch may"
+  done
 }

@@ -131,7 +131,8 @@ adr-20261104 already gives Jig a tree of its own for writes that must not move a
 - A project with no CI gets `not merged: CI checked nothing`, and one that requires a review gets
   `not merged: the forge refused`: the pull request stays open, as before.
 - A pre-commit hook that needs the project's dependencies refuses the upgrade in the bare tree;
-  accepted for now, as for writes (adr-20261104).
+  accepted for now, as for writes (adr-20261104). Amended 2026-11-18 (below): the run goes on in
+  the checkout instead.
 - While a write holds the lock the upgrade is refused `write-busy`, and the other way round.
 - An agent that runs `jig upgrade` at `agent.git: none` now gets a commit, a push and a merge made
   for it: the one place that level no longer means "nothing leaves the machine". `upgrade.merge:
@@ -148,3 +149,21 @@ each carries an amendment of 2026-11-17 pointing here.
 > housekeeping now deletes one that holds only Jig's commits, here and on origin, and closes its
 > pull request at `pr` or above; the `note:` says so
 > (adr-20261117-a-superseded-upgrade-branch-leaves-without-landing).
+
+> **Amendment (2026-11-18, task upgrade-precommit-in-own-tree).** A pre-commit hook refusing the
+> commit in the tree is no longer accepted as a refusal: it joins the cases where the in-checkout
+> path stays. When the detached commit fails and the project has a pre-commit hook
+> (`core.hooksPath` set, or an executable `hooks/pre-commit`), the run gives the tree and the lock
+> back (`ot_close`; no branch exists yet), says so in a `note:` that does not quote the hook's
+> output (a hook that caught a secret may print it), runs the checkout's preflight (a busy checkout
+> ends in `upgrade-blocked`, nothing changed), cuts `jig/upgrade-<to>` there and installs again,
+> since placement already happened in the tree. It then ships at `agent.git`, as the gitignored-path
+> fall-back does and as 0.46.0 did: the reason the upgrade may exceed `agent.git` is that its commit
+> is made outside the person's checkout, and here it is not. `--json` names why a run fell back,
+> `git.fell_back`: `gitignored`, `pre-commit-hook` or `null`. Without a hook, a refused commit stays
+> `commit-refused`. A hook that refuses in the checkout too leaves the branch with the change staged,
+> which a repeat finishes (adr-20260926). Rejected: `--no-verify` or plumbing (hooks run, never
+> skipped: `jig_ship_commit`, adr-20261104); bringing the project's dependencies into the tree (which
+> directories a hook needs cannot be known, a copy can be large, running the project's setup is slow
+> and not zero-config, and a formatter run by the hook could rewrite Jig's files away from the
+> manifest's hashes). Writes (adr-20261104) keep their `commit-refused`.

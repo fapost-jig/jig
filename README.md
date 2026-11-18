@@ -24,13 +24,13 @@ Jig runs on macOS, Linux and Windows. It needs Git and a coding agent; nothing e
 macOS and Linux:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/fapost-lab/jig/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/fapost-jig/jig/main/install.sh | bash
 ```
 
 Windows, in PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/fapost-lab/jig/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/fapost-jig/jig/main/install.ps1 | iex
 ```
 
 Then, in your project, run `jig init`, commit, and tell your agent *"set up Jig for this project"*.
