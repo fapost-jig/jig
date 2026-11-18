@@ -722,3 +722,49 @@ test_profile_jvm_every_role_can_be_covered() {
   assert_no_file mvn.log
   unset JIG_VERIFY_COVERED
 }
+
+# With one build system only, the covered role prints that build system's
+# covered line and nothing for the other: the absent tool's label is not
+# asked about, so a run prints no "tests (mvn test)" line beside a Gradle
+# build, and no "tests (gradle check)" line beside a Maven reactor. A plan
+# (`--explain`) names every check, so there the absent tool keeps its own
+# "no root ..." skip and is never reported as covered.
+test_profile_jvm_gradle_alone_can_be_covered() {
+  _jvm_install_gradle
+  _gradle_stub 8.5 0 gradle.log
+  JIG_VERIFY_COVERED="tests=other"
+  export JIG_VERIFY_COVERED
+  run bash "$_JVM_VERIFY"
+  assert_eq 2 "$RC" "$OUT"
+  assert_contains "$OUT" "jvm: tests (gradle check): skip (scope: covered by other, jvm:tests)"
+  assert_not_contains "$OUT" "tests (mvn test)"
+  assert_no_file gradle.log
+
+  JIG_VERIFY_EXPLAIN=1 run bash "$_JVM_VERIFY"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN jvm: tests (gradle check): skip (scope: covered by other, jvm:tests)"
+  assert_contains "$OUT" "PLAN jvm: tests (mvn test): skip (no root pom.xml)"
+  assert_not_contains "$OUT" "tests (mvn test): skip (scope: covered"
+  assert_no_file gradle.log
+  unset JIG_VERIFY_COVERED
+}
+
+test_profile_jvm_maven_alone_can_be_covered() {
+  _jvm_install_maven
+  _mvn_stub "Apache Maven 3.9.6" 0 mvn.log
+  JIG_VERIFY_COVERED="tests=other"
+  export JIG_VERIFY_COVERED
+  run bash "$_JVM_VERIFY"
+  assert_eq 2 "$RC" "$OUT"
+  assert_contains "$OUT" "jvm: tests (mvn test): skip (scope: covered by other, jvm:tests)"
+  assert_not_contains "$OUT" "tests (gradle check)"
+  assert_no_file mvn.log
+
+  JIG_VERIFY_EXPLAIN=1 run bash "$_JVM_VERIFY"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN jvm: tests (mvn test): skip (scope: covered by other, jvm:tests)"
+  assert_contains "$OUT" "PLAN jvm: tests (gradle check): skip (no root Gradle build)"
+  assert_not_contains "$OUT" "tests (gradle check): skip (scope: covered"
+  assert_no_file mvn.log
+  unset JIG_VERIFY_COVERED
+}
