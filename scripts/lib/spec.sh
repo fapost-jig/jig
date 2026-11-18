@@ -97,28 +97,127 @@ _spec_cut_own_branch() {
   printf '%s\n' "$branch"
 }
 
-# _spec_switch_to_existing_branch <id> <cmd> — switch to `spec/<id>` when it
-# already exists, locally or on origin (fetched fresh first); nothing, and
-# exit 1, when it exists nowhere. Used by `spec resume`, where a spec's
-# branch from an earlier session may already be there, unlike `spec new`
-# and `spec ship`'s declaration, which only ever create one.
+# _spec_sha <ref> — the commit <ref> names, or nothing.
+_spec_sha() {
+  git -C "$JIG_PROJECT" rev-parse --verify --quiet "$1^{commit}" 2>/dev/null || true
+}
+
+# _spec_is_ancestor <a> <b> — exit 0 when commit <a> is reachable from <b>.
+_spec_is_ancestor() {
+  git -C "$JIG_PROJECT" merge-base --is-ancestor "$1" "$2" >/dev/null 2>&1
+}
+
+# _spec_switch_to_existing_branch <id> <cmd> <default> — switch to
+# `spec/<id>` when it already exists, locally or on origin, brought up to date
+# first; exit 1, having changed nothing, when it exists nowhere. Called from
+# <default> on a clean tree, by `spec resume` and by `spec drop`, where a
+# spec's branch from an earlier session may already be there, unlike
+# `spec new` and `spec ship`'s declaration, which only ever create one.
+#
+# A spec's branch outlives its pull request: merged, it stays here and on
+# origin while <default> goes on changing the spec (`spec done` rewrites the
+# roadmap). Taken as it is, it puts the next session on a base the default
+# branch has left, and that session's pull request conflicts — on which
+# GitHub runs no CI. So the branch is freshened before the switch, and never
+# by a reset (adr-20260930-a-spec-lives-on-its-own-branch-from-the-first-minute):
+#   - both `spec/<id>` and <default> are fetched first;
+#   - a branch checked out in another worktree is refused: it moves there;
+#   - behind origin's copy it is fast-forwarded to it; ahead, it keeps its
+#     unpushed commits; diverged from it, it is refused, naming both;
+#   - all of it already in <default> (origin's, else this clone's): moved to
+#     <default>'s tip, a fast-forward, said in one line;
+#   - commits of its own, and <default> changed the spec's directory since they
+#     forked: <default> is taken in with one merge commit, as
+#     adr-20261115-the-decisions-branch-takes-in-the-base does — only when
+#     needed, and not at `agent.git` `none`, where committing is the person's
+#     and a line names the merge instead. A conflict is aborted and refused,
+#     naming the files, with HEAD back on <default>.
+# Every line it says goes to stderr; stdout stays empty.
 _spec_switch_to_existing_branch() {
-  local id="$1" cmd="$2" branch
+  local id="$1" cmd="$2" default="$3" branch local_sha origin_sha tip where
+  local base_ref base_sha fork rel line level key files
   branch="spec/$id"
-  if git -C "$JIG_PROJECT" rev-parse --verify --quiet "refs/heads/$branch" >/dev/null 2>&1; then
-    git -C "$JIG_PROJECT" switch --quiet "$branch" >/dev/null 2>&1 \
-      || jig_die "$cmd: could not switch to $branch"
-    printf '%s\n' "$branch"
-    return 0
-  fi
+  rel="$JIG_AI_DIR/specs/$id"
+  jig_fetch_branches "$cmd" "$default"
   jig_fetch_branches "$cmd" "$branch" 2>/dev/null
-  if git -C "$JIG_PROJECT" rev-parse --verify --quiet "refs/remotes/origin/$branch" >/dev/null 2>&1; then
-    git -C "$JIG_PROJECT" switch --quiet -c "$branch" --track "origin/$branch" >/dev/null 2>&1 \
-      || jig_die "$cmd: could not switch to origin/$branch"
-    printf '%s\n' "$branch"
+  local_sha=$(_spec_sha "refs/heads/$branch")
+  origin_sha=$(_spec_sha "refs/remotes/origin/$branch")
+  [ -n "$local_sha$origin_sha" ] || return 1
+
+  where=$(jig_branch_worktree "$branch")
+  [ "$where" != "?" ] \
+    || jig_die "$cmd: git could not list this clone's worktrees, so $branch may be checked out in one; nothing was changed"
+  [ -z "$where" ] \
+    || jig_die "$cmd: $branch is checked out in $where; work on the spec there, or switch that checkout to another branch and run again"
+
+  if [ -z "$local_sha" ]; then
+    tip=$origin_sha
+  elif [ -z "$origin_sha" ] || [ "$local_sha" = "$origin_sha" ]; then
+    tip=$local_sha
+  elif _spec_is_ancestor "$local_sha" "$origin_sha"; then
+    tip=$origin_sha
+  elif _spec_is_ancestor "$origin_sha" "$local_sha"; then
+    tip=$local_sha
+  else
+    jig_die "$cmd: $branch and origin/$branch have diverged; merge origin/$branch into $branch, then run again"
+  fi
+
+  base_ref="origin/$default"
+  base_sha=$(_spec_sha "refs/remotes/origin/$default")
+  if [ -z "$base_sha" ]; then
+    base_ref=$default
+    base_sha=$(_spec_sha "refs/heads/$default")
+  fi
+  if [ -n "$base_sha" ] && [ "$tip" != "$base_sha" ] && _spec_is_ancestor "$tip" "$base_sha"; then
+    tip=$base_sha
+    printf '%s: %s is all in %s already; moved it there (%s)\n' \
+      "$cmd" "$branch" "$base_ref" "$(git -C "$JIG_PROJECT" rev-parse --short "$tip")" >&2
+  fi
+
+  # Only fast-forwards from here: every move above lands on a descendant.
+  if [ -z "$local_sha" ]; then
+    git -C "$JIG_PROJECT" branch --quiet --track "$branch" "origin/$branch" >/dev/null 2>&1 \
+      || jig_die "$cmd: could not create $branch from origin/$branch"
+    local_sha=$origin_sha
+  fi
+  if [ "$tip" != "$local_sha" ]; then
+    git -C "$JIG_PROJECT" update-ref -m "jig $cmd: fast-forward" "refs/heads/$branch" "$tip" "$local_sha" >/dev/null 2>&1 \
+      || jig_die "$cmd: could not fast-forward $branch"
+  fi
+  git -C "$JIG_PROJECT" switch --quiet "$branch" >/dev/null 2>&1 \
+    || jig_die "$cmd: could not switch to $branch"
+
+  # Commits of its own, and the default branch moved on under the spec.
+  [ -n "$base_sha" ] || return 0
+  _spec_is_ancestor "$base_sha" "$tip" && return 0
+  fork=$(git -C "$JIG_PROJECT" merge-base "$tip" "$base_sha" 2>/dev/null) || fork=""
+  [ -n "$fork" ] || return 0
+  git -C "$JIG_PROJECT" diff --quiet "$fork" "$base_sha" -- "$rel" 2>/dev/null && return 0
+  line=$(spec_ship_git 2>/dev/null) || line=$'none\tagent.git'
+  level=${line%%$'\t'*}
+  key=${line#*$'\t'}
+  if [ "$level" = none ]; then
+    printf '%s: %s changed %s/ after %s was cut; %s is none in this clone, so merge it yourself: git merge %s\n' \
+      "$cmd" "$base_ref" "$rel" "$branch" "$key" "$base_ref" >&2
     return 0
   fi
-  return 1
+  if ! git -C "$JIG_PROJECT" merge --quiet --no-ff --no-commit "$base_sha" >/dev/null 2>&1; then
+    files=$(git -C "$JIG_PROJECT" diff --name-only --diff-filter=U 2>/dev/null | sed 's/^/  /')
+    git -C "$JIG_PROJECT" merge --abort >/dev/null 2>&1 || true
+    git -C "$JIG_PROJECT" switch --quiet "$default" >/dev/null 2>&1 \
+      || jig_die "$cmd: $branch conflicts with $base_ref, and switching back to $default failed"
+    jig_die "$cmd: $branch conflicts with $base_ref; switched back to $default. Resolve it on the branch (git switch $branch && git merge $base_ref), commit, then run again. Conflicting:
+${files:-  (git named no file)}"
+  fi
+  if ! git -C "$JIG_PROJECT" commit --quiet --no-edit \
+      -m "Take $base_ref into $branch" \
+      -m "$base_ref changed $rel/ after $branch was cut." >/dev/null 2>&1; then
+    git -C "$JIG_PROJECT" merge --abort >/dev/null 2>&1 || true
+    git -C "$JIG_PROJECT" switch --quiet "$default" >/dev/null 2>&1 || true
+    jig_die "$cmd: could not commit the merge of $base_ref into $branch; switched back to $default"
+  fi
+  printf '%s: took %s into %s: it changed %s/ after the branch was cut\n' \
+    "$cmd" "$base_ref" "$branch" "$rel" >&2
 }
 
 # _spec_refuse_dirty_tree <cmd> — refuse a dirty tree by the same rule
@@ -205,10 +304,12 @@ spec_new() {
 # spec_resume <id> — before a second session edits an existing spec, put it
 # back on its own branch: the same dirty-tree refusal `spec new` uses, then a
 # switch to `spec/<id>` (created if this is its first resume, reused if an
-# earlier one already cut it, fetched from origin if only that has it).
-# `jig-idea` calls this before touching an existing spec's files, so the
-# roadmap `jig spec new` files tasks into (step 10, jig-idea) is edited on
-# the branch too, never straight on the default one
+# earlier one already cut it, fetched from origin if only that has it — and,
+# reused, brought up to date with origin and the default branch first,
+# _spec_switch_to_existing_branch). `jig-idea` calls this before touching an
+# existing spec's files, so the roadmap `jig spec new` files tasks into
+# (step 10, jig-idea) is edited on the branch too, never straight on the
+# default one
 # (idea-leaves-a-tree-task-start-refuses).
 #
 # A spec with an open epic is edited on the epic instead (jig-idea says so);
@@ -237,8 +338,7 @@ spec_resume() {
   fi
   _spec_require_default_branch "spec resume" "$default"
   _spec_refuse_dirty_tree "spec resume"
-  branch=$(_spec_switch_to_existing_branch "$id" "spec resume") || branch=""
-  if [ -z "$branch" ]; then
+  if ! _spec_switch_to_existing_branch "$id" "spec resume" "$default"; then
     branch=$(_spec_cut_own_branch "$id" "spec resume") || exit 1
   fi
   printf 'switched to %s\n' "$branch"
@@ -2485,8 +2585,7 @@ _spec_drop_to_spec_branch() {
     *) jig_die "spec drop: could not read $JIG_AI_DIR/specs/$sid/roadmap.md" ;;
   esac
   _spec_refuse_dirty_tree "spec drop"
-  branch=$(_spec_switch_to_existing_branch "$sid" "spec drop") || branch=""
-  if [ -z "$branch" ]; then
+  if ! _spec_switch_to_existing_branch "$sid" "spec drop" "$default"; then
     branch=$(_spec_cut_own_branch "$sid" "spec drop") || exit 1
   fi
   printf 'spec drop: switched to %s\n' "$branch"
