@@ -1,5 +1,8 @@
 # Release trains — tasks merge on a reduced CI, the full matrix guards the way into main
 
+Summary: Tasks merge into an open release train on a CI reduced to their change, in ten minutes or less,
+and only the train's pull request into main runs the full matrix.
+
 Depth: normal, with the independent failure hunt — the option changes the release flow and where
 a task lands, and a mistake reaches main and every project that installs Jig.
 

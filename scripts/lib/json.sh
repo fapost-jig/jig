@@ -178,3 +178,86 @@ json_run() {
   printf '"error":{"code":"%s","message":%s}}\n' "$code" "$_JSON"
   return "$rc"
 }
+
+# json_utf8_clean <s> — _JSON_CLEAN <- <s> without the bytes that are not valid
+# UTF-8, _JSON_LOSSY <- true when there were any. Shared by every read that hands
+# JSON the text of a file a person committed (knowledge.sh, spec.sh). json_quote lets such bytes
+# through as they are, and one of them makes the whole line invalid JSON: a
+# source file is anything a person committed. Strict UTF-8 is checked and
+# repaired by iconv; where there is none, every byte outside ASCII becomes `?`,
+# one per byte, which is the lossy end of the same thing.
+json_utf8_clean() {
+  local ascii src
+  _JSON_CLEAN=$1
+  _JSON_LOSSY=false
+  if command -v iconv >/dev/null 2>&1; then
+    # Some iconv builds (macOS) accept what is not UTF-8 to a JSON parser: bytes
+    # F5 to FF, which lead no character, and F4 followed by 90 to BF, which leads
+    # one above U+10FFFF. Those go first; the continuation bytes they leave alone
+    # are iconv's to drop. F4 followed by 80 to 8F is U+100000 to U+10FFFF, valid
+    # and kept.
+    src=$(printf '%sx' "$1" | LC_ALL=C tr -d '\365-\377')
+    src=${src%x}
+    if [ -n "$(printf '%s' "$src" | LC_ALL=C tr -cd '\364')" ]; then
+      _json_drop_above_unicode "$src"
+      src=$_JSON_CLEAN
+      _JSON_CLEAN=$1
+    fi
+    if [ "$src" = "$1" ] && printf '%s' "$1" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1; then
+      return 0
+    fi
+    # The sentinel keeps the trailing newlines $(...) would strip, and ends a
+    # truncated sequence the way following bytes would: three of them, since a
+    # four-byte lead left with fewer behind it takes them down with it (macOS
+    # iconv drops an incomplete last character whole).
+    _JSON_CLEAN=$(printf '%sxxx' "$src" | iconv -c -f UTF-8 -t UTF-8 2>/dev/null || true)
+    _JSON_CLEAN=${_JSON_CLEAN%xxx}
+    _JSON_LOSSY=true
+    return 0
+  fi
+  # Printable ASCII, tab, carriage return and newline stay.
+  ascii=$(printf '\t\r -~')
+  if [ -z "$(printf '%s' "$1" | LC_ALL=C tr -d "\n$ascii")" ]; then
+    return 0
+  fi
+  _JSON_CLEAN=$(printf '%sx' "$1" | LC_ALL=C tr -c "\n$ascii" '?')
+  _JSON_CLEAN=${_JSON_CLEAN%x}
+  _JSON_LOSSY=true
+}
+
+# _json_drop_above_unicode <s> — _JSON_CLEAN <- <s> without each F4 byte and the byte
+# from 90 to BF that follows it. Matched by the shell, byte by byte under the C locale: sed and awk
+# would drop the carriage return of a CRLF line under Git Bash (conventions/shell.md). The text is
+# split on F4 by word splitting, not stripped with ${s//pattern/}: on bash 3.2 that substitution
+# costs the text's length once per match, and a source file can be long and hold many of them.
+# The `x` keeps a trailing F4's empty field, and the trailing newlines $(...) would strip.
+#
+# The work runs in a $(...) with a plain LC_ALL=C, never under `local LC_ALL=C`: bash restores a
+# local locale on return, which crashes Homebrew's bash on macOS now and then, while the
+# subshell's assignment dies with it, unrestored (conventions/shell.md). The text comes back
+# through the same sentinel-guarded $(...) that json_utf8_clean already passes it through first,
+# and globbing needs no restoring there.
+_json_drop_above_unicode() {
+  _JSON_CLEAN=$(
+    LC_ALL=C
+    # Each pattern opens with `(`: bash 3.2 cannot parse a bare `pattern)` inside $(...).
+    case $1 in (*$'\364'*) ;; (*) printf '%sx' "$1"; exit 0 ;; esac
+    local IFS=$'\364' part first=1
+    local -a parts acc
+    set -f
+    # shellcheck disable=SC2206 # the split on IFS is the point; globbing is off
+    parts=(${1}x)
+    # The pieces are joined once at the end: appending each to one string would
+    # copy all of it again per F4.
+    for part in "${parts[@]}"; do
+      if [ -n "$first" ]; then acc[0]=$part; first=; continue; fi
+      case $part in
+        ([$'\220'-$'\277']*) acc[${#acc[@]}]=${part#?} ;;
+        (*) acc[${#acc[@]}]=$'\364'$part ;;
+      esac
+    done
+    IFS=
+    printf '%s' "${acc[*]}"
+  )
+  _JSON_CLEAN=${_JSON_CLEAN%x}
+}

@@ -12,7 +12,7 @@ paths:
   - "templates/spec/**"
   - "skills/jig-idea/**"
   - "skills/jig-release/**"
-reviewed_at: 2026-11-18
+reviewed_at: 2026-11-19
 ---
 # Spec
 
@@ -30,7 +30,11 @@ them. Why they exist and why they are not knowledge is ADR-0035; the file format
   still authored directly on the default branch
   (adr-20260930-a-spec-lives-on-its-own-branch-from-the-first-minute).
 - Reporting specs and their progress (`jig spec list`) and counting them for `jig status`,
-  derived from files alone — a spec has no status.
+  derived from files alone — a spec has no status. A spec's words reach a reader that must not
+  open `.ai/specs/` itself (Jig UI, adr-20261014-jig-ui-is-an-optional-layer-over-jig in jig-ui)
+  through two reads: `summary` in `spec list --json`, the `Summary:` paragraph in the head of
+  `spec.md` (`spec_summary_v`, grammar in schemas/spec.md; the template carries the line and
+  `jig-idea` writes it), and `jig spec read <id> spec|roadmap`, a document as written.
 - The `jig-idea` conversation: circles of a few rounds, sized by the depth. The first round of a
   circle widens the idea with the agent's own proposals, the later ones put weight on it and
   settle decisions; a circle ends in a summary — the idea, what would be written, the directions
@@ -113,7 +117,9 @@ A command that changes a spec redraws the status page (`jig_status_page_touch`).
 `spec list --json` (`_spec_list_json`, shape in schemas/json.md) reads the same answers: the roadmap
 from where `jig_spec_roadmap_ref` says it is current, and its items from `spec_phase_items` —
 `spec_phase_counts`'s own pass with each counted item printed before its section's line — so an item
-list and the counts beside it cannot disagree. Without its `items` argument the counts are printed
+list and the counts beside it cannot disagree. `spec read` (`_spec_read`) reads `roadmap.md` from that
+same place, so a page's Roadmap text and the phases beside it cannot disagree either, and `spec.md` from
+the checkout, as `title` and `summary` are; an edit still waiting on `spec/<id>` is in `waiting` only. Without its `items` argument the counts are printed
 alone, byte for byte as before.
 
 `spec plan` is read-only and offline. A wave entry names an item by its title or task id; one that names
@@ -155,7 +161,7 @@ spec gone, no non-fog item unchecked (`spec_unchecked_items`) and no task cut fr
 - `scripts/lib/spec.sh` — `cmd_spec`, `spec_new`, `spec_resume`, `_spec_cut_own_branch`,
   `_spec_switch_to_existing_branch`, `_spec_refuse_dirty_tree`, `_spec_require_default_branch`,
   `spec_template`, `spec_list`, `spec_list_rows`,
-  `spec_progress`, `spec_phase_counts`, `spec_merged_task_ids`, `spec_phase_items`, `_spec_list_json`, `spec_phase_rows`, `spec_plan`, `spec_list_state`, `spec_count`, `spec_done`, `spec_remove`, `spec_epic`,
+  `spec_progress`, `spec_phase_counts`, `spec_merged_task_ids`, `spec_phase_items`, `spec_summary_v`, `_spec_list_json`, `spec_read`, `spec_phase_rows`, `spec_plan`, `spec_list_state`, `spec_count`, `spec_done`, `spec_remove`, `spec_epic`,
   `spec_epic_status`, `spec_close`, `spec_leftovers`, `spec_ship`, `spec_ship_merges_cleanly`, `spec_ship_final_ready`, `spec_release_check`,
   `spec_item` (its line arithmetic reads `spec_phase_items`, the one reader of the grammar, for each
   item's lines and handle).

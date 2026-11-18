@@ -1,5 +1,8 @@
 # Queue watch — one agent drains the queue on its own
 
+Summary: One agent watches the queue and takes each task put there — from an issue, Jig UI or a
+conversation — to a merge or a stop that names what is needed, with nobody starting it.
+
 Depth: normal, with the independent failure hunt — the watcher runs for hours without a person
 and merges on green CI, so a wrong step reaches main unread; the design space is small, because
 `jig-autopilot` already runs one task and a set of tasks.

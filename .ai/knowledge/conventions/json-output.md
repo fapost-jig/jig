@@ -22,7 +22,7 @@ paths:
   - scripts/lib/reviewers.sh
   - scripts/lib/prdo.sh
 summary: "What a command offering --json may, must and must not do: one envelope through json_run, values from existing producers, no network, schema raised only on an incompatible change."
-reviewed_at: 2026-11-16
+reviewed_at: 2026-11-19
 ---
 # A command's `--json` output
 
@@ -53,9 +53,12 @@ MAY:      escape a long free text outside json_quote when json_quote's pass over
           what json_quote would print
 MUST:     hand JSON only bytes that are valid UTF-8 where the text comes from a file a person
           committed (json_quote passes other bytes through, and one makes the line invalid):
-          knowledge.sh drops them (iconv -c, else every non-ASCII byte becomes ?, one per
-          byte) and the object they were dropped from says so with its `lossy` field — a
-          record whose file name lost a byte too, since that name may be another file's
+          json.sh's json_utf8_clean drops them (iconv -c, else every non-ASCII byte becomes ?,
+          one per byte) for knowledge.sh and spec.sh alike, and the object they were dropped
+          from says so with its `lossy` field — a record whose file name lost a byte too, since
+          that name may be another file's. A short field beside other data (`summary` in
+          `spec list --json`) is cleaned without one. A reader that matches the text with `=~`
+          first loses it silently under a UTF-8 locale; match with glob patterns, then clean
 MUST NOT: touch the network on the read path (no gh, no fetch, no ls-remote) — the two
           exceptions are `jig pr reviewers` and `jig task pr-status --json`, reads of the forge
           itself, refused as forge-unavailable when it cannot be asked; print

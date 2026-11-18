@@ -1,5 +1,9 @@
 # Issue intake — requests from outside the team reach the route
 
+Summary: An issue filed in the project's tracker is sorted by the developer's agent: what Jig may do
+itself goes through the ordinary route to a pull request, the rest reaches the developer already
+understood.
+
 Depth: normal — runs unattended on requests written by people outside the team, so a wrong call
 reaches users or ships unread; the design space is small.
 
