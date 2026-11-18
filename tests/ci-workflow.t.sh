@@ -114,6 +114,20 @@ test_ci_workflow_release_needs_the_whole_suite() {
     "release must tag only after a run of the whole suite"
 }
 
+# A push is measured from the base .github/scripts/ci-green-base.sh names, read
+# from the unfiltered list of runs. The `status=success` list lagged behind a
+# run that had just ended (run 44170402355), so the inline question is gone.
+test_ci_workflow_scope_measures_a_push_with_ci_green_base() {
+  local block
+  block=$(cw_job_block scope)
+  printf '%s\n' "$block" | grep -qF '.github/scripts/ci-green-base.sh' ||
+    fail "the scope job must take a push's base from .github/scripts/ci-green-base.sh"
+  # shellcheck disable=SC2016 # shell variables in a workflow, matched literally
+  if printf '%s\n' "$block" | grep -qF -- '-f branch="$BRANCH" -f status=success'; then
+    fail "the scope job must not ask for a branch's last successful run by status=success: that list lags behind a run that just ended"
+  fi
+}
+
 # A pull request's run checks out the pull request merged into its base as the
 # base is now. Measured from the event's base.sha — where the branch started —
 # every commit that landed on the base since counts as the pull request's own:
