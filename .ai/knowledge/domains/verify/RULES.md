@@ -105,7 +105,8 @@ the global `RULES.md` (ADR-0013). What follows binds changes inside this domain.
   field), and every overridden check is named with its layer (`verify: <base>:<role>: <fields>
   from <layer>`). A dropped check is skipped with `scope: dropped by <layer>`, by `jp_covered`
   first and `jp_check_cmd` as a safety net, and a cover whose covering role is dropped does not
-  hold. A profile whose every check is dropped is named as such (decided from the merged table,
+  hold — unless that dropped role is itself covered by a cover that holds, when the drop has no
+  effect and the cover follows the chain to that runner (the suite runs once). A profile whose every check is dropped is named as such (decided from the merged table,
   not the profile's output); the wording changes, the run's exit code does not
   (adr-20261118-a-layer-overrides-its-bases-checks-by-role).
 - `jig verify --explain` asks a profile for a plan only when it declares `scope: [..., explain]`.

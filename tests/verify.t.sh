@@ -4274,6 +4274,48 @@ test_verify_a_dropped_check_covers_nothing_and_the_lower_profile_runs_it() {
   assert_contains "$OUT" "PLAN low: tests: full (cmd run-tests --all)"
 }
 
+# A drop of a check another profile covers has no effect, so it lifts no cover the
+# dropped profile holds: `myapp covers up:tests`, `up covers low:tests` and
+# `warehouse` dropping up's tests still run the suite once, in myapp (F4 of
+# layer-overrides-a-check).
+test_verify_a_dropped_check_that_is_covered_keeps_its_own_cover() {
+  _cover_override_project
+  _fixture_override_base myapp 'covers: [up:tests]'
+  _fixture_stack_layer warehouse up 'checks.tests.drop: true'
+  printf 'profiles: [generic, myapp, warehouse, low]\nadapters: [claude, codex]\n' > .ai/config.yaml
+  run jig verify
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq 1 "$(printf '%s\n' "$OUT" | grep -c ': tests: pass')" "$OUT"
+  assert_contains "$OUT" "myapp: tests: pass (cmd run-tests --all)"
+  assert_contains "$OUT" "up: tests: skip (scope: covered by myapp, up:tests)"
+  assert_contains "$OUT" "low: tests: skip (scope: covered by myapp, low:tests)"
+  assert_contains "$OUT" "verify: warning: warehouse overrides up:tests, but myapp runs it in this run (covers), so the override has no effect"
+  assert_not_contains "$OUT" "no longer covers"
+  assert_not_contains "$OUT" "was dropped by"
+
+  run jig verify --explain
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq 1 "$(printf '%s\n' "$OUT" | grep -c ': tests: full (')" "$OUT"
+  assert_contains "$OUT" "PLAN myapp: tests: full (cmd run-tests --all)"
+  assert_contains "$OUT" "PLAN low: tests: skip (scope: covered by myapp, low:tests)"
+  assert_not_contains "$OUT" "no longer covers"
+
+  # myapp's own tests dropped too: nothing above runs up's tests, so both covers
+  # are lifted, low runs the suite once, and each line names the profile that
+  # really runs it (not up, whose tests are dropped).
+  _fixture_stack_layer mytop myapp 'checks.tests.drop: true'
+  printf 'profiles: [generic, mytop, warehouse, low]\nadapters: [claude, codex]\n' > .ai/config.yaml
+  run jig verify
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq 1 "$(printf '%s\n' "$OUT" | grep -c ': tests: pass')" "$OUT"
+  assert_contains "$OUT" "low: tests: pass (cmd run-tests --all)"
+  assert_contains "$OUT" "up: tests: skip (scope: dropped by warehouse, up:tests)"
+  assert_contains "$OUT" "myapp: tests: skip (scope: dropped by mytop, myapp:tests)"
+  assert_contains "$OUT" "verify: up:tests is dropped by warehouse, so up no longer covers low:tests; low runs it"
+  assert_contains "$OUT" "verify: myapp:tests is dropped by mytop, so myapp no longer covers up:tests; low runs it"
+  assert_not_contains "$OUT" "up runs it"
+}
+
 test_verify_warns_of_an_override_of_a_check_another_profile_covers() {
   fixture_repo
   jig init --from "$JIG_HOME" --profiles generic >/dev/null
