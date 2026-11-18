@@ -1809,6 +1809,37 @@ spec_ship_removed_src() {
     || jig_die "spec ship: cannot resolve $ref"
 }
 
+# spec_ship_merges_cleanly <branch> <base> — refuse, naming the files, when
+# <branch> does not merge into <base> without conflicts: GitHub runs no CI on a
+# conflicting pull request, so it would sit unchecked until someone noticed.
+# Refused before anything leaves the machine, the commit stays local
+# (adr-20260925-a-ship-refuses-before-it-sends). `merge-tree --write-tree`
+# merges in memory, so neither the working tree nor the index is touched. A git
+# that cannot do it (older than 2.38) or histories it cannot merge only warn:
+# the check is a courtesy, the pull request still tells.
+spec_ship_merges_cleanly() {
+  local branch="$1" base="$2" base_ref out rc=0 files
+  jig_fetch_branches "spec ship" "$base"
+  base_ref=$(jig_base_ref "$base")
+  [ -n "$base_ref" ] || return 0
+  out=$(git -C "$JIG_PROJECT" merge-tree --write-tree --name-only --no-messages "$base_ref" "$branch" 2>/dev/null) || rc=$?
+  case "$rc" in
+    0) return 0 ;;
+    1)
+      files=$(printf '%s\n' "$out" | sed 1d | sed '/^$/d' | sort -u)
+      base_ref=${base_ref#refs/remotes/}
+      base_ref=${base_ref#refs/heads/}
+      jig_die "spec ship: $branch does not merge into $base_ref without conflicts, and GitHub runs no CI on a conflicting pull request. Conflicting files:
+$files
+Nothing was pushed and no pull request opened; the commit is on this machine. Merge $base into $branch, resolve the conflicts, and run \`jig spec ship\` again."
+      ;;
+    *)
+      jig_warn "spec ship: could not check whether $branch merges into $base without conflicts (git merge-tree --write-tree needs git 2.38); the pull request will tell"
+      return 0
+      ;;
+  esac
+}
+
 # spec_ship_steps <level> <branch> <base> <message-file> <title> <body-file> [<draft>] [<idea>] —
 # commit, push <branch>, open its pull request into <base>, stopping where
 # <level> stops; the same steps and stop lines as `task ship`. <draft> is the
@@ -1839,6 +1870,7 @@ spec_ship_steps() {
     printf "stopped at commit: push is the human's\n"
     return 0
   fi
+  spec_ship_merges_cleanly "$branch" "$base"
   jig_ship_account "spec ship" "$level"
   jig_ship_push "spec ship" "$branch"
   if [ "$level" = push ]; then

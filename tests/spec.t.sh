@@ -3824,6 +3824,90 @@ test_spec_ship_declare_at_pr_refuses_before_pushing_when_the_account_is_not_held
   assert_no_file gh-create.argv
 }
 
+# sship_move_main <file> <content> — origin's main gains <file> with <content>,
+# committed from a second clone, so the checkout under test is behind it until
+# the ship fetches.
+sship_move_main() {
+  git clone -q origin.git other
+  mkdir -p "other/$(dirname "$1")"
+  printf '%s\n' "$2" > "other/$1"
+  git -C other add -A
+  git -C other -c user.name=jig-tests -c user.email=tests@jig.invalid commit -q -m "main moves"
+  git -C other push -q origin main
+  rm -rf other
+}
+
+# The declaration adds the same file main gained meanwhile: GitHub would run no
+# CI on that pull request, so the ship refuses before pushing anything.
+test_spec_ship_declare_at_pr_refuses_a_branch_that_conflicts_with_main() {
+  local main_sha status_before
+  sship_declared idea-x
+  sship_origin
+  main_sha=$(git rev-parse main)
+  sship_move_main .ai/specs/idea-x/roadmap.md "a different roadmap"
+  sship_stub_gh ""
+  sship_cfg_local agent.git pr
+  status_before=$(git status --porcelain --untracked-files=no)
+
+  run jig spec ship idea-x --message-file msg.txt
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "does not merge into origin/main without conflicts"
+  assert_contains "$OUT" ".ai/specs/idea-x/roadmap.md"
+  assert_contains "$OUT" "Nothing was pushed"
+  if git --git-dir=origin.git rev-parse --verify --quiet refs/heads/spec/idea-x >/dev/null; then
+    fail "spec/idea-x was pushed"
+  fi
+  assert_no_file gh-create.argv
+  # The commit took the staged spec; what else was modified stays as it was.
+  assert_eq "$(printf '%s\n' "$status_before" | grep -v '^A  .ai/specs/idea-x/')" \
+    "$(git status --porcelain --untracked-files=no)" "the check changed the tree or the index"
+  assert_eq "spec/idea-x" "$(git symbolic-ref --short HEAD)"
+  assert_eq "$main_sha" "$(git rev-parse HEAD~1)" "the refusal left more or less than the one local commit"
+}
+
+# Main moved, but not under the declaration: the branch still merges cleanly.
+test_spec_ship_declare_at_pr_ships_when_main_moved_elsewhere() {
+  sship_declared idea-x
+  sship_origin
+  sship_move_main other.txt "unrelated"
+  sship_stub_gh ""
+  sship_cfg_local agent.git pr
+
+  run jig spec ship idea-x --message-file msg.txt
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "pushed spec/idea-x"
+  assert_contains "$OUT" "pr https://github.com/example/example/pull/42"
+  [ -f gh-create.argv ] || fail "no pull request was opened"
+}
+
+# A git without `merge-tree --write-tree` (before 2.38) cannot answer: the ship
+# warns and goes on, the pull request is the check then.
+test_spec_ship_declare_warns_and_ships_when_git_cannot_check() {
+  local real_git
+  sship_declared idea-x
+  sship_origin
+  sship_move_main .ai/specs/idea-x/roadmap.md "a different roadmap"
+  sship_stub_gh ""
+  real_git=$(command -v git)
+  cat > stub-bin/git <<STUB
+#!/usr/bin/env bash
+for a in "\$@"; do
+  if [ "\$a" = merge-tree ]; then
+    printf 'usage: git merge-tree <base-tree> <branch1> <branch2>\n' >&2
+    exit 129
+  fi
+done
+exec "$real_git" "\$@"
+STUB
+  chmod +x stub-bin/git
+  sship_cfg_local agent.git pr
+
+  run jig spec ship idea-x --message-file msg.txt
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "could not check whether spec/idea-x merges into main without conflicts"
+  assert_contains "$OUT" "pushed spec/idea-x"
+}
+
 test_spec_ship_epic_at_push_pushes_the_cut_epic() {
   sship_cut idea-x
   sship_cfg_local agent.git push

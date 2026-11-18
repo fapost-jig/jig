@@ -11,7 +11,7 @@ paths:
   - scripts/lib/task.sh
   - scripts/lib/spec.sh
 summary: Why jig task ship and jig spec ship refuse when there is nothing to commit, and why push, the pull request and the merge each refuse until the ship has said what it sends.
-reviewed_at: 2026-09-25
+reviewed_at: 2026-11-18
 ---
 # A ship refuses before it sends
 
@@ -126,3 +126,16 @@ tested commit (`branch-diverged`, `carries-staging`, `not-on-staging`, `behind-s
 switches the forge's auto-merge off on that task's open promotion. It takes a merge away and sends
 no change; every other refusal still comes before anything is sent
 (adr-20261112-a-promotion-merges-itself-only-where-ci-gates-it).
+
+## Amendment (2026-11-18): a spec ship refuses a branch that conflicts with the base
+
+`jig spec ship` refuses one more thing before it sends: a branch that does not merge into the
+default branch without conflicts. GitHub runs no CI on a conflicting pull request, so a ship that
+opened one would wait for checks that never come. After the commit and before `jig_ship_account`
+and the push, `spec_ship_merges_cleanly` fetches the default branch and asks
+`git merge-tree --write-tree` (in memory: the working tree and the index stay as they are) against
+`jig_base_ref`; on a conflict it names the files and refuses with the commit left on this machine,
+like the account refusal. This is a guard, not the deciding answer the ADRs on staging and
+promotion turned `merge-tree` down as: the forge still decides. A git older than 2.38, or
+histories `merge-tree` cannot merge, only warn and the ship goes on — the project names no
+minimum git, and a trial merge in the checkout is what this guard exists not to do. `task ship` is unchanged.
