@@ -14,7 +14,8 @@
 # the test files the changed paths map to — a
 # changed *Test.php itself, or any FooTest.php under tests/ for a changed
 # Foo.php — and everything when a path maps to nothing or a file that can
-# affect any test (composer.json/lock, phpunit.xml*) changed. composer
+# affect any test (composer.json/lock, phpunit.xml*, and what a PHP framework
+# loads on every request: routes/, config/, database/, bootstrap/) changed. composer
 # validate is not narrowable by files: in a scoped run it runs only when
 # composer.json or composer.lock changed, and skips with a reason otherwise;
 # in a full run it always runs.
@@ -83,8 +84,10 @@ _php_tests_named() {
 }
 
 # Files whose change can alter the result of any test: the dependency
-# manifest/lock (autoloading) and PHPUnit's own configuration.
-PHP_TEST_ALL_GLOBS="composer.json composer.lock phpunit.xml*"
+# manifest/lock (autoloading), PHPUnit's own configuration, and the directories
+# a PHP framework loads on every request — routes, configuration, migrations
+# and seeders, its bootstrap — which no test is named after.
+PHP_TEST_ALL_GLOBS="composer.json composer.lock phpunit.xml* routes/* config/* database/* bootstrap/*"
 
 # Files that define how a project's front end is built: the package manifest,
 # its lock file, and the bundler's configuration. A change to one can alter

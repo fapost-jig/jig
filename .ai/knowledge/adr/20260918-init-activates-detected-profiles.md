@@ -29,7 +29,8 @@ jig's own `.ai/scripts/*.sh`: every installed project looked like a shell projec
 
 - **A first `jig init` without `--profiles`, in a project without `.ai/config.yaml`, writes
   `generic` and every detected profile into `profiles:`** (with the `requires` closure — `artisan`
-  brings `laravel` and `php`) and prints `detected profiles: …`.
+  brings `laravel` and `php`; since adr-20261118-laravel-builds-on-php `laravel` extends `php`, and only `laravel` is
+  written) and prints `detected profiles: …`.
 - **A choice already made is never widened.** With `--profiles`, or on a re-run against an
   existing config, detection only suggests, as before. `upgrade` never activates a profile.
 - **Detection skips what is not the project's own code:** `.git`, `node_modules`, `vendor`,

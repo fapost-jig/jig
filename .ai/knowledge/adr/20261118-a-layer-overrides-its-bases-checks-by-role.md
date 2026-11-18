@@ -11,6 +11,7 @@ paths:
   - scripts/lib/profile.sh
   - schemas/profile.md
 summary: "Why a layer's checks.<role>.<field> rows resolve to the nearest owner of the role down the extends chain, why jig verify merges them top-down into the base's JIG_VERIFY_CHECKS, why drop: true is answered by jp_covered with scope: wording, how --explain names the layer, and what a layer's table is refused for."
+reviewed_at: 2026-11-18
 ---
 # A layer overrides its base's checks by role: rows resolve down the `extends` chain, `jig verify` merges them top-down, and `drop: true` stands a check down
 
@@ -61,7 +62,8 @@ throughout is an override that silently does nothing (failure mode 4 of the spec
   and the run is refused, as for a stack that does not resolve.
 - **D7. Covers.** A cover whose covering profile has the same role dropped does not hold, and
   `jig verify` says in words that the lower profile runs the check again. An override aimed at a
-  check another profile covers in this run is warned about: it has no effect.
+  check another profile covers in this run is warned about: it has no effect. (Except for the layers
+  on the chain from the profile a cover names down to the base, adr-20261118-laravel-builds-on-php.)
 - **D7a. A profile whose every check is dropped is named.** When every role a profile lists is
   dropped by layers, `jig verify` says so in words, decided from the merged table it wrote, never
   from the profile's output: `verify: every check of <p> was dropped by <layers>; nothing verified
@@ -103,7 +105,8 @@ why a dropped check says "dropped by" rather than "no phpstan".
   contract once released; before the release this is one revert.
 - `laravel` is beside `php` (`requires`), not over it, so today a layer over `laravel` reaches only
   `laravel:tests`. For `laravel` to override `php:tests` when it builds on `php`, it must stop
-  listing `tests` itself (D1); that and the fate of `covers` are that task's decision.
+  listing `tests` itself (D1); that and the fate of `covers` are that task's decision. (Done by
+  adr-20261118-laravel-builds-on-php: `laravel` is a pure layer over `php` and overrides `php:tests`.)
 - A `verify.sh` that asks neither `jp_covered` nor `jp_check_cmd` (an old kept copy) runs a dropped
   check: the safe direction.
 - Layer tables are linted by `jig verify` only; `jig doctor` and `jig upgrade` do not read them.

@@ -15,7 +15,7 @@ paths:
   - tests/run.sh
   - scripts/lib/profile.sh
   - scripts/lib/runenv.sh
-reviewed_at: 2026-11-07
+reviewed_at: 2026-11-18
 ---
 # Verify rules
 
@@ -214,9 +214,15 @@ the global `RULES.md` (ADR-0013). What follows binds changes inside this domain.
   gates the run applies), the covering one applies to the project (`profiles_applies`, its
   `detect`), and the covered one names the check — otherwise a warning, and the check runs.
   Covers chain to the profile that finally runs the check, and a circle of covers is
-  dropped. A covered check's map goes with it: `<lower>.map` is read for that profile after
+  dropped. A cover names a profile but reaches the role down its `extends` chain, as a layer's
+  row does (`covers: [laravel:tests]` covers `php:tests`), so a role that moved down a stack
+  never leaves a cover dropped in silence. A covered check's map goes with it: `<lower>.map` is read for that profile after
   its own, and a covering profile that cannot read maps does not take tests whose map would
-  be dropped. The skip starts `scope:` (`scope: covered by laravel, php:tests`): the check's
+  be dropped. A pure layer's `.ai/verify/<layer>.map` follows the tests the same way, to the
+  profile that owns `tests` in its chain, topmost layer first, before that profile's own map
+  (adr-20261118-laravel-builds-on-php). A profile jig placed with neither a `verify.sh` nor an
+  `extends` fails the run rather than skipping: its checks run nowhere, and a base would run them
+  its own way. The skip starts `scope:` (`scope: covered by myapp, php:tests`): the check's
   tools are fine and the work is someone else's, so a run where everything else narrowed
   away is not read as a gap in coverage.
 - **A test suite run by a narrowed profile must not pass the scope on.** `tests/run.sh`

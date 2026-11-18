@@ -20,24 +20,22 @@ test_init_first_run_activates_detected_profiles() {
   assert_file .ai/profiles/python/profile.yaml
 }
 
-# requires closure (adr-20260918-init-activates-detected-profiles, profiles_detect): laravel's own detect glob
-# (artisan) matches, and it requires php, which pulls php in even though
-# nothing here matches php's own detect glob (no composer.json). Order
-# matters: laravel is found first (its own detect matched), php second (add
-# by the requires closure) — assert both, and the order the code actually
-# prints them in.
-test_init_first_run_with_artisan_detects_laravel_and_pulls_in_php() {
+# laravel's own detect glob (artisan) matches and nothing here matches php's
+# (no composer.json). init writes only the top layers (adr-20261117-profiles-lists-top-layers-and-jig-resolves-the-stack):
+# `profiles:` names laravel, and php, which laravel extends, is installed as its
+# base without being listed.
+test_init_first_run_with_artisan_detects_laravel_and_installs_php_as_its_base() {
   fixture_repo
   : > artisan
 
   run jig init --from "$JIG_HOME"
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "detected profiles: laravel php"
+  assert_contains "$OUT" "detected profiles: laravel"
   assert_not_contains "$OUT" "suggested profiles:"
 
   local cfg_profiles
   cfg_profiles=$(sed -n 's/^profiles: //p' .ai/config.yaml)
-  assert_eq "[generic, laravel, php]" "$cfg_profiles"
+  assert_eq "[generic, laravel]" "$cfg_profiles"
   assert_file .ai/profiles/laravel/profile.yaml
   assert_file .ai/profiles/php/profile.yaml
 }

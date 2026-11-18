@@ -75,7 +75,11 @@ it actually did.
   profile's `checks`, among the profiles the run starts and where the covering profile
   applies (`_verify_covers`). The covered profile gets `JIG_VERIFY_COVERED` and prints the
   skip with `jp_covered`; the covered profile's map goes with its tests to the covering one.
-  laravel covers `php:tests`, so a Laravel project runs its suite once.
+  A cover reaches its role down the named profile's `extends` chain (`covers: [laravel:tests]`
+  covers `php:tests`). Stock `laravel` is a pure layer over `php` that overrides `php:tests`
+  with `php artisan test`, so a Laravel project runs its suite once, and a pure layer's
+  `.ai/verify/<layer>.map` follows the tests to the profile that runs them
+  (adr-20261118-laravel-builds-on-php).
 - The check table: `profiles_check_table` lints a profile's `checks.<role>.<field>` lines
   before it runs (a bad table fails the profile), `profiles_check_rows` turns them into rows,
   and the rows reach a profile that has them as `JIG_VERIFY_CHECKS`, read by `jp_check_cmd`.
@@ -108,7 +112,7 @@ contract. A change to how profiles are *copied* still belongs to `install`.
 - `scripts/lib/verify.sh` — `cmd_verify`, `_verify_changed_files`, `_verify_map_check`,
   `_verify_map_apply`.
 - `scripts/lib/profiles.sh` — `profiles_check_table`, `profiles_check_rows` (the check table),
-  `profiles_check_layers`, `profiles_check_overrides_v`, `profiles_check_merged` (layer overrides).
+  `profiles_check_layers`, `profiles_check_overrides_v`, `profiles_check_merged` (layer overrides), `profiles_layer_maps_v` (a pure layer's map follows the tests).
 - `scripts/lib/profile.sh` — `jp_begin`, `jp_covered`, `jp_check_cmd`, `jp_changed`, `jp_changed_any`, `jp_decide`,
   `jp_path_matches`, `jp_is_doc`, `jp_first_missing`, `jp_files`, `jp_version`, `jp_run`,
   `jp_exec`, `jp_have`, `jp_skip`, `jp_end`; under `verify.full_run: ci`, `jp_select`,

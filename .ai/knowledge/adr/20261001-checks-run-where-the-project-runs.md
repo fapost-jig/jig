@@ -97,7 +97,8 @@ run a project's checks on the host silently when signs say the project lives els
 - **An unadapted profile under an environment is not run.** Its result is
   `skip (not adapted to run in <where>; its checks were not run on the host)`, counted like a
   skip for a missing tool, so a run where nothing else passed is not a pass. In this change
-  `php`, `laravel`, `node` and `generic` declare the capability; the rest follow.
+  `php`, `laravel`, `node` and `generic` declare the capability; the rest follow. (`laravel` is
+  a pure layer over `php` since adr-20261118-laravel-builds-on-php and runs nothing of its own.)
 - **`jig verify --explain` names the place** (`verify: checks run in <where>`), and the
   `jig-setup` skill asks where the tests run, shows what was detected, and writes `run.exec`
   through `jig config set --local` only when the detection is wrong or missing.

@@ -504,7 +504,7 @@ test_profile_php_map_question_mark_falls_back_to_builtin() {
 }
 
 # --- front end: what can and cannot change the result of the test run --------
-# The same cut as the laravel profile, for the same reason: phpunit runs PHP
+# The cut is made for one reason: phpunit runs PHP
 # and neither bundles a front-end source nor serves it, while the build that
 # produces the assets a browser test loads is a different matter. Both halves
 # are asserted, because a rule that cannot tell them apart is too wide.
@@ -811,7 +811,7 @@ test_profile_php_runs_its_tests_when_another_check_is_covered() {
 
 test_profile_php_source_names_no_profile_above_it() {
   # php names its own check; the profile that covers it is declared there,
-  # in that profile's `covers` (laravel's profile.yaml), never here.
+  # in that profile's `covers`, never here.
   run grep -n -i -e laravel -e artisan "$JIG_HOME/profiles/php/verify.sh"
   assert_eq 1 "$RC" "$OUT"
 }
@@ -926,4 +926,184 @@ test_profile_php_every_role_can_be_covered() {
   assert_no_file pint.log
   assert_no_file composer.log
   unset JIG_VERIFY_COVERED
+}
+
+# --- what a PHP framework loads on every request -----------------------------
+# routes/, config/, database/ and bootstrap/ are read by every test and no test
+# is named after them, so a change there runs the full set. The php profile
+# draws the line by directory and names no framework.
+
+# _php_all_for <path> — a scoped run over <path> alone runs the full set, and
+# says which path forced it.
+_php_all_for() {
+  _php_install
+  _php_stub_tool phpunit 9.9.9 0 phpunit.log
+  files=$(_files_list "$1")
+  _php_scoped "$files"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "php: tests (phpunit): pass (9.9.9, scope: $1 can affect any test, ran full set)"
+  assert_file_contains phpunit.log '^$'
+}
+
+test_profile_php_tests_run_full_when_routes_changed() {
+  _php_all_for routes/web.php
+}
+
+test_profile_php_tests_run_full_when_config_changed() {
+  _php_all_for config/app.php
+}
+
+test_profile_php_tests_run_full_when_database_changed() {
+  _php_all_for database/migrations/2024_01_01_create_foo_table.php
+}
+
+test_profile_php_tests_run_full_when_bootstrap_changed() {
+  _php_all_for bootstrap/providers.php
+}
+
+# The globs stay literal patterns: with pathname expansion on, "config/*" would
+# expand to whichever sibling sits on disk and stop matching the changed path,
+# and the run would fall through to the named-test lookup.
+test_profile_php_deleted_config_file_runs_full_despite_sibling_on_disk() {
+  _php_install
+  mkdir -p config tests
+  : > config/database.php
+  : > tests/appTest.php
+  _php_stub_tool phpunit 9.9.9 0 phpunit.log
+  # config/app.php itself is never created on disk: the change deleted it.
+  files=$(_files_list config/app.php)
+
+  _php_scoped "$files"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "php: tests (phpunit): pass (9.9.9, scope: config/app.php can affect any test, ran full set)"
+  assert_file_contains phpunit.log '^$'
+  assert_not_contains "$(cat phpunit.log)" "tests/appTest.php"
+}
+
+test_profile_php_nested_config_file_runs_full_despite_sibling_on_disk() {
+  _php_install
+  mkdir -p config tests
+  : > config/app.php
+  : > tests/extraTest.php
+  _php_stub_tool phpunit 9.9.9 0 phpunit.log
+  files=$(_files_list config/nested/extra.php)
+
+  _php_scoped "$files"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "php: tests (phpunit): pass (9.9.9, scope: config/nested/extra.php can affect any test, ran full set)"
+  assert_file_contains phpunit.log '^$'
+  assert_not_contains "$(cat phpunit.log)" "tests/extraTest.php"
+}
+
+test_profile_php_front_end_component_and_style_change_runs_no_test() {
+  _php_install
+  mkdir -p resources/js/Pages resources/css
+  : > resources/js/Pages/Dashboard.vue
+  : > resources/css/app.css
+  _php_stub_tool phpunit 9.9.9 0 phpunit.log
+  files=$(_files_list resources/js/Pages/Dashboard.vue resources/css/app.css)
+
+  _php_scoped "$files"
+  assert_eq 2 "$RC" "$OUT"
+  assert_contains "$OUT" "php: tests (phpunit): skip (scope: no changed file maps to a test)"
+  assert_no_file phpunit.log
+}
+
+test_profile_php_lock_file_change_runs_full_tests() {
+  _php_install
+  printf '{}\n' > package-lock.json
+  _php_stub_tool phpunit 9.9.9 0 phpunit.log
+  files=$(_files_list package-lock.json)
+
+  _php_scoped "$files"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" \
+    "php: tests (phpunit): pass (9.9.9, scope: package-lock.json changes the asset build, which browser tests load, ran full set)"
+  assert_file_contains phpunit.log '^$'
+}
+
+test_profile_php_blade_template_change_runs_full_tests() {
+  _php_install
+  mkdir -p resources/views
+  : > resources/views/dashboard.blade.php
+  _php_stub_tool phpunit 9.9.9 0 phpunit.log
+  files=$(_files_list resources/views/dashboard.blade.php)
+
+  _php_scoped "$files"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" \
+    "scope: no test is named after resources/views/dashboard.blade.php, ran full set"
+}
+
+test_profile_php_explain_names_a_routes_change_as_the_reason_for_the_full_set() {
+  _php_install
+  _php_stub_tool phpunit 9.9.9 0 phpunit.log
+  files=$(_files_list routes/web.php)
+
+  _php_explain "$files"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN php: tests (phpunit): full (routes/web.php can affect any test)"
+  assert_no_file phpunit.log
+}
+
+test_profile_php_full_run_ci_leaves_a_filter_that_selects_nothing_to_ci() {
+  # A narrowing that selects nothing falls back to the full set, and under
+  # `verify.full_run: ci` that full set is CI's.
+  _php_install
+  mkdir -p src
+  : > src/Foo.php
+  _php_stub_tool phpunit 9.9.9 0 phpunit.log
+  files=$(_files_list src/Foo.php)
+  mapped=$(_mapped_file "$(printf 'src/Foo.php\ttests/GoneTest.php')")
+
+  JIG_VERIFY_FULL_RUN=ci
+  export JIG_VERIFY_FULL_RUN
+  _php_scoped "$files" "$mapped"
+  unset JIG_VERIFY_FULL_RUN
+  assert_eq 2 "$RC" "$OUT"
+  assert_contains "$OUT" \
+    "php: tests (phpunit): skip (scope: filter 'tests/GoneTest.php' selects no tests, full set left to CI)"
+  assert_no_file phpunit.log
+}
+
+test_profile_php_full_run_ci_leaves_a_routes_change_to_ci() {
+  _php_install
+  _php_stub_tool phpunit 9.9.9 0 phpunit.log
+  files=$(_files_list routes/web.php)
+
+  JIG_VERIFY_FULL_RUN=ci
+  export JIG_VERIFY_FULL_RUN
+  _php_scoped "$files"
+  unset JIG_VERIFY_FULL_RUN
+  assert_eq 2 "$RC" "$OUT"
+  assert_contains "$OUT" \
+    "php: tests (phpunit): skip (scope: routes/web.php can affect any test, full set left to CI)"
+  assert_no_file phpunit.log
+
+  JIG_VERIFY_FULL_RUN=ci
+  export JIG_VERIFY_FULL_RUN
+  _php_explain "$files"
+  unset JIG_VERIFY_FULL_RUN
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" \
+    "PLAN php: tests (phpunit): skip (scope: routes/web.php can affect any test, full set left to CI)"
+  assert_no_file phpunit.log
+}
+
+test_profile_php_full_run_ci_runs_the_named_test_beside_a_migration() {
+  _php_install
+  mkdir -p src tests database/migrations
+  : > tests/FooTest.php
+  : > src/Foo.php
+  : > database/migrations/2024_01_01_create_foo_table.php
+  _php_stub_tool phpunit 9.9.9 0 phpunit.log
+  files=$(_files_list src/Foo.php database/migrations/2024_01_01_create_foo_table.php)
+
+  JIG_VERIFY_FULL_RUN=ci
+  export JIG_VERIFY_FULL_RUN
+  _php_scoped "$files"
+  unset JIG_VERIFY_FULL_RUN
+  # The migration needs the full set, which CI runs; the named test runs here.
+  assert_contains "$OUT" "php: tests (phpunit): pass (9.9.9, scope: 1 test files, full set left to CI)"
+  assert_eq "tests/FooTest.php" "$(cat phpunit.log)"
 }

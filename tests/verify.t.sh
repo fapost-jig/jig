@@ -718,32 +718,385 @@ test_verify_node_skips_when_no_scripts_declared() {
   assert_contains "$OUT" "RESULT node: skip"
 }
 
-# --- laravel: requires php, does not duplicate its checks -------------------
+# --- laravel: a layer over php, its tests run through artisan -----------------
+# laravel has no verify.sh and no checks of its own: it extends php, and its one
+# row, `checks.tests.command: php artisan test`, replaces php's command for the
+# role `tests` (schemas/profile.md, Layer overrides). The suite is php's, runs
+# once, and is labelled by the runner behind artisan.
 
-test_verify_laravel_skips_without_artisan_or_php() {
+# _lv_install — a Laravel project as `jig init` activates it (laravel alone in
+# `profiles:`; php comes in as its base) with an `artisan`, a `php` that logs
+# what `artisan test` was handed to artisan.log, a vendor/bin/phpunit that logs
+# to phpunit.log, and a passing composer, so a composer on the machine does not
+# decide the result.
+_lv_install() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles laravel >/dev/null
+  : > artisan
+  mkdir -p stub-bin vendor/bin
+  cat > stub-bin/php <<STUB
+#!/usr/bin/env bash
+if [ "\$1" = "artisan" ] && [ "\$2" = "test" ]; then
+  shift 2
+  printf '%s\n' "\$*" >> "$PWD/artisan.log"
+  exit 0
+fi
+exit 127
+STUB
+  cat > vendor/bin/phpunit <<STUB
+#!/usr/bin/env bash
+if [ "\$1" = "--version" ]; then
+  printf 'PHPUnit 11.0.0\n'
+  exit 0
+fi
+printf '%s\n' "\$*" >> "$PWD/phpunit.log"
+exit 0
+STUB
+  # shellcheck disable=SC2016  # a script written for the stub to expand, not this shell
+  printf '#!/usr/bin/env bash\n[ "$1" = --version ] && echo "Composer 2.8.0"\nexit 0\n' > stub-bin/composer
+  chmod +x stub-bin/php stub-bin/composer vendor/bin/phpunit
+  PATH="$PWD/stub-bin:$PATH"
+  export PATH
+}
+
+# _lv_committed — the project as a commit, so a later change is what
+# `jig verify --changed` narrows to.
+_lv_committed() {
+  git add -A >/dev/null 2>&1
+  git commit -qm base >/dev/null 2>&1
+}
+
+test_verify_laravel_runs_the_php_suite_through_artisan() {
+  _lv_install
+  run jig verify
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "verify: laravel is a layer over php; its checks run in its bases"
+  assert_contains "$OUT" "verify: php:tests: command from laravel"
+  assert_contains "$OUT" "php: tests (phpunit): pass (PHPUnit 11.0.0)"
+  assert_not_contains "$OUT" "laravel: tests"
+  assert_not_contains "$OUT" "RESULT laravel"
+  assert_file artisan.log
+  assert_eq "" "$(cat artisan.log)"
+  assert_no_file phpunit.log
+}
+
+test_verify_laravel_with_php_named_beside_it_runs_the_suite_once() {
+  _lv_install
+  local stack
+  for stack in "generic, laravel, php" "generic, php, laravel" "generic, laravel"; do
+    rm -f artisan.log phpunit.log
+    printf 'profiles: [%s]\nadapters: [claude, codex]\n' "${stack#generic, }" > .ai/config.yaml
+    run jig verify
+    assert_eq 0 "$RC" "$stack: $OUT"
+    assert_eq 1 "$(wc -l < artisan.log | tr -d ' ')" "$stack: artisan.log"
+    assert_no_file phpunit.log
+  done
+}
+
+test_verify_laravel_explain_plans_the_suite_once_through_artisan() {
+  _lv_install
+  run jig verify --explain
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "verify: php:tests: command from laravel"
+  assert_contains "$OUT" "PLAN php: tests (phpunit): full"
+  assert_not_contains "$OUT" "PLAN laravel"
+  assert_no_file artisan.log
+  assert_no_file phpunit.log
+}
+
+test_verify_laravel_alone_without_tools_skips_the_suite() {
   fixture_repo
   jig init --from "$JIG_HOME" --profiles laravel >/dev/null
 
   run_no_tools jig verify --profile laravel
-  # See the comment on test_verify_php_skips_every_check_without_toolchain:
-  # every check skips, so the run checked nothing (rc 3), not a pass.
+  # Every check skips, so the run checked nothing (rc 3), not a pass.
   assert_eq 3 "$RC" "$OUT"
-  assert_contains "$OUT" "laravel: tests (artisan test): skip"
-  assert_contains "$OUT" "RESULT laravel: skip"
+  assert_contains "$OUT" "php: tests (phpunit): skip (not found in vendor/bin)"
+  assert_contains "$OUT" "RESULT php: skip"
+}
+
+test_verify_php_alone_runs_its_own_command_beside_an_artisan() {
+  _lv_install
+  run jig verify --profile php
+  assert_eq 0 "$RC" "$OUT"
+  assert_file phpunit.log
+  assert_no_file artisan.log
+  assert_not_contains "$OUT" "command from laravel"
+}
+
+test_verify_laravel_narrowed_run_hands_the_selected_test_files_to_artisan() {
+  _lv_install
+  mkdir -p app tests
+  : > tests/FooTest.php
+  _lv_committed
+  printf '<?php\n' > app/Foo.php
+  run jig verify --changed
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "php: tests (phpunit): pass (PHPUnit 11.0.0, scope: 1 test files)"
+  assert_eq "tests/FooTest.php" "$(cat artisan.log)"
+  assert_no_file phpunit.log
+}
+
+test_verify_laravel_runs_the_full_set_for_a_routes_change() {
+  _lv_install
+  _lv_committed
+  mkdir -p routes
+  printf '<?php\n' > routes/web.php
+  run jig verify --changed
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "scope: routes/web.php can affect any test, ran full set"
+  assert_eq "" "$(cat artisan.log)"
+}
+
+test_verify_laravel_doc_only_change_is_scope_narrowing() {
+  _lv_install
+  # phpstan and pint present, so every skip below is about this change and none
+  # about a missing tool.
+  cp vendor/bin/phpunit vendor/bin/phpstan
+  cp vendor/bin/phpunit vendor/bin/pint
+  _lv_committed
+  printf 'notes\n' > README.md
+  run jig verify --changed
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "php: tests (phpunit): skip (scope: no changed file maps to a test)"
+  assert_no_file artisan.log
+  assert_no_file phpunit.log
+}
+
+test_verify_laravel_map_is_read_before_the_php_map() {
+  _lv_install
+  mkdir -p .ai/verify tests/Feature resources/js
+  : > tests/Feature/AppTest.php
+  # No final newline: the two maps must not run into each other.
+  printf 'resources/js/app.js tests/Feature/AppTest.php' > .ai/verify/laravel.map
+  printf 'resources/js/** ALL\n' > .ai/verify/php.map
+  _lv_committed
+  printf 'x\n' > resources/js/app.js
+  run jig verify --changed
+  # Both maps match app.js; laravel's own line comes first and wins, so one
+  # test file runs rather than php.map's full set.
+  assert_eq 0 "$RC" "$OUT"
+  assert_no_file phpunit.log
+  assert_eq "tests/Feature/AppTest.php" "$(cat artisan.log)"
+  assert_contains "$OUT" "map .ai/verify/laravel.map, .ai/verify/php.map)"
+}
+
+test_verify_laravel_map_alone_narrows_the_tests() {
+  _lv_install
+  mkdir -p .ai/verify tests/Feature resources/js
+  : > tests/Feature/AppTest.php
+  printf 'resources/js/app.js tests/Feature/AppTest.php\n' > .ai/verify/laravel.map
+  _lv_committed
+  printf 'x\n' > resources/js/app.js
+  run jig verify --changed
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "tests/Feature/AppTest.php" "$(cat artisan.log)"
+  assert_contains "$OUT" "map .ai/verify/laravel.map)"
+}
+
+test_verify_laravel_explain_reads_the_php_map() {
+  _lv_install
+  mkdir -p .ai/verify
+  printf 'resources/js/** ALL\n' > .ai/verify/php.map
+  _lv_committed
+  mkdir -p resources/js
+  printf 'x\n' > resources/js/app.js
+  run jig verify --changed --explain
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN php: tests (phpunit): full"
+  assert_no_file artisan.log
+}
+
+test_verify_laravel_fails_on_a_broken_laravel_map() {
+  _lv_install
+  mkdir -p .ai/verify resources/js
+  printf 'resources/js/**\n' > .ai/verify/laravel.map
+  _lv_committed
+  printf 'x\n' > resources/js/app.js
+  run jig verify --changed
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "RESULT php: fail (map .ai/verify/laravel.map:1: no decision for resources/js/**)"
+  assert_no_file artisan.log
+}
+
+# A project profile with a suite of its own replaces laravel's tests with
+# `covers: [laravel:tests]`; the cover reaches php's role down the chain.
+_lv_myapp() {
+  mkdir -p .ai/profiles/myapp
+  printf 'name: myapp\ndescription: the project runs its own suite.\nscope: [changed, map]\ncovers: [laravel:tests]\n' \
+    > .ai/profiles/myapp/profile.yaml
+  # shellcheck disable=SC2016  # a script written for the stub to expand, not this shell
+  printf '#!/usr/bin/env bash\necho "myapp: ran mapped=$(cat "${JIG_VERIFY_MAPPED:-/dev/null}" | tr "\\t\\n" ":;")"\nexit 0\n' \
+    > .ai/profiles/myapp/verify.sh
+  printf 'profiles: [laravel, myapp]\nadapters: [claude, codex]\n' > .ai/config.yaml
+}
+
+test_verify_a_project_profile_covers_laravel_tests_and_the_suite_runs_once() {
+  _lv_install
+  _lv_myapp
+  run jig verify
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "php: tests (phpunit): skip (scope: covered by myapp, php:tests)"
+  assert_contains "$OUT" "myapp: ran"
+  assert_no_file artisan.log
+  assert_no_file phpunit.log
+  assert_not_contains "$OUT" "warning"
+  assert_not_contains "$OUT" "no effect"
+}
+
+# The cover names laravel, so the layers from laravel down are replaced with the
+# tests; a layer above laravel is not, and is still told its row does nothing.
+test_verify_only_the_layers_above_the_covered_profile_are_warned_about() {
+  _lv_install
+  _lv_myapp
+  mkdir -p .ai/profiles/warehouse
+  printf 'name: warehouse\ndescription: a layer over laravel.\nextends: laravel\nchecks.tests.full: --parallel\n' \
+    > .ai/profiles/warehouse/profile.yaml
+  printf 'profiles: [warehouse, myapp]\nadapters: [claude, codex]\n' > .ai/config.yaml
+  run jig verify
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "verify: warning: warehouse overrides php:tests, but myapp runs it in this run (covers), so the override has no effect"
+  assert_not_contains "$OUT" "warning: laravel overrides"
+  assert_no_file artisan.log
+}
+
+test_verify_a_project_profile_gets_the_laravel_and_php_maps_with_the_tests() {
+  _lv_install
+  _lv_myapp
+  mkdir -p .ai/verify resources/js
+  printf 'resources/js/app.js tests/Feature/AppTest.php\n' > .ai/verify/laravel.map
+  printf 'resources/css/** ALL\n' > .ai/verify/php.map
+  _lv_committed
+  mkdir -p resources/css
+  printf 'x\n' > resources/js/app.js
+  printf 'x\n' > resources/css/app.css
+  run jig verify --changed
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "php: tests (phpunit): skip (scope: covered by myapp, php:tests)"
+  assert_contains "$OUT" "myapp: ran mapped=resources/css/app.css:ALL;resources/js/app.js:tests/Feature/AppTest.php;"
+  assert_contains "$OUT" "map .ai/verify/laravel.map, .ai/verify/php.map)"
+  assert_no_file artisan.log
+}
+
+test_verify_a_cover_of_a_layer_with_no_role_in_its_chain_warns() {
+  _lv_install
+  _lv_myapp
+  sed -i.bak 's/laravel:tests/laravel:nothing/' .ai/profiles/myapp/profile.yaml
+  rm -f .ai/profiles/myapp/profile.yaml.bak
+  run jig verify
+  assert_contains "$OUT" "profile 'myapp' covers 'laravel:nothing', but no profile of laravel's chain names a check 'nothing' (checks:), so nothing is covered"
+  assert_file artisan.log
+}
+
+# warehouse, a pure layer of the project over laravel: its rows reach php's
+# role `tests` through laravel, and the command stays laravel's.
+test_verify_a_project_layer_over_laravel_shapes_the_artisan_command() {
+  _lv_install
+  mkdir -p .ai/profiles/warehouse
+  printf 'name: warehouse\ndescription: a layer over laravel.\nextends: laravel\nchecks.tests.full: --parallel --functional\n' \
+    > .ai/profiles/warehouse/profile.yaml
+  printf 'profiles: [warehouse]\nadapters: [claude, codex]\n' > .ai/config.yaml
+  run jig verify
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "verify: php:tests: command from laravel; full from warehouse"
+  assert_eq "--parallel --functional" "$(cat artisan.log)"
+  assert_no_file phpunit.log
+}
+
+test_verify_warehouse_map_is_read_before_the_laravel_map() {
+  _lv_install
+  mkdir -p .ai/profiles/warehouse .ai/verify tests/Feature resources/js
+  printf 'name: warehouse\ndescription: a layer over laravel.\nextends: laravel\n' \
+    > .ai/profiles/warehouse/profile.yaml
+  printf 'profiles: [warehouse]\nadapters: [claude, codex]\n' > .ai/config.yaml
+  : > tests/Feature/AppTest.php tests/Feature/OtherTest.php
+  printf 'resources/js/app.js tests/Feature/AppTest.php\n' > .ai/verify/warehouse.map
+  printf 'resources/js/app.js tests/Feature/OtherTest.php\n' > .ai/verify/laravel.map
+  _lv_committed
+  printf 'x\n' > resources/js/app.js
+  run jig verify --changed
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "tests/Feature/AppTest.php" "$(cat artisan.log)"
+  assert_contains "$OUT" "map .ai/verify/warehouse.map, .ai/verify/laravel.map)"
+}
+
+# jig upgrade keeps a profile.yaml the person edited, and deletes the verify.sh
+# the stock laravel no longer ships: what is left is a profile that is neither a
+# layer nor runnable, and php would silently run phpunit in its place.
+test_verify_a_kept_old_laravel_profile_yaml_fails_loudly() {
+  _lv_install
+  rm -f .ai/profiles/laravel/verify.sh
+  printf 'name: laravel\ndescription: edited.\ndetect: [artisan]\nrequires: [php]\nscope: [changed]\n' \
+    > .ai/profiles/laravel/profile.yaml
+  run jig verify
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "FAIL laravel: profile.yaml has no extends, but the stock laravel now extends php and ships no verify.sh; jig upgrade kept your edited profile.yaml — carry your edits onto the new one"
+  assert_no_file phpunit.log
+
+  run jig verify --explain
+  assert_contains "$OUT" "PLAN laravel: error (profile.yaml has no extends, but the stock laravel now extends php and ships no verify.sh; jig upgrade kept your edited profile.yaml — carry your edits onto the new one)"
+}
+
+# A failing suite under artisan is php's failing tests check, and the run fails.
+test_verify_laravel_a_failing_artisan_test_fails_the_run() {
+  _lv_install
+  cat > stub-bin/php <<'STUB'
+#!/usr/bin/env bash
+[ "$1" = artisan ] && [ "$2" = test ] && exit 1
+exit 127
+STUB
+  run jig verify
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "php: tests (phpunit): fail"
+  assert_contains "$OUT" "verify: php:tests: command from laravel"
+}
+
+# laravel named by hand where there is no artisan: its command is still php's
+# tests, and `php artisan test` cannot open the file, so the run fails loudly
+# rather than quietly running phpunit in its place (owner's decision at the gate).
+test_verify_laravel_without_artisan_fails_loudly() {
+  _lv_install
+  rm -f artisan
+  cat > stub-bin/php <<'STUB'
+#!/usr/bin/env bash
+if [ "$1" = artisan ] && [ ! -f artisan ]; then
+  echo "Could not open input file: artisan" >&2
+  exit 1
+fi
+exit 0
+STUB
+  run jig verify
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "php: tests (phpunit): fail"
+  assert_no_file phpunit.log
+}
+
+# The same, run by the project's own copy of jig, which has no source at hand to
+# read the stock profile from: the manifest says jig placed laravel, and a placed
+# profile with neither a verify.sh nor an extends runs its checks nowhere.
+test_verify_a_kept_old_laravel_profile_yaml_fails_loudly_without_the_source() {
+  _lv_install
+  rm -f .ai/profiles/laravel/verify.sh
+  printf 'name: laravel\ndescription: edited.\ndetect: [artisan]\nrequires: [php]\nscope: [changed]\n' \
+    > .ai/profiles/laravel/profile.yaml
+  run env -u JIG_SOURCE bash .ai/scripts/jig verify
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "FAIL laravel: a profile jig installed, with neither a verify.sh nor an extends, so its checks run nowhere"
+  assert_not_contains "$OUT" "SKIP laravel: no verify.sh"
 }
 
 test_verify_check_requires_warns_when_php_not_active() {
   fixture_repo
-  jig init --from "$JIG_HOME" --profiles laravel >/dev/null
+  jig init --from "$JIG_HOME" --profiles php >/dev/null
+  mkdir -p .ai/profiles/needy
+  printf 'name: needy\ndescription: a project profile that needs php.\ndetect: always\nrequires: [php]\n' \
+    > .ai/profiles/needy/profile.yaml
+  printf '#!/usr/bin/env bash\nexit 0\n' > .ai/profiles/needy/verify.sh
   cat > .ai/config.yaml <<EOF
-profiles: [laravel]
+profiles: [needy]
 EOF
 
-  run jig verify --profile laravel
-  # laravel still skips every check without php active (as above), so the
-  # run checked nothing (rc 3); what is under test here is only the warning
-  # about the missing 'php' requirement, which prints regardless.
-  assert_eq 3 "$RC"
+  run jig verify --profile needy
   assert_contains "$OUT" "requires 'php', which is not active"
 }
 
@@ -849,7 +1202,7 @@ EOF
   printf 'sample.go\n' > changed
   printf 'package sample\n' > sample.go
 
-  for profile in dart dotnet generic go jvm laravel node php python ruby rust shell swift; do
+  for profile in dart dotnet generic go jvm node php python ruby rust shell swift; do
     run env PATH="$PWD/fake-bin:$PATH" JIG_VERIFY_EXPLAIN=1 \
       JIG_VERIFY_SCOPE=changed JIG_VERIFY_FILES="$PWD/changed" \
       bash "$JIG_HOME/profiles/$profile/verify.sh"
