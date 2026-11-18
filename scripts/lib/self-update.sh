@@ -144,6 +144,33 @@ _self_update_detached() {
   fi
 }
 
+# _self_update_repoint_origin <source> — an install made before Jig moved to
+# the fapost-jig organisation still has origin = fapost-lab/jig and fetches
+# through GitHub's redirect, which ends the day that name is reused
+# (adr-20261118-jig-lives-in-its-own-organisation). Repoint exactly that old
+# address, keeping its transport (https or ssh), and say so; any other remote
+# (a fork, a mirror, a local path) is left alone. The raw config value is
+# read, not `git remote get-url`, which applies url.*.insteadOf rewrites. A
+# failed rewrite only warns: the redirect still serves this update.
+_self_update_repoint_origin() {
+  local source="$1" old new
+  old=$(git -C "$source" config --get remote.origin.url 2>/dev/null) || return 0
+  case "$old" in
+    https://github.com/fapost-lab/jig | https://github.com/fapost-lab/jig.git | \
+      https://github.com/fapost-lab/jig/ | https://github.com/fapost-lab/jig.git/)
+      new=https://github.com/fapost-jig/jig.git ;;
+    git@github.com:fapost-lab/jig | git@github.com:fapost-lab/jig.git | \
+      ssh://git@github.com/fapost-lab/jig | ssh://git@github.com/fapost-lab/jig.git)
+      new=git@github.com:fapost-jig/jig.git ;;
+    *) return 0 ;;
+  esac
+  if git -C "$source" remote set-url origin "$new" 2>/dev/null; then
+    printf 'self-update: origin moved: %s -> %s\n' "$old" "$new"
+  else
+    jig_warn "self-update: could not repoint origin from $old to $new; set it by hand: git -C $source remote set-url origin $new"
+  fi
+}
+
 cmd_self_update() {
   local global self_phys source
 
@@ -169,6 +196,7 @@ cmd_self_update() {
 
   source=$(jig_global_source) || jig_die "self-update: no global jig on PATH"
   _self_update_validate_source "$source"
+  _self_update_repoint_origin "$source"
 
   if git -C "$source" symbolic-ref -q HEAD >/dev/null 2>&1; then
     _self_update_branch "$source" "$global"
