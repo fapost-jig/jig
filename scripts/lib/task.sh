@@ -4811,7 +4811,7 @@ _task_since_review_knowledge() {
     [ -n "$path" ] || continue
     hash=${path##* }
     path=${path% *}
-    old_hash=$(printf '%s\n' "$old" | awk -v p="$path" '{ h = $NF; sub(/ [^ ]*$/, ""); if ($0 == p) { print h; exit } }')
+    old_hash=$(printf '%s\n' "$old" | awk -v p="$path" '!d { h = $NF; sub(/ [^ ]*$/, ""); if ($0 == p) { print h; d = 1 } }')
     [ "$hash" != "$old_hash" ] || continue
     if ! jig_knowledge_is_global "$JIG_PROJECT/$path"; then
       _TASK_SR_WHY="$path, which resolves for the task's files, changed since the review"

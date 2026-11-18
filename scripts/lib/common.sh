@@ -1971,7 +1971,7 @@ _jig_bcs_judge() {
   if [ "$depth" -gt 0 ] && [ -n "$_JIG_BCS_TIPS" ]; then
     cut=$(printf '%s\n' "$line" | _JIG_BCS_V="$_JIG_BCS_TIPS" awk '
       BEGIN { n = split(ENVIRON["_JIG_BCS_V"], a, "\n"); for (i = 1; i <= n; i++) { split(a[i], f, " "); if (f[1] != "") t[f[1]] = f[2] } }
-      NF && ($1 in t) { r = t[$1]; sub(/^refs\/remotes\/origin\//, "", r); print $1 "\t" r; exit }')
+      NF && !done && ($1 in t) { r = t[$1]; sub(/^refs\/remotes\/origin\//, "", r); print $1 "\t" r; done = 1 }')
     if [ -n "$cut" ]; then
       printf '%s\t-\tcut from %s\n' "${cut%%$'\t'*}" "${cut#*$'\t'}"
       return 0
@@ -2028,7 +2028,7 @@ EOF
     # Judged at the commit that was merged.
     sub=$(_jig_bcs_judge "$p" "$base" "$stage" $((depth + 1)))
     [ -n "$sub" ] || return 1
-    why=$(printf '%s\n' "$sub" | awk -F '\t' 'NF { print $3; exit }')
+    why=$(printf '%s\n' "$sub" | awk -F '\t' '!d && NF { print $3; d = 1 }')
     case "$why" in
       "cut from "*) printf '%s, which itself is %s\n' "$dep" "$why" ;;
       *", which itself is nested too deep to judge") printf '%s, which itself is nested too deep to judge\n' "$dep" ;;
@@ -4671,7 +4671,7 @@ jig_branch_worktree() {
   list=$(git -C "$JIG_PROJECT" worktree list --porcelain 2>/dev/null) || { printf '?\n'; return 0; }
   printf '%s\n' "$list" | awk -v want="branch refs/heads/$1" '
     /^worktree / { wt = substr($0, 10) }
-    $0 == want { print wt; exit }'
+    !d && $0 == want { print wt; d = 1 }'
 }
 
 # jig_base_fast_forward <base> — fast-forward the base to origin's, the only move it ever makes:

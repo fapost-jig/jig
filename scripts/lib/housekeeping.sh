@@ -606,7 +606,7 @@ _hk_released() {
   fi
   if [ "$_HK_FORGE_KIND" != none ] && [ -n "$_HK_FORGE_PRS" ] \
      && printf '%s\n' "$_HK_FORGE_PRS" | awk -F '\t' -v h="$base" -v b="$default" '
-          $1 == h && $2 == b && tolower($3) == "merged" { found = 1; exit }
+          $1 == h && $2 == b && tolower($3) == "merged" { found = 1 }
           END { exit !found }'; then
     printf 'true\n'
     return 0
@@ -1044,10 +1044,13 @@ _hk_forge_state() {
   # none into its base: a staging `task ship` leaves exactly that, and it must
   # keep the task as an open pull request into the base would. Off that flow
   # no base is named so.
+  # The awk below reads to the end of its pipe, with a flag in place of an
+  # early quit, so the writer is never left to SIGPIPE under pipefail
+  # (conventions/shell.md).
   line=$(printf '%s\n' "$_HK_FORGE_PRS" | awk -F'\t' -v b="$branch" -v base="$base" -v st="$_HK_STAGING_BRANCH" "$_HK_PR_STATE_AWK"'
-    $1 == b && $2 == base { print prstate($3); found = 1; exit }
-    $1 == b && st != "" && $2 == st && !seen_st { seen_st = 1; s = prstate($3); if (s == "open" || s == "closed") staged = s }
-    $1 == b && other == "" && (st == "" || $2 != st) && prstate($3) == "merged" { other = $2 }
+    !found && $1 == b && $2 == base { print prstate($3); found = 1 }
+    !found && $1 == b && st != "" && $2 == st && !seen_st { seen_st = 1; s = prstate($3); if (s == "open" || s == "closed") staged = s }
+    !found && $1 == b && other == "" && (st == "" || $2 != st) && prstate($3) == "merged" { other = $2 }
     END {
       if (found) exit
       if (staged != "") print staged

@@ -1431,8 +1431,8 @@ km_stub_sources() {
 # ", a decision record" when the stub is an ADR: a team's accepted decision
 # is never edited in place, so an edit to one must stand out in the report.
 km_source_note() {
-  printf '%s\n' "$2" | awk -F '\t' -v s="$1" '$1 == s {
-    printf "source of %s%s\n", $2, ($3 == "adr" ? ", a decision record" : ""); exit }'
+  printf '%s\n' "$2" | awk -F '\t' -v s="$1" '!d && $1 == s {
+    printf "source of %s%s\n", $2, ($3 == "adr" ? ", a decision record" : ""); d = 1 }'
 }
 
 # km_changed_sources_block <base> — `knowledge changed --to-review`: the
