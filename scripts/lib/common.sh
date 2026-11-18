@@ -600,8 +600,13 @@ jig_source_release() {
 # status.showUntrackedFiles=no in someone's git config, plain --porcelain
 # hides untracked files and a dirty checkout would read as clean. Shared with
 # self-update, which refuses a checkout with changes for the same reason.
+# Jig only asks someone's framework checkout about its changes and must not
+# take that checkout's index lock: git status otherwise refreshes the index and
+# holds .git/index.lock, colliding with the person's own git or with a parallel
+# copy of the tree. The env var rather than --no-optional-locks because an
+# older git ignores the variable but would reject the flag.
 jig_source_changes() {
-  git -C "$1" status --porcelain --untracked-files=all 2>/dev/null
+  GIT_OPTIONAL_LOCKS=0 git -C "$1" status --porcelain --untracked-files=all 2>/dev/null
 }
 
 # jig_source_clean <dir> — true when checkout <dir> has no tracked, staged or
