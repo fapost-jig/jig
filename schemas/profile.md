@@ -374,7 +374,12 @@ layers change only the words around them, and no stock `verify.sh` is edited for
 - **Covers.** A drop lifts a cover: if the profile that `covers: [<lower>:<role>]` has its own
   `<role>` dropped in this run, nothing would run those tests, so the cover does not hold and the lower
   profile runs them. `jig verify` says so — `verify: myapp:tests is dropped by warehouse, so myapp
-  no longer covers php:tests; php runs it` — in a run and under `--explain`. An override of a check
+  no longer covers php:tests; php runs it` — in a run and under `--explain`, naming the profile that
+  really runs the tests (the one a lifted cover of the lower profile falls to when its own `<role>` is
+  dropped too, `nothing runs it` when none does). Unless the dropped check is itself covered in this
+  run: then another profile still runs it, the drop has no effect (the warning below), and the
+  dropped profile's own cover holds and follows the chain to that runner — `myapp covers up:tests`,
+  `up covers low:tests` and `up`'s `tests` dropped run the suite once, in `myapp`. An override of a check
   that another profile covers in this run has no effect, and `jig verify` warns:
   `verify: warning: <layer> overrides <base>:<role>, but <runner> runs it in this run (covers), so the
   override has no effect`. Not for a layer on the chain from the profile the cover names down to the
