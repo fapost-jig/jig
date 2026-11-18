@@ -37,16 +37,29 @@
 # everything — which is exactly the case where main's tree is new.
 #
 # The run counts only when it was full: `knowledge` skipped (the scope was
-# full), every test share ran the whole suite — its name ends in
-# CR_ALL_SUFFIX, where a run of the tests a change reaches ends in
-# `(selected)` (adr-20261110-a-pull-request-runs-the-tests-its-change-reaches)
-# and a share of neither kind does not count —, no other job skipped but those
-# in CR_PR_SKIPS, which never run on a pull request into main, and at least
-# one Windows Git Bash share passed —
+# full), every test share ran the same kind of suite — its name ends in
+# CR_ALL_SUFFIX for the whole suite or in CR_SELECTED_SUFFIX for the tests the
+# change reaches (adr-20261110-a-pull-request-runs-the-tests-its-change-reaches),
+# never a mix, and a share of neither kind does not count —, no other job
+# skipped but those in CR_PR_SKIPS, which never run on a pull request into
+# main, and at least one Linux or macOS share and at least one Windows Git Bash
+# share passed —
 # a pull request that skipped Windows covers Linux and macOS only, and main
 # releases for Windows too. The name prefix below is the second copy of the
 # `test-windows` job's name; tests/ci-workflow.t.sh holds the two together,
 # and a rename that slipped past it would only make main test everything.
+#
+# What the push needs decides which kind of run counts. A push whose scope is
+# the whole suite (`all`, the default) reuses only a run of the whole suite. A
+# push whose scope is `selected` reuses either: a run of the whole suite
+# covers any selection, and a run of selected tests covers it when the `plan`
+# artifact of that run (its `filters` file, one tests/run.sh filter per line)
+# holds every filter of the push, <filters-file>. The push's own selection is
+# measured from the last green run on main, not from <before>, so it can be
+# wider than the pull request's: a missing filter, a missing or unreadable
+# artifact (kept seven days) and an empty filter list all mean the run does
+# not count. Such a push does not release and does not close `red-main`;
+# both ask the scope for `all` themselves.
 #
 # Unmeasurable is never a reason to skip: a missing <before>, a commit that
 # cannot be read, a GitHub API that does not answer — each prints `test`.
@@ -54,8 +67,11 @@
 # Environment: GITHUB_REPOSITORY (owner/name; set by Actions) and GH_TOKEN for
 # `gh`.
 #
-# Usage: .github/scripts/ci-reuse.sh <before>
-#   <before>  github.event.before: the tip of main before this push.
+# Usage: .github/scripts/ci-reuse.sh <before> [<suite> <filters-file>]
+#   <before>        github.event.before: the tip of main before this push.
+#   <suite>         `all` (default) or `selected`: the scope of this push.
+#   <filters-file>  with `selected`: the filters of this push, one per line
+#                   (what ci-scope.sh writes to CI_SCOPE_FILTERS).
 set -eu
 set -o pipefail
 
@@ -68,6 +84,7 @@ CR_PR_SKIPS="release epic-pr red-main"
 # The end of a test share's name when it ran the whole suite; the job names
 # in ci.yml carry the suite, and tests/ci-workflow.t.sh holds them to it.
 CR_ALL_SUFFIX=" (all)"
+CR_SELECTED_SUFFIX=" (selected)"
 # Test shares, by the start of their names: Linux, macOS and Windows.
 CR_TEST_PREFIXES="ubuntu-latest macos-latest"
 
@@ -84,11 +101,45 @@ _cr_have() {
   git cat-file -e "$1^{commit}" 2>/dev/null
 }
 
-# _cr_full <run-id> — whether the run tested the whole suite, Windows
-# included, judged from its jobs. Status 1 when it did not or the jobs cannot
-# be read; the reason goes to stdout.
+# _cr_covers <run-id> — whether the `plan` artifact of a run of selected tests
+# holds every filter of this push (CR_SUITE_FILTERS). Status 1 when it does
+# not or cannot be read; the reason goes to stdout.
+_cr_covers() {
+  local dir f n=0
+  dir=$(mktemp -d 2>/dev/null) || { echo "no scratch directory for its plan"; return 1; }
+  if ! gh run download "$1" -R "$CR_SLUG" -n plan -D "$dir" >/dev/null 2>&1 \
+    || [ ! -r "$dir/filters" ]; then
+    rm -rf "$dir"
+    echo "its plan artifact cannot be read"
+    return 1
+  fi
+  if [ ! -r "$CR_SUITE_FILTERS" ]; then
+    rm -rf "$dir"
+    echo "the filters of this push cannot be read"
+    return 1
+  fi
+  while IFS= read -r f || [ -n "$f" ]; do
+    [ -n "$f" ] || continue
+    n=$((n + 1))
+    if ! grep -qxF -- "$f" "$dir/filters"; then
+      rm -rf "$dir"
+      echo "it did not run the filter '$f' this push needs"
+      return 1
+    fi
+  done < "$CR_SUITE_FILTERS"
+  rm -rf "$dir"
+  if [ "$n" -eq 0 ]; then
+    echo "this push names no filter to compare"
+    return 1
+  fi
+  return 0
+}
+
+# _cr_full <run-id> — whether the run tested what this push needs, Windows
+# included, judged from its jobs (and, for selected tests, its plan). Status 1
+# when it did not or the jobs cannot be read; the reason goes to stdout.
 _cr_full() {
-  local jobs line conclusion name knowledge="" windows=0 unix=0 p
+  local jobs line conclusion name knowledge="" windows=0 unix=0 p q nall=0 nsel=0
   jobs=$(gh api -X GET "repos/$CR_SLUG/actions/runs/$1/jobs" -f per_page=100 \
     --jq '.jobs[] | "\(.conclusion) \(.name)"' 2>/dev/null) || {
     echo "its jobs cannot be read"
@@ -107,24 +158,28 @@ _cr_full() {
       echo "job '$name' ended as '$conclusion'"
       return 1
     fi
+    p=""
     case "$name" in
-      "$CR_WINDOWS_PREFIX"*)
-        case "$name" in
-          *"$CR_ALL_SUFFIX") windows=$((windows + 1)) ;;
-          *) echo "share '$name' did not run the whole suite"; return 1 ;;
-        esac
+      "$CR_WINDOWS_PREFIX"*) p=windows ;;
+      *)
+        for q in $CR_TEST_PREFIXES; do
+          case "$name" in "$q "*) p=unix ;; esac
+        done
         ;;
     esac
-    for p in $CR_TEST_PREFIXES; do
-      case "$name" in
-        "$p "*)
-          case "$name" in
-            *"$CR_ALL_SUFFIX") unix=$((unix + 1)) ;;
-            *) echo "share '$name' did not run the whole suite"; return 1 ;;
-          esac
-          ;;
-      esac
-    done
+    [ -n "$p" ] || continue
+    case "$name" in
+      *"$CR_ALL_SUFFIX") nall=$((nall + 1)) ;;
+      *"$CR_SELECTED_SUFFIX")
+        if [ "$CR_SUITE" != selected ]; then
+          echo "share '$name' did not run the whole suite"
+          return 1
+        fi
+        nsel=$((nsel + 1))
+        ;;
+      *) echo "share '$name' did not run the whole suite"; return 1 ;;
+    esac
+    if [ "$p" = windows ]; then windows=$((windows + 1)); else unix=$((unix + 1)); fi
   done <<EOF
 $jobs
 EOF
@@ -133,19 +188,31 @@ EOF
     return 1
   fi
   if [ "$unix" -eq 0 ]; then
-    echo "it ran no Linux or macOS share of the whole suite"
+    echo "it ran no Linux or macOS share of the suite"
     return 1
   fi
   if [ "$windows" -eq 0 ]; then
     echo "it skipped the Windows Git Bash shares"
     return 1
   fi
+  if [ "$nall" -gt 0 ] && [ "$nsel" -gt 0 ]; then
+    echo "its shares mix the whole suite and selected tests"
+    return 1
+  fi
+  if [ "$nsel" -gt 0 ]; then
+    _cr_covers "$1" || return 1
+  fi
   return 0
 }
 
 main() {
   local before="${1:-}" head tree heads runs id sha url why seen=0
-  [ $# -le 1 ] || { printf 'usage: ci-reuse.sh <before>\n' >&2; exit 2; }
+  CR_SUITE="${2:-all}"
+  CR_SUITE_FILTERS="${3:-}"
+  case "$#:$CR_SUITE" in
+    1:all | 2:all | 3:all | 3:selected) ;;
+    *) printf 'usage: ci-reuse.sh <before> [<suite> <filters-file>]\n' >&2; exit 2 ;;
+  esac
 
   case "$before" in
     '') _cr_line test "no commit before the push" ;;
@@ -191,7 +258,7 @@ $runs
 EOF
 
   if [ "$seen" -eq 1 ]; then
-    _cr_line test "no full green pull-request run tested tree $tree on top of $before"
+    _cr_line test "no green pull-request run tested what this push needs of tree $tree on top of $before"
   fi
   _cr_line test "no green run of the pull request has tree $tree"
 }
