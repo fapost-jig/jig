@@ -110,7 +110,8 @@ contract. A change to how profiles are *copied* still belongs to `install`.
 ## Entry points
 
 - `scripts/lib/verify.sh` — `cmd_verify`, `_verify_changed_files`, `_verify_map_check`,
-  `_verify_map_apply`.
+  `_verify_map_apply`, `_verify_profile_maps_v` (the one place that orders a profile's maps:
+  its pure layers' first, then its own).
 - `scripts/lib/profiles.sh` — `profiles_check_table`, `profiles_check_rows` (the check table),
   `profiles_check_layers`, `profiles_check_overrides_v`, `profiles_check_merged` (layer overrides), `profiles_layer_maps_v` (a pure layer's map follows the tests).
 - `scripts/lib/profile.sh` — `jp_begin`, `jp_covered`, `jp_check_cmd`, `jp_changed`, `jp_changed_any`, `jp_decide`,
