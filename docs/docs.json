@@ -27,7 +27,7 @@
     ],
     "primary": {
       "type": "github",
-      "href": "https://github.com/fapost-lab/jig"
+      "href": "https://github.com/fapost-jig/jig"
     }
   },
   "navigation": {
@@ -76,7 +76,7 @@
   },
   "footer": {
     "socials": {
-      "github": "https://github.com/fapost-lab/jig"
+      "github": "https://github.com/fapost-jig/jig"
     }
   }
 }

@@ -4,7 +4,7 @@
 # checkout via install.sh, and (with consent) a first project -- for someone
 # who has never used git, from one line pasted into PowerShell:
 #
-#   irm https://raw.githubusercontent.com/fapost-lab/jig/main/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/fapost-jig/jig/main/install.ps1 | iex
 #
 # ADR-0002 restricts jig's own logic to bash/git; this file is the one
 # permitted exception, the Windows-only bootstrapper that gets a real bash
@@ -560,7 +560,7 @@ function Get-JigInstallScript {
         return (Resolve-Path -LiteralPath $InstallSh).Path
     }
     $dest = Join-Path $env:TEMP 'jig-install.sh'
-    Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/fapost-lab/jig/main/install.sh' `
+    Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/fapost-jig/jig/main/install.sh' `
         -OutFile $dest -ErrorAction Stop
     return $dest
 }

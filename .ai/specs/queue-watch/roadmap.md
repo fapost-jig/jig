@@ -20,7 +20,7 @@ alive with its slots, and the stop command ends it.
 - [ ] Tick and the watcher's record — one command answers start / wait / sleep / blocked / slot dead / stop from durable state, writes the watcher's record, `jig status --json` shows the `watcher` block, and a stop command ends the watcher and withdraws its "taken" records (after: `next-skips-what-cannot-be-taken` — the tick takes its candidates from `queue next`)
 - [ ] Safeguards — a silent run is recorded as vanished and frees its slot, two runs in a row without a merge stop the watcher, one T3/T4 at a time, "blocked" reaches Telegram once (after: Tick and the watcher's record — they are answers of the tick)
 - [ ] Queue mode of `jig-autopilot` — the skill drives the tick under `/loop`, runs `task ship` in the background with merges one at a time, and a docs page tells a person how to start, watch and stop it (after: Tick and the watcher's record — the skill only carries out its answers)
-- [ ] Jig UI item — the `watcher` block contract and an item in `fapost-lab/jig-ui`'s spec, delivered by a pull request there (after: Tick and the watcher's record — the contract must exist)
+- [ ] Jig UI item — the `watcher` block contract and an item in `fapost-jig/jig-ui`'s spec, delivered by a pull request there (after: Tick and the watcher's record — the contract must exist)
 
 ## Waves
 

@@ -452,7 +452,7 @@ as they are. It never stashes or forces, and changes in the checkout stop it onl
 fast-forward would overwrite them. A base that cannot move is an answer, not an error: the command
 exits 0 and `base.outcome` says why — `blocked-by-changes` with git's message naming the files,
 `checked-out-elsewhere` with the worktree (git refuses to move a branch another worktree has checked out), `diverged`, `missing` — so the page can say it in words. `writes` lists each write it closed, with why.
-The fields are in [`schemas/json.md`](https://github.com/fapost-lab/jig/blob/main/schemas/json.md#jig-refresh---json).
+The fields are in [`schemas/json.md`](https://github.com/fapost-jig/jig/blob/main/schemas/json.md#jig-refresh---json).
 
 ## The queue
 
@@ -500,7 +500,7 @@ that holds a candidate back, in `state` `open`, `broken`
 always `false`). `blocked` lists the tasks a watcher could not start now, each with its `kind`: a run stopped for a person (`stopped`) or ended not merged (`not_merged`), a task whose `task.md` holds only the stub (`stub`) or a release's notes task (`version`); none of them is advised, and a queue held only by such stops answers `blocked`, not `empty`. `not_queued` counts the active tasks outside the queue. `resume` lists the answered autopilot runs
 to resume before anything new (`ref`, `id`, `priority`, `stopped_at`, `answered_at`), which are not in
 `in_progress`; `slots` is `{"limit", "building", "free"}`; a dependency on a task whose run is stopped
-reads `state` `waiting`. The fields are in [the schema](https://github.com/fapost-lab/jig/blob/main/schemas/json.md).
+reads `state` `waiting`. The fields are in [the schema](https://github.com/fapost-jig/jig/blob/main/schemas/json.md).
 
 ## Who may review a pull request
 
@@ -514,7 +514,7 @@ Only people, never teams or bots, and never the account that opens the pull requ
 ```
 
 It asks the forge, so call it when a person is about to choose, not on a timer. When the forge cannot
-be asked it is refused with the code `forge-unavailable`. The fields are in [the schema](https://github.com/fapost-lab/jig/blob/main/schemas/json.md#jig-pr-reviewers---json).
+be asked it is refused with the code `forge-unavailable`. The fields are in [the schema](https://github.com/fapost-jig/jig/blob/main/schemas/json.md#jig-pr-reviewers---json).
 
 ## A pull request's state now
 
@@ -533,7 +533,7 @@ protection asks, and `blockers`, the codes `jig task merge-pr` would refuse it w
 It is the second read that asks the forge (the first is `jig pr reviewers`), so call it when a person
 presses a button, not on a timer. It writes nothing and does not change the revision. Without the
 forge it is refused with `forge-unavailable`. The fields are in
-[the schema](https://github.com/fapost-lab/jig/blob/main/schemas/json.md#jig-task-pr-status---json).
+[the schema](https://github.com/fapost-jig/jig/blob/main/schemas/json.md#jig-task-pr-status---json).
 
 ## A person's pull request actions
 
@@ -554,7 +554,7 @@ or running checks with `ci-red` and `ci-pending`. While the agent works the task
 `ship-running`. A write is checked against the revision your program read (`--revision <n>`, as in
 [the queue](#changing-the-queue)): `stale-revision` means nothing was sent to the forge. The answer
 carries the refreshed task. The fields and every refusal are in
-[the schema](https://github.com/fapost-lab/jig/blob/main/schemas/json.md#jig-task-land---by-human---json).
+[the schema](https://github.com/fapost-jig/jig/blob/main/schemas/json.md#jig-task-land---by-human---json).
 
 ## Changing the queue
 
@@ -641,7 +641,7 @@ edits, or of a branch the remote deleted: it answers `not-found`, the edit leave
 next edit takes a new name. An edit still waiting is never left out of sight: when an epic opened or
 finished since it was made, or when it never reached the remote above edits that were turned down, the
 next write is refused with `write-still-waits` until you merge, close or move it. The full shape is in
-[the schema](https://github.com/fapost-lab/jig/blob/main/schemas/json.md).
+[the schema](https://github.com/fapost-jig/jig/blob/main/schemas/json.md).
 
 ### Changing a roadmap
 
@@ -893,7 +893,7 @@ An id Jig does not accept — a space, a leading dash — and a goal that is emp
 `usage`.
 
 The full field list is in the repository, in
-[`schemas/json.md`](https://github.com/fapost-lab/jig/blob/main/schemas/json.md).
+[`schemas/json.md`](https://github.com/fapost-jig/jig/blob/main/schemas/json.md).
 
 ## A task's documents
 
