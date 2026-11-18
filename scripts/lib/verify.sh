@@ -1411,7 +1411,7 @@ EOF
         # is read as the cautious default, same as an undeclared capability.
         # The count is what it always was; a profile whose every check a layer
         # dropped is also remembered (known from the table, never from the
-        # profile's output), so the ending can say what happened. A streamed
+        # profile's output), so the summary can say what happened (see below). A streamed
         # `--full` run leaves no output to read, and counts as a gap.
         if [ "$is_fallback" != 1 ] && ! _verify_skip_lines_all_scoped "$run_output"; then
           covered_needs_install=$((covered_needs_install + 1))
@@ -1451,6 +1451,17 @@ EOF
   if [ "$ci_left" -gt 0 ]; then
     printf 'verify: %d check(s) left their full set to CI (verify.full_run: ci); jig verify --full runs it here\n' \
       "$ci_left"
+  fi
+  # A layer that dropped every check of its base is said on every run where it
+  # is true, whatever else passed or failed (the exit code is not changed by
+  # it). The one run that says it inside another sentence — the nothing-checked
+  # ending below, which names the dropped checks instead of "install" — does
+  # not say it twice.
+  if [ -n "$dropped_msg" ] && ! { [ "$incomplete" -eq 0 ] && [ "$pass" -eq 0 ] \
+       && [ "$failn" -eq 0 ] && [ "$total" -gt 0 ] && [ "$covered" = 1 ] \
+       && [ "$covered_needs_install" -gt 0 ] \
+       && [ "$covered_needs_install" -eq "$dropped_needs" ]; }; then
+    printf 'verify: %s; nothing verified it\n' "$dropped_msg"
   fi
   # Incomplete outranks fail: a run something was killed in is not evidence, so
   # the failures in it cannot be trusted either. Nothing is lost — a real
@@ -1501,7 +1512,6 @@ EOF
       printf 'verify: nothing was checked, so this is not a pass — %s; nothing verified it\n' "$dropped_msg"
       return 3
     fi
-    [ -z "$dropped_msg" ] || printf 'verify: %s; nothing verified it\n' "$dropped_msg"
     if [ "$covered" = 1 ] && [ "$covered_needs_install" -gt 0 ]; then
       printf 'verify: nothing was checked, so this is not a pass — install the project'"'"'s tools so its profile can run\n'
       return 3

@@ -456,7 +456,9 @@ a profile of your own that has the name of a stock one is refused by `jig verify
 
 A layer can change a check of its base with `checks.<role>.<field>` lines, without naming the
 base: `full` and `narrowed` are the words of a full and of a narrowed run, `command` the program,
-`drop: true` removes the check. A line you do not write keeps the base's.
+`drop: true` removes the check. A line you do not write keeps the base's. When a layer drops every
+check of its base, `jig verify` says so on each run: `verify: every check of <base> was dropped by
+<layer>; nothing verified it`.
 
 ```yaml
 # .ai/profiles/warehouse/profile.yaml

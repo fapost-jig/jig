@@ -386,11 +386,12 @@ layers change only the words around them, and no stock `verify.sh` is edited for
   base: `myapp` with `covers: [laravel:tests]` replaces laravel's tests, laravel's own command
   included, and nobody could act on the warning.
 - **When every check is dropped.** A profile all of whose listed roles a layer dropped runs nothing.
-  `jig verify` knows it from the merged table, not from the profile's output. Exit codes are as
-  they were for any run where nothing passed: a run that ended in "install the project's tools"
-  (a full run, which reads no output) still exits 3 but says `every check of <profile> was dropped
-  by <layer>; nothing verified it` instead; a narrowed run whose skips all name a scope keeps its
-  ending and exit code and gets that sentence as an extra line. Only the words change.
+  `jig verify` knows it from the merged table, not from the profile's output. It prints `verify:
+  every check of <profile> was dropped by <layer>; nothing verified it` on every run where that is
+  true, whatever else passed or failed; the exit code is unchanged. When a full run (which reads no
+  output) would have ended in "install the project's tools", that ending is replaced by `nothing
+  was checked, so this is not a pass — every check of <profile> was dropped by <layer>; nothing
+  verified it` (exit 3) instead of an extra line. Only the words change.
 - **Old copies.** A `verify.sh` that calls neither `jp_covered` nor `jp_check_cmd` (a copy `upgrade`
   kept) does not hear a `drop` and runs the check — the safe direction.
 
