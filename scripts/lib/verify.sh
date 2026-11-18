@@ -414,7 +414,7 @@ _verify_covers() {
   local dir="$1" run=" $2 " narrowed="$3" edges="${4:-}" u udir item b check bdir seen="" raw=""
   local named chain owner
   # shellcheck disable=SC2034 # dv takes the value _profiles_tab_find_v is not asked for
-  local ovr dropper dv
+  local ovr dropper dv lifted=""
   for u in $2; do
     udir=$(profiles_dir "$dir" "$u")
     profiles_check_overrides_v ovr "$udir" "$edges"
@@ -461,8 +461,9 @@ _verify_covers() {
         continue
       fi
       if [ -n "$ovr" ] && _profiles_tab_find_v dv "$ovr" "$check" drop dropper; then
-        printf 'verify: %s:%s is dropped by %s, so %s no longer covers %s:%s; %s runs it\n' \
-          "$u" "$check" "$dropper" "$u" "$b" "$check" "$b" >&2
+        # Lifted for now: decided below, once the covers that hold are known.
+        lifted="${lifted}$b	$check	$u	$named	$dropper
+"
         continue
       fi
       seen="$seen $b:$check "
@@ -470,7 +471,106 @@ _verify_covers() {
 "
     done < <(_profiles_list_lines "$udir" covers)
   done
-  _verify_covers_resolve "$dir" "$raw" "$narrowed" "$edges"
+  # A dropped check that another profile still runs by a cover is not left to
+  # nobody: the drop has no effect there (the override warning says so), so the
+  # dropped profile's own cover stands and follows the chain to that runner —
+  # `myapp covers up:tests`, `up covers low:tests` and up's tests dropped still
+  # run the suite once, in myapp. Decided on the covers that survive
+  # _verify_covers_resolve (a narrowed run may drop one over maps), until no
+  # lifted cover comes back; its warnings are printed once, by the last call.
+  local resolved rest changed lb lc lu ln ld
+  while [ -n "$lifted" ]; do
+    resolved=$(_verify_covers_resolve "$dir" "$raw" "$narrowed" "$edges" 2>/dev/null)
+    rest=""
+    changed=0
+    while IFS=$'\t' read -r lb lc lu ln ld; do
+      [ -n "$lb" ] || continue
+      if _verify_covers_held "$resolved" "$lu" "$lc"; then
+        case "$seen" in
+          *" $lb:$lc "*) ;;
+          *)
+            seen="$seen $lb:$lc "
+            raw="${raw}$lb	$lc	$lu	$ln
+"
+            ;;
+        esac
+        changed=1
+      else
+        rest="${rest}$lb	$lc	$lu	$ln	$ld
+"
+      fi
+    done <<EOF
+$lifted
+EOF
+    lifted=$rest
+    [ "$changed" = 1 ] || break
+  done
+  resolved=$(_verify_covers_resolve "$dir" "$raw" "$narrowed" "$edges")
+  _verify_covers_lifted_lines "$dir" "$resolved" "$lifted" "$edges"
+  [ -z "$resolved" ] || printf '%s\n' "$resolved"
+}
+
+# _verify_covers_held <covers> <profile> <check> — true when <covers> (as
+# _verify_covers_resolve prints them) hands <profile>'s <check> to another profile.
+_verify_covers_held() {
+  local b c _r
+  while IFS=$'\t' read -r b c _r; do
+    [ "$b" = "$2" ] && [ "$c" = "$3" ] && return 0
+  done <<EOF
+$1
+EOF
+  return 1
+}
+
+# _verify_covers_lifted_lines <installed-dir> <covers> <lifted> [<edges>] — on stderr,
+# one line per cover a drop lifted, naming the profile that really runs the check:
+# the covered profile, or, when its own check is dropped too, the one its own lifted
+# cover falls to, or the profile a cover that holds hands it to; `nothing runs it`
+# when the last of them has the check dropped as well.
+_verify_covers_lifted_lines() {
+  # shellcheck disable=SC2034 # dv and dl take the values _profiles_tab_find_v is not asked for
+  local dir="$1" b check u named dropper r hops nb nc nu runner ov dv dl
+  while IFS=$'\t' read -r b check u named dropper; do
+    [ -n "$b" ] || continue
+    r=$b
+    runner=""
+    hops=0
+    while [ "$hops" -lt 32 ]; do
+      hops=$((hops + 1))
+      while IFS=$'\t' read -r nb nc nu _; do
+        if [ "$nb" = "$r" ] && [ "$nc" = "$check" ]; then runner=$nu; break; fi
+      done <<EOF
+$2
+EOF
+      [ -z "$runner" ] || break
+      nb=""
+      while IFS=$'\t' read -r nb nc nu _; do
+        [ "$nu" = "$r" ] && [ "$nc" = "$check" ] && break
+        nb=""
+      done <<EOF
+$3
+EOF
+      [ -n "$nb" ] || break
+      r=$nb
+    done
+    if [ -z "$runner" ]; then
+      runner=$r
+      profiles_check_overrides_v ov "$(profiles_dir "$dir" "$r")" "${4:-}"
+      if [ -n "$ov" ] && _profiles_tab_find_v dv "$ov" "$check" drop dl; then
+        runner=""
+      fi
+    fi
+    if [ -n "$runner" ]; then
+      printf 'verify: %s:%s is dropped by %s, so %s no longer covers %s:%s; %s runs it\n' \
+        "$u" "$check" "$dropper" "$u" "$b" "$check" "$runner" >&2
+    else
+      printf 'verify: %s:%s is dropped by %s, so %s no longer covers %s:%s; nothing runs it\n' \
+        "$u" "$check" "$dropper" "$u" "$b" "$check" >&2
+    fi
+  done <<EOF
+$3
+EOF
+  return 0
 }
 
 # _verify_covers_resolve <installed-dir> <covers> <narrowed> [<edges>] — the covers of
