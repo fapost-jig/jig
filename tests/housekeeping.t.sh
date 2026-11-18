@@ -4816,6 +4816,36 @@ test_housekeeping_origin_head_reads_a_large_ls_remote_answer_to_its_end() {
   assert_contains "$OUT" "found=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa absent=[] bytes="
 }
 
+# _hk_forge_state (housekeeping.sh) under pipefail on a forge list far past the
+# pipe buffer, with the task's pull request first: an awk that quit at its
+# first match would leave the writer to SIGPIPE. Two rows of the same branch
+# and base also prove the flag keeps the first: the newest answer, not the
+# last one, is the state.
+test_housekeeping_forge_state_reads_a_large_pr_list_to_its_end() {
+  hk_setup
+  # shellcheck disable=SC2016 # expanded by the inner bash, not here
+  run bash -c '
+    set -euo pipefail
+    JIG_LIB="$JIG_HOME/scripts/lib"
+    . "$JIG_LIB/version.sh"; . "$JIG_LIB/common.sh"; . "$JIG_LIB/config.sh"
+    . "$JIG_LIB/housekeeping.sh"
+    JIG_PROJECT="$PWD"
+    JIG_AI_DIR=.ai
+    _HK_FORGE_KIND=github
+    _HK_STAGING_BRANCH=""
+    _HK_FORGE_PRS=$(awk "BEGIN { printf \"task/a\\tmain\\topen\\ntask/a\\tmain\\tmerged\\n\"
+      for (i = 1; i <= 4000; i++) printf \"zz-filler-%04d-with-a-long-name-to-fill-the-pipe-buffer\\tmain\\tmerged\\n\", i }")
+    for round in 1 2 3 4 5; do
+      got=$(_hk_forge_state task/a main)
+      [ "$got" = open ] || { printf "round %s: got [%s]\n" "$round" "$got"; exit 1; }
+    done
+    none=$(_hk_forge_state task/none main)
+    printf "state=%s absent=[%s] bytes=%s" "$got" "$none" "${#_HK_FORGE_PRS}"
+  '
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "state=open absent=[] bytes="
+}
+
 # hk_is_jigs <branch> — call jig_branch_is_jigs (common.sh) directly.
 hk_is_jigs() {
   bash -c '

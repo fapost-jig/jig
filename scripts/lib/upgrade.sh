@@ -1162,8 +1162,8 @@ _upgrade_branch_pr() {
     [ "$forge" = github ] || [ "$forge" = gitlab ] || exit 0
     prs=$(_upgrade_land_prs "$forge" "$1" "$2") || exit 0
     printf '%s\n' "$prs" | awk -F '\t' -v b="$2" '
-      $1 == b && $4 != "" && $4 != "null" {
-        if ($2 == "open") { print $2 "\t" $4; found = 1; exit }
+      !found && $1 == b && $4 != "" && $4 != "null" {
+        if ($2 == "open") { print $2 "\t" $4; found = 1 }
         if (first == "") first = $2 "\t" $4
       }
       END { if (!found && first != "") print first }'
