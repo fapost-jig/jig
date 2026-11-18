@@ -877,6 +877,26 @@ test_checkout_close_with_revision_from_a_session_lands_and_takes_nothing() {
   assert_no_file .ai/runtime/taken/T-1/session-a
 }
 
+# Approving a design is the person's decision, not taking the task, and an
+# approval checked against the caller's revision lands from a session (#590):
+# Jig UI started from an agent session inherits its id, and the taken record's
+# write raised the revision before the gate's own claim, refusing every read.
+test_checkout_gate_with_revision_from_a_session_lands_and_takes_nothing() {
+  checkout_setup
+  jig task new T-1 --class T3 --goal "approve my design" >/dev/null
+  printf '# Design\n\nThe design.\n' > "$JIG_TEST_TMP.design.md"
+  jig task artifact write T-1 design --from "$JIG_TEST_TMP.design.md" >/dev/null
+  CLAUDE_CODE_SESSION_ID=session-a
+  export CLAUDE_CODE_SESSION_ID
+  local rev
+  rev=$(jig queue list --json | jq -r .revision)
+  run jig task gate T-1 approved --revision "$rev" --json
+  assert_eq 0 "$RC" "$OUT"
+  assert_not_contains "$OUT" stale-revision
+  assert_contains "$(cat .ai/workspace/tasks/T-1/state)" "gate: approved"
+  assert_no_file .ai/runtime/taken/T-1/session-a
+}
+
 test_checkout_taken_record_is_not_written_without_a_session_id() {
   checkout_setup
   jig task new T-1 >/dev/null
