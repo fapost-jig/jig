@@ -4455,6 +4455,45 @@ STUB
   export PATH
 }
 
+# hk_stub_glab_close <rows> — a glab for the GitLab path of the same sweep.
+# <rows> are `<source>\t<target>\t<sha>\t<url>` open merge requests; `mr list
+# --source-branch/--target-branch <b>` prints the JSON array of those from or
+# onto <b>, any other list (the run's `--all`) prints them all. Every call is
+# in stub-bin/all-calls; `mr note` and `mr close` are also in stub-bin/calls.
+hk_stub_glab_close() {
+  mkdir -p stub-bin
+  printf '%s\n' "$1" > stub-bin/mr-rows
+  : > stub-bin/calls
+  : > stub-bin/all-calls
+  cat > stub-bin/glab <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$PWD/stub-bin/all-calls"
+case "\$1" in
+  auth) exit 0 ;;
+  mr)
+    case "\$2" in
+      list)
+        col=0
+        case "\$3" in
+          --source-branch) col=1 ;;
+          --target-branch) col=2 ;;
+        esac
+        awk -F '\t' -v c="\$col" -v b="\$4" '
+          BEGIN { printf "[" }
+          NF && (c == 0 || \$c == b) {
+            printf "%s{\"iid\":9,\"source_branch\":\"%s\",\"target_branch\":\"%s\",\"state\":\"opened\",\"sha\":\"%s\",\"web_url\":\"%s\"}", (n++ ? "," : ""), \$1, \$2, \$3, \$4
+          }
+          END { print "]" }' "$PWD/stub-bin/mr-rows" ;;
+      note|close) printf '%s\n' "\$*" >> "$PWD/stub-bin/calls" ;;
+    esac ;;
+esac
+STUB
+  chmod +x stub-bin/glab
+  printf 'stub-bin/\n' >> .git/info/exclude
+  PATH="$PWD/stub-bin:$PATH"
+  export PATH
+}
+
 test_housekeeping_deletes_a_superseded_upgrade_branch_on_origin_at_push() {
   hk_upgrade_setup push
   hk_upgrade_branch jig/upgrade-1.5.0 1.5.0
@@ -4627,6 +4666,47 @@ test_housekeeping_keeps_origins_upgrade_branch_with_a_pull_request_stacked_on_it
   rm -rf "$remote"
 }
 
+test_housekeeping_closes_the_merge_request_of_a_superseded_upgrade_branch_on_gitlab() {
+  hk_upgrade_setup pr
+  hk_cfg forge gitlab
+  hk_upgrade_branch jig/upgrade-1.5.0 1.5.0
+  hk_upgrade_base 2.0.0
+  local remote tip url t
+  t=$(printf '\t')
+  url=https://gitlab.com/example/example/-/merge_requests/9
+  remote=$(hk_upgrade_origin)
+  tip=$(git rev-parse jig/upgrade-1.5.0)
+  hk_stub_glab_close "jig/upgrade-1.5.0${t}main${t}$tip${t}$url"
+
+  run jig housekeeping
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "housekeeping: closed pull request $url: superseded by Jig 2.0.0"
+  assert_contains "$OUT" "housekeeping: deleted branch jig/upgrade-1.5.0 on origin"
+  assert_file_contains stub-bin/calls "mr note jig/upgrade-1.5.0 -m Superseded: main already carries Jig 2.0.0, newer than this upgrade (1.5.0)."
+  assert_file_contains stub-bin/calls "mr close jig/upgrade-1.5.0"
+  assert_file_contains stub-bin/all-calls "mr list --source-branch jig/upgrade-1.5.0"
+  assert_file_contains stub-bin/all-calls "mr list --target-branch jig/upgrade-1.5.0"
+  if git -C "$remote" show-ref --verify --quiet refs/heads/jig/upgrade-1.5.0; then fail "origin's branch is still there"; fi
+  rm -rf "$remote"
+}
+
+test_housekeeping_keeps_origins_upgrade_branch_with_a_merge_request_stacked_on_it_on_gitlab() {
+  hk_upgrade_setup pr
+  hk_cfg forge gitlab
+  hk_upgrade_branch jig/upgrade-1.5.0 1.5.0
+  hk_upgrade_base 2.0.0
+  local remote t
+  t=$(printf '\t')
+  remote=$(hk_upgrade_origin)
+  hk_stub_glab_close "task/next${t}jig/upgrade-1.5.0${t}abc${t}https://gitlab.com/example/example/-/merge_requests/10"
+
+  run jig housekeeping
+  assert_contains "$OUT" "housekeeping: kept branch jig/upgrade-1.5.0 on origin: a pull request is stacked on it"
+  git -C "$remote" show-ref --verify --quiet refs/heads/jig/upgrade-1.5.0 || fail "origin's branch was deleted"
+  assert_eq 0 "$(wc -c < stub-bin/calls | tr -d ' ')"
+  rm -rf "$remote"
+}
+
 test_housekeeping_keeps_origins_upgrade_branch_with_a_commit_of_a_person() {
   hk_upgrade_setup push
   hk_upgrade_branch jig/upgrade-1.5.0 1.5.0
@@ -4707,6 +4787,33 @@ test_jig_upgrade_commits_are_jigs_names_the_first_commit_that_is_not() {
     if jig_upgrade_commits_are_jigs refs/heads/main refs/heads/main 1.5.0; then printf " jigs"; else printf " empty:[%s]" "$JIG_UPGRADE_NOT_JIGS"; fi'
   assert_eq 0 "$RC"
   assert_eq "not:$foreign jigs:[] empty:[]" "$OUT"
+}
+
+# _hk_origin_head (housekeeping.sh) under pipefail, as `jig` runs it, on an
+# ls-remote answer far past the pipe buffer with the wanted branch first: a
+# reader that quit at the first match would leave the writer to SIGPIPE.
+test_housekeeping_origin_head_reads_a_large_ls_remote_answer_to_its_end() {
+  hk_setup
+  # shellcheck disable=SC2016 # expanded by the inner bash, not here
+  run bash -c '
+    set -euo pipefail
+    JIG_LIB="$JIG_HOME/scripts/lib"
+    . "$JIG_LIB/version.sh"; . "$JIG_LIB/common.sh"; . "$JIG_LIB/config.sh"
+    . "$JIG_LIB/housekeeping.sh"
+    JIG_PROJECT="$PWD"
+    JIG_AI_DIR=.ai
+    sha=$(printf "a%.0s" $(seq 40))
+    heads=$(awk -v s="$sha" "BEGIN { printf \"%s\\trefs/heads/jig/upgrade-1.5.0\\n\", s
+      for (i = 1; i <= 4000; i++) printf \"%s\\trefs/heads/zz-filler-%04d-with-a-long-name-to-fill-the-pipe-buffer-up\\n\", s, i }")
+    for round in 1 2 3 4 5; do
+      got=$(_hk_origin_head "$heads" jig/upgrade-1.5.0)
+      [ "$got" = "$sha" ] || { printf "round %s: got [%s]\n" "$round" "$got"; exit 1; }
+    done
+    none=$(_hk_origin_head "$heads" jig/upgrade-9.9.9)
+    printf "found=%s absent=[%s] bytes=%s" "$got" "$none" "${#heads}"
+  '
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "found=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa absent=[] bytes="
 }
 
 # hk_is_jigs <branch> — call jig_branch_is_jigs (common.sh) directly.
