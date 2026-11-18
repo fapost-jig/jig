@@ -378,7 +378,7 @@ _verify_cleanup() {
   if [ -n "${JIG_VERIFY_MAP_TMP:-}" ]; then
     rm -f "$JIG_VERIFY_MAP_TMP.src" 2>/dev/null || true
   fi
-  rm -f "${JIG_VERIFY_TMP:-}" "${JIG_VERIFY_MAP_TMP:-}" "${JIG_VERIFY_MAP_ALL_TMP:-}" 2>/dev/null || true
+  rm -f "${JIG_VERIFY_TMP:-}" "${JIG_VERIFY_MAP_TMP:-}" "${JIG_VERIFY_MAP_ALL_TMP:-}" "${JIG_VERIFY_CHECKS_TMP:-}" 2>/dev/null || true
   if [ -n "${JIG_VERIFY_BUSY:-}" ]; then
     _verify_busy_release "$JIG_VERIFY_BUSY"
     JIG_VERIFY_BUSY=""
@@ -546,10 +546,11 @@ cmd_verify() {
   local scope=0 base="" nfiles=0 scope_ok note full=0 explicit=0 full_run
   local header="" base_branch base_ref mb map map_ok map_err maps maps_listed map_bad b
   local incomplete=0 covered=0 explained=0 unknown=0 plan_output plan_bad hr_state hr_rt hr_text
-  local covered_needs_install=0 is_fallback=0 run_output ci_left=0 task_base="" task_which="" task_note=""
+  local table_err table_rows table_listed tb_role covered_needs_install=0 is_fallback=0 run_output ci_left=0 task_base="" task_which="" task_note=""
   JIG_VERIFY_TMP=""
   JIG_VERIFY_MAP_TMP=""
   JIG_VERIFY_MAP_ALL_TMP=""
+  JIG_VERIFY_CHECKS_TMP=""
   JIG_VERIFY_BUSY=""
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -920,6 +921,44 @@ EOF
       export JIG_VERIFY_COVERED
     else
       unset JIG_VERIFY_COVERED
+    fi
+
+    # The profile's check table (schemas/profile.md): linted here, once, and
+    # handed down as a file of rows, so a typo is a failed profile rather than
+    # an override that does nothing. Rows reach only a profile that has them —
+    # the rows are the declaration, and `checks: [tests]` alone, as released
+    # before the table, is not one; every other profile runs with the variable
+    # unset, so a caller's own JIG_VERIFY_CHECKS never reaches one. A listed
+    # role is a `<role> listed` row, so the library can tell a role with no
+    # arguments from a role the profile.yaml does not know.
+    rm -f "$JIG_VERIFY_CHECKS_TMP" 2>/dev/null || true
+    JIG_VERIFY_CHECKS_TMP=""
+    if ! table_err=$(profiles_check_table "$pdir"); then
+      failn=$((failn + 1))
+      if [ "$explain" = 1 ]; then
+        printf 'PLAN %s: error (profile.yaml:%s)\n' "$p" "$table_err"
+      else
+        printf 'RESULT %s: fail (profile.yaml:%s)\n' "$p" "$table_err"
+      fi
+      continue
+    fi
+    table_rows=$(profiles_check_rows "$pdir")
+    table_listed=$(_profiles_list_lines "$pdir" checks)
+    if [ -n "$table_rows" ]; then
+      JIG_VERIFY_CHECKS_TMP=$(mktemp "${TMPDIR:-/tmp}/jig-verify-checks.XXXXXX") \
+        || jig_die "verify: cannot create temporary file"
+      {
+        while IFS= read -r tb_role; do
+          [ -z "$tb_role" ] || printf '%s\tlisted\t\n' "$tb_role"
+        done <<EOF
+$table_listed
+EOF
+        printf '%s\n' "$table_rows"
+      } > "$JIG_VERIFY_CHECKS_TMP"
+      JIG_VERIFY_CHECKS="$JIG_VERIFY_CHECKS_TMP"
+      export JIG_VERIFY_CHECKS
+    else
+      unset JIG_VERIFY_CHECKS
     fi
 
     note=""

@@ -27,7 +27,7 @@ it actually did.
 ## Responsibility
 
 - The profile contract: `profile.yaml` (`name`, `description`, `detect`, `requires`,
-  `extends`, `scope`, `covers`, `checks`) and `verify.sh` with its four exit codes — 0 pass, 1 fail, **2 skip**,
+  `extends`, `scope`, `covers`, `checks`, the check table `checks.<role>.<field>`) and `verify.sh` with its four exit codes — 0 pass, 1 fail, **2 skip**,
   **3 incomplete**: a check that started and did not finish, which is neither a pass nor a
   fail and means run it again. A profile killed by a signal (128+N) says the same without
   knowing it. `jig verify` itself exits 3 for a run that produced no verdict at all — one
@@ -76,6 +76,9 @@ it actually did.
   applies (`_verify_covers`). The covered profile gets `JIG_VERIFY_COVERED` and prints the
   skip with `jp_covered`; the covered profile's map goes with its tests to the covering one.
   laravel covers `php:tests`, so a Laravel project runs its suite once.
+- The check table: `profiles_check_table` lints a profile's `checks.<role>.<field>` lines
+  before it runs (a bad table fails the profile), `profiles_check_rows` turns them into rows,
+  and the rows reach a profile that has them as `JIG_VERIFY_CHECKS`, read by `jp_check_cmd`.
 
 ## Boundaries
 
@@ -97,7 +100,8 @@ contract. A change to how profiles are *copied* still belongs to `install`.
 
 - `scripts/lib/verify.sh` — `cmd_verify`, `_verify_changed_files`, `_verify_map_check`,
   `_verify_map_apply`.
-- `scripts/lib/profile.sh` — `jp_begin`, `jp_covered`, `jp_changed`, `jp_changed_any`, `jp_decide`,
+- `scripts/lib/profiles.sh` — `profiles_check_table`, `profiles_check_rows` (the check table).
+- `scripts/lib/profile.sh` — `jp_begin`, `jp_covered`, `jp_check_cmd`, `jp_changed`, `jp_changed_any`, `jp_decide`,
   `jp_path_matches`, `jp_is_doc`, `jp_first_missing`, `jp_files`, `jp_version`, `jp_run`,
   `jp_exec`, `jp_have`, `jp_skip`, `jp_end`; under `verify.full_run: ci`, `jp_select`,
   `jp_full_left_to_ci`, `jp_plan_full`, `jp_plan_select`.

@@ -219,6 +219,10 @@ never assumed" rule the profile contract below states.
   replaces (`laravel`: `covers: [php:tests]`); the profile below names the check by role
   (`checks: [tests]`) and nothing about who covers it. `jig verify` decides which covers
   hold in a run and hands them down (adr-20261107-a-profile-covers-a-check-of-another).
+- `checks.<role>.command|full|narrowed` — the check table: a check's command and its
+  arguments for a full and a narrowed run, with a whole-word `{selection}` where the narrowed
+  selection goes. `jig verify` lints it and hands the rows down as `JIG_VERIFY_CHECKS`; a
+  `verify.sh` reads them through `jp_check_cmd` (adr-20261117-a-profile-declares-its-checks-in-a-table).
 
 `profiles/<stack>/verify.sh` is run from the repository root and exits 0 pass, 1 fail,
 **2 skip**, **3 incomplete** — a check that started and did not finish, which is neither a

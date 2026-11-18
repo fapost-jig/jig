@@ -3291,6 +3291,110 @@ test_verify_hands_on_no_map_its_profile_never_reads() {
   assert_contains "$OUT" "lower: covered=tests=upper"
 }
 
+# --- a profile declares its checks in a table (checks.<role>.<field>) ------------
+# `jig verify` lints the table, hands it down as JIG_VERIFY_CHECKS to a profile
+# that has one, and unsets the variable for every other profile
+# (adr-20261117-a-profile-declares-its-checks-in-a-table).
+
+# _fixture_table_profile <name> [<line>...] — a project profile whose
+# verify.sh asks the library for its `tests` check and runs `echo` with the
+# command line the table gave it; each <line> is added to its profile.yaml.
+_fixture_table_profile() {
+  local name="$1" line
+  shift
+  mkdir -p ".ai/profiles/$name"
+  {
+    printf 'name: %s\n' "$name"
+    printf 'description: fixture profile reading its check table.\n'
+    for line in "$@"; do printf '%s\n' "$line"; done
+  } > ".ai/profiles/$name/profile.yaml"
+  cat > ".ai/profiles/$name/verify.sh" <<'EOS'
+#!/usr/bin/env bash
+. "$(dirname "$0")/../../scripts/lib/profile.sh"
+jp_begin tbl
+if [ -n "${JIG_VERIFY_CHECKS:-}" ]; then echo "checks-file=set"; else echo "checks-file=<unset>"; fi
+jp_check_cmd tests "echoer" full echo base || jp_end
+jp_run echoer "" "${JP_CMD[@]}"
+jp_end
+EOS
+}
+
+_table_project() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_table_profile tbl "scope: [explain]" "checks: [tests]" \
+    "checks.tests.command: echo" "checks.tests.full: --full  # all of it"
+  printf 'profiles: [generic, tbl]\nadapters: [claude, codex]\n' > .ai/config.yaml
+}
+
+test_verify_hands_the_check_table_to_the_profile_that_declares_one() {
+  _table_project
+  run jig verify
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "checks-file=set"
+  assert_contains "$OUT" "--full"
+  assert_not_contains "$OUT" "base"
+  assert_contains "$OUT" "tbl: echoer: pass"
+}
+
+# `checks: [tests]` alone, as released before the table, is no table: a
+# verify.sh that asks for one beside it fails loudly rather than running a
+# command of its own, and the run is not a pass.
+test_verify_a_profile_with_only_a_checks_list_gets_no_table() {
+  _table_project
+  printf 'name: tbl\nchecks: [tests]\nscope: [explain]\n' > .ai/profiles/tbl/profile.yaml
+  run jig verify
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "checks-file=<unset>"
+  assert_contains "$OUT" "tbl: echoer: fail (profile.yaml names no check 'tests'; jig upgrade restores it)"
+}
+
+test_verify_a_profile_without_a_table_never_sees_a_callers_checks_file() {
+  _table_project
+  printf 'name: tbl\nchecks: [tests]\nscope: [explain]\n' > .ai/profiles/tbl/profile.yaml
+  printf 'tests\tfull\t--leaked\n' > leaked.rows
+  JIG_VERIFY_CHECKS="$PWD/leaked.rows"
+  export JIG_VERIFY_CHECKS
+  run jig verify
+  unset JIG_VERIFY_CHECKS
+  assert_contains "$OUT" "checks-file=<unset>"
+  assert_not_contains "$OUT" "leaked"
+}
+
+test_verify_a_bad_check_table_fails_the_profile() {
+  _table_project
+  printf 'checks.tests.ful: --x\n' >> .ai/profiles/tbl/profile.yaml
+  run jig verify
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "RESULT tbl: fail (profile.yaml:7: unknown field 'ful' (command, full, narrowed))"
+  assert_not_contains "$OUT" "tbl: echoer"
+}
+
+test_verify_a_check_table_with_a_role_typo_fails_even_without_rows() {
+  _table_project
+  printf 'name: tbl\nchecks: [tests]\nscope: [explain]\nchecks.Tests.full: x\n' > .ai/profiles/tbl/profile.yaml
+  run jig verify
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "RESULT tbl: fail (profile.yaml:4: role 'Tests' must be"
+}
+
+test_verify_explain_names_a_bad_check_table_as_an_error() {
+  _table_project
+  printf 'checks.tests.narrowed: run\n' >> .ai/profiles/tbl/profile.yaml
+  run jig verify --explain
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN tbl: error (profile.yaml:7: narrowed needs exactly one {selection}, found none)"
+}
+
+test_verify_removes_the_check_table_file_when_it_is_done() {
+  _table_project
+  local tmp="$PWD/tmpdir"
+  mkdir -p "$tmp"
+  TMPDIR="$tmp" run jig verify
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "" "$(ls "$tmp")"
+}
+
 # --- profile stacks (extends) ---------------------------------------------------
 
 # _fixture_stack_base <name> — a project profile that runs, answers a preview
@@ -3482,7 +3586,9 @@ test_verify_accepts_the_plain_checks_list_on_a_layer_and_check_rows_on_a_base() 
   fixture_repo
   jig init --from "$JIG_HOME" --profiles generic >/dev/null
   _fixture_stack_base base
-  printf 'checks.tests.args: [--fast]\n' >> .ai/profiles/base/profile.yaml
+  # A base's rows in the check table's own format (schemas/profile.md, Check
+  # table): a role its checks list names, a known field.
+  printf 'checks: [tests]\nchecks.tests.full: --fast\n' >> .ai/profiles/base/profile.yaml
   _fixture_stack_layer top base 'checks: [tests]'
   run jig verify --profile top
   assert_eq 0 "$RC"
