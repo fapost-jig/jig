@@ -40,9 +40,11 @@ CLIPPY_LABEL="lint (cargo clippy)"
 TEST_LABEL="tests (cargo test)"
 
 if [ "${JIG_VERIFY_EXPLAIN:-}" != 1 ] && ! jp_have cargo; then
-  jp_skip "$FMT_LABEL" "cargo not found on PATH"
-  jp_skip "$CLIPPY_LABEL" "cargo not found on PATH"
-  jp_skip "$TEST_LABEL" "cargo not found on PATH"
+  # A check another profile took over, or a layer dropped, says so, not that
+  # cargo is missing: jp_covered is asked before the tool is.
+  jp_covered style "$FMT_LABEL" || jp_skip "$FMT_LABEL" "cargo not found on PATH"
+  jp_covered lint "$CLIPPY_LABEL" || jp_skip "$CLIPPY_LABEL" "cargo not found on PATH"
+  jp_covered tests "$TEST_LABEL" || jp_skip "$TEST_LABEL" "cargo not found on PATH"
   jp_end
 fi
 

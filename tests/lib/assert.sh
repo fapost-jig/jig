@@ -619,12 +619,12 @@ skip_unless_link_simulation() {
 
 # profile_checks_env <profile-dir> — export JIG_VERIFY_CHECKS as `jig verify`
 # would for that profile, so a test that runs its verify.sh directly hands it the
-# check table the same producer builds (profiles_check_handdown); unset when the
+# check table the same producer builds (profiles_check_merged, no layers); unset when the
 # profile has no table rows. The file sits beside the test's directory and is
 # removed with it.
 profile_checks_env() {
   local f="${JIG_TEST_TMP:?}.checks"
-  bash -c '. "$1/scripts/lib/profiles.sh" && profiles_check_handdown "$2"' _ "$ROOT" "$1" > "$f" \
+  bash -c '. "$1/scripts/lib/profiles.sh" && profiles_check_merged "$2" ""' _ "$ROOT" "$1" > "$f" \
     || fail "profile_checks_env: cannot read the check table of $1"
   if [ -s "$f" ]; then
     JIG_VERIFY_CHECKS="$f"

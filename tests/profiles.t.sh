@@ -498,10 +498,11 @@ test_profiles_check_table_rejects_a_bad_role() {
   _table_rejects "role '' must be" 'checks: [tests]' 'checks..full: x'
 }
 
-test_profiles_check_table_rejects_an_unknown_field_and_reserves_drop() {
+test_profiles_check_table_rejects_an_unknown_field_and_a_drop_with_no_base() {
   fixture_repo
   _table_rejects "unknown field 'ful'" 'checks: [tests]' 'checks.tests.ful: x'
-  _table_rejects "field 'drop' is reserved" 'checks: [tests]' 'checks.tests.drop: true'
+  _table_rejects "field 'drop' removes the check of a base; role 'tests' is not one of a base's" \
+    'checks: [tests]' 'checks.tests.drop: true'
   _table_rejects "the key must be checks.<role>.<field>" 'checks: [tests]' 'checks.tests: x'
 }
 
@@ -584,6 +585,240 @@ test_profiles_check_rows_is_empty_without_a_table() {
   _table_lint 'checks: [tests]'
   profiles_harness 'profiles_check_rows "$PWD/fx"'
   assert_eq 0 "$RC"
+  assert_eq "" "$OUT"
+}
+
+# _table_layer_lint <base-roles> <note> <profile.yaml line>... — lint a fixture
+# layer's profile.yaml the way `jig verify` does: the roles of its bases handed in.
+_table_layer_lint() {
+  local roles="$1" note="$2" l
+  shift 2
+  mkdir -p fx
+  : > fx/profile.yaml
+  for l in "$@"; do printf '%s\n' "$l" >> fx/profile.yaml; done
+  profiles_harness 'profiles_check_table "$PWD/fx" "'"$roles"'" "'"$note"'"'
+}
+
+test_profiles_check_table_a_layer_writes_the_roles_of_its_bases_and_drops_them() {
+  fixture_repo
+  _table_layer_lint "tests manifest" "top's chain (php)" \
+    'extends: php' 'checks.tests.full: --fast' 'checks.manifest.drop: true  # not here'
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "" "$OUT"
+}
+
+test_profiles_check_table_a_role_in_no_chain_names_the_chain() {
+  fixture_repo
+  _table_layer_lint "tests" "top's chain (php)" 'extends: php' 'checks.nope.full: x'
+  assert_eq 1 "$RC"
+  assert_eq "2: role 'nope' is in no checks: of top's chain (php)" "$OUT"
+}
+
+test_profiles_check_table_drop_is_exactly_true_and_alone_in_its_role() {
+  fixture_repo
+  _table_layer_lint "tests" "n" 'checks.tests.drop: false'
+  assert_eq "1: drop must be exactly true" "$OUT"
+  _table_layer_lint "tests" "n" 'checks.tests.drop:'
+  assert_eq "1: drop must be exactly true" "$OUT"
+  _table_layer_lint "tests" "n" 'checks.tests.drop: true' 'checks.tests.full: --x'
+  assert_eq "2: checks.tests.drop cannot be combined with another field of tests" "$OUT"
+  _table_layer_lint "tests" "n" 'checks.tests.full: --x' 'checks.tests.drop: true'
+  assert_eq "2: checks.tests.drop cannot be combined with another field of tests" "$OUT"
+  _table_layer_lint "tests" "n" 'checks.tests.drop: true' 'checks.tests.drop: true'
+  assert_eq "2: checks.tests.drop is set twice" "$OUT"
+}
+
+test_profiles_check_table_a_layer_still_cannot_drop_its_own_role() {
+  fixture_repo
+  _table_layer_lint "manifest" "n" 'checks: [tests]' 'checks.tests.drop: true'
+  assert_eq "2: field 'drop' removes the check of a base; role 'tests' is not one of a base's" "$OUT"
+}
+
+test_profiles_check_rows_with_lines_leads_each_row_with_its_line_number() {
+  fixture_repo
+  _table_lint 'checks: [tests, lint]' 'name: x' 'checks.tests.full: a' '' 'checks.lint.drop: true'
+  profiles_harness 'profiles_check_rows "$PWD/fx" --lines'
+  assert_eq "3	tests	full	a
+5	lint	drop	true" "$OUT"
+}
+
+# --- layer overrides: profiles_check_layers, profiles_check_overrides_v, profiles_check_merged ----
+
+# _lp <name> <verify|pure> <profile.yaml line>... — a profile under ./root;
+# `verify` gives it a verify.sh, `pure` none.
+_lp() {
+  local name="$1" kind="$2" l
+  shift 2
+  mkdir -p "root/$name"
+  { printf 'name: %s\n' "$name"; for l in "$@"; do printf '%s\n' "$l"; done; } > "root/$name/profile.yaml"
+  [ "$kind" != verify ] || printf '#!/usr/bin/env bash\nexit 0\n' > "root/$name/verify.sh"
+}
+
+# _layers_fixture — php (tests, manifest; tests narrows), laravel over php with
+# its own tests (command), and warehouse, a pure layer, over laravel.
+_layers_fixture() {
+  fixture_repo
+  _lp php verify 'checks: [tests, manifest]' 'checks.tests.command: phpunit' \
+    'checks.tests.narrowed: {selection}' 'checks.manifest.command: composer' 'checks.manifest.full: validate'
+  _lp laravel verify 'extends: php' 'checks: [lint]' 'checks.lint.command: pint' 'checks.lint.full: --test'
+  _lp warehouse pure 'extends: laravel'
+}
+
+# _layers <names>... — profiles_check_layers over the fixture with the edges of
+# warehouse > laravel > php.
+_layers() {
+  profiles_harness 'e=$(printf "warehouse\tlaravel\nlaravel\tphp\n"); profiles_check_layers "$PWD/root" "$e" '"$*"
+}
+
+test_profiles_check_layers_passes_a_layer_with_rows_for_its_chain() {
+  _layers_fixture
+  printf 'checks.lint.full: --dirty\nchecks.tests.full: --x\nchecks.tests.narrowed: --y {selection}\nchecks.manifest.drop: true\n' \
+    >> root/warehouse/profile.yaml
+  _layers warehouse laravel php
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "" "$OUT"
+}
+
+test_profiles_check_layers_names_the_first_problem_of_each_layer_with_its_line() {
+  _layers_fixture
+  printf 'checks.nope.full: x\n' >> root/warehouse/profile.yaml
+  _layers warehouse laravel php
+  assert_eq 1 "$RC"
+  assert_eq "warehouse	3	role 'nope' is in no checks: of warehouse's chain (laravel, php)" "$OUT"
+}
+
+test_profiles_check_layers_refuses_a_checks_list_on_a_pure_layer() {
+  _layers_fixture
+  printf 'checks: [tests]\n' >> root/warehouse/profile.yaml
+  _layers warehouse laravel php
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "warehouse	3	a layer with no verify.sh runs no check of its own, so checks: must be empty"
+  # an empty list is nothing
+  printf 'name: warehouse\nextends: laravel\nchecks: []\n' > root/warehouse/profile.yaml
+  _layers warehouse laravel php
+  assert_eq 0 "$RC" "$OUT"
+}
+
+test_profiles_check_layers_refuses_a_base_that_reads_no_table() {
+  _layers_fixture
+  _lp bare verify 'checks: [tests]'
+  _lp over pure 'extends: bare' 'checks.tests.full: --x'
+  profiles_harness 'e=$(printf "over\tbare\n"); profiles_check_layers "$PWD/root" "$e" over bare'
+  assert_eq 1 "$RC"
+  assert_eq "over	3	bare declares no check table; an override of bare:tests would not be read" "$OUT"
+}
+
+test_profiles_check_layers_refuses_narrowed_for_a_check_the_base_never_narrows() {
+  _layers_fixture
+  printf 'checks.manifest.narrowed: {selection}\n' >> root/warehouse/profile.yaml
+  _layers warehouse laravel php
+  assert_eq 1 "$RC"
+  assert_eq "warehouse	3	php:manifest does not narrow; a narrowed override would never be read" "$OUT"
+}
+
+test_profiles_check_layers_refuses_two_branches_changing_one_role() {
+  _layers_fixture
+  _lp shop pure 'extends: laravel' 'checks.lint.full: --a'
+  _lp depot pure 'extends: laravel' 'checks.lint.full: --b'
+  profiles_harness 'e=$(printf "shop\tlaravel\ndepot\tlaravel\nlaravel\tphp\n"); profiles_check_layers "$PWD/root" "$e" shop depot laravel php'
+  assert_eq 1 "$RC"
+  assert_eq "depot	3	shop and depot both override laravel:lint; laravel runs once, so one of them would be ignored" "$OUT"
+}
+
+test_profiles_check_layers_lets_a_layer_and_the_one_over_it_change_one_role() {
+  _layers_fixture
+  printf 'checks.lint.full: --a\n' >> root/laravel/profile.yaml
+  _lp mid pure 'extends: php' 'checks.tests.full: --a'
+  _lp top pure 'extends: mid' 'checks.tests.full: --b'
+  profiles_harness 'e=$(printf "top\tmid\nmid\tphp\n"); profiles_check_layers "$PWD/root" "$e" top mid php'
+  assert_eq 0 "$RC" "$OUT"
+}
+
+test_profiles_check_overrides_v_the_top_layer_wins_field_by_field() {
+  _layers_fixture
+  _lp mid pure 'extends: php' 'checks.tests.full: --mid' 'checks.tests.narrowed: --mid {selection}'
+  _lp top pure 'extends: mid' 'checks.tests.full: --top' 'checks.manifest.drop: true'
+  profiles_harness 'e=$(printf "top\tmid\nmid\tphp\n"); profiles_check_overrides_v o "$PWD/root/php" "$e"; printf "%s\n" "$o"'
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "tests	narrowed	--mid {selection}	mid
+tests	full	--top	top
+manifest	drop	true	top" "$OUT"
+}
+
+test_profiles_check_overrides_v_a_layer_outside_the_edges_changes_nothing() {
+  _layers_fixture
+  _lp top pure 'extends: php' 'checks.tests.full: --top'
+  profiles_harness 'profiles_check_overrides_v o "$PWD/root/php" ""; printf "[%s]\n" "$o"'
+  assert_eq "[]" "$OUT"
+  profiles_harness 'e=$(printf "other\tphp\n"); profiles_check_overrides_v o "$PWD/root/php" "$e"; printf "[%s]\n" "$o"'
+  assert_eq "[]" "$OUT"
+}
+
+test_profiles_check_overrides_v_a_drop_outlasts_a_field_of_the_layer_above() {
+  _layers_fixture
+  _lp mid pure 'extends: php' 'checks.tests.drop: true'
+  _lp top pure 'extends: mid' 'checks.tests.full: --top'
+  profiles_harness 'e=$(printf "top\tmid\nmid\tphp\n"); profiles_check_overrides_v o "$PWD/root/php" "$e"; printf "%s\n" "$o"'
+  assert_eq "tests	drop	true	mid" "$OUT"
+}
+
+test_profiles_check_merged_without_layers_is_the_table_as_written() {
+  _layers_fixture
+  profiles_harness 'profiles_check_merged "$PWD/root/php" ""'
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "tests	listed	
+manifest	listed	
+tests	command	phpunit
+tests	narrowed	{selection}
+manifest	command	composer
+manifest	full	validate" "$OUT"
+  profiles_harness 'profiles_check_handdown "$PWD/root/php"'
+  assert_contains "$OUT" "manifest	full	validate"
+}
+
+test_profiles_check_merged_lays_the_fields_of_the_layers_over_the_bases_own() {
+  _layers_fixture
+  _lp top pure 'extends: php' 'checks.tests.full: --fast' 'checks.tests.command: pest' 'checks.manifest.full: []'
+  profiles_harness 'e=$(printf "top\tphp\n"); profiles_check_merged "$PWD/root/php" "$e"'
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "tests	listed	
+manifest	listed	
+tests	command	pest
+tests	narrowed	{selection}
+manifest	command	composer
+manifest	full	[]
+tests	full	--fast" "$OUT"
+}
+
+test_profiles_check_merged_a_dropped_role_has_one_drop_row_and_no_fields() {
+  _layers_fixture
+  _lp top pure 'extends: php' 'checks.manifest.drop: true'
+  profiles_harness 'e=$(printf "top\tphp\n"); profiles_check_merged "$PWD/root/php" "$e"'
+  assert_eq "tests	listed	
+manifest	listed	
+tests	command	phpunit
+tests	narrowed	{selection}
+manifest	drop	top" "$OUT"
+}
+
+test_profiles_check_merged_reaches_a_base_through_a_layer_with_its_own_table() {
+  _layers_fixture
+  # warehouse over laravel over php: `tests` is php's, `lint` laravel's.
+  printf 'checks.tests.full: --wh\nchecks.lint.full: --wh-lint\n' >> root/warehouse/profile.yaml
+  profiles_harness 'e=$(printf "warehouse\tlaravel\nlaravel\tphp\n"); profiles_check_merged "$PWD/root/php" "$e"'
+  assert_contains "$OUT" "tests	full	--wh"
+  assert_not_contains "$OUT" "wh-lint"
+  profiles_harness 'e=$(printf "warehouse\tlaravel\nlaravel\tphp\n"); profiles_check_merged "$PWD/root/laravel" "$e"'
+  assert_contains "$OUT" "lint	full	--wh-lint"
+  assert_not_contains "$OUT" "--wh$"
+  # laravel's own table holds its own role only: php's rows are not its to read
+  assert_not_contains "$OUT" "phpunit"
+}
+
+test_profiles_check_merged_prints_nothing_for_a_profile_without_rows() {
+  _layers_fixture
+  _lp bare verify 'checks: [tests]'
+  profiles_harness 'profiles_check_merged "$PWD/root/bare" ""'
   assert_eq "" "$OUT"
 }
 

@@ -28,7 +28,7 @@ Goal: a profile extends another and changes only what differs. Done when: the wa
 project layer of a few lines over stock `laravel`, and `laravel` no longer copies `php`'s narrowing.
 
 - [x] `layer-stacks-resolve` — Layer stacks resolve — `profiles:` lists top layers; Jig resolves the bases through `extends`, installs and upgrades them, runs each once, fails on a missing base and on a project layer taking a stock name
-- [ ] `layer-overrides-a-check` — A layer overrides a check — a layer above changes a check's arguments or drops it by role name, and `--explain` names the layer that did (after: Stock profiles declare their checks — overrides need names to aim at; after: Layer stacks resolve — a project layer must sit on its base)
+- [x] `layer-overrides-a-check` — A layer overrides a check — a layer above changes a check's arguments or drops it by role name, and `--explain` names the layer that did (after: Stock profiles declare their checks — overrides need names to aim at; after: Layer stacks resolve — a project layer must sit on its base)
 - [ ] `laravel` builds on `php` — `laravel` extends `php`, overrides `php:tests` with `artisan test`, its copied narrowing removed, and the Phase 1 fix retired (after: A layer overrides a check — this is the first stock use of it)
 - [ ] fog: function overrides — reached only by a real case the check table cannot express; none is known
 

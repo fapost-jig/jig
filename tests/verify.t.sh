@@ -3573,34 +3573,370 @@ test_verify_list_shows_layers_and_bases() {
   assert_contains "$OUT" "base: installed (base of top)"
 }
 
-# A layer's own check rows are for "A layer overrides a check"; until it lands
-# they would do nothing, and a pass must not hide that.
-test_verify_refuses_a_layer_with_check_table_rows() {
-  fixture_repo
-  jig init --from "$JIG_HOME" --profiles generic >/dev/null
-  _fixture_stack_base base
-  _fixture_stack_layer top base 'checks: [tests]' 'checks.tests.args: [--fast]'
-  run jig verify --profile top
-  assert_eq 1 "$RC"
-  assert_contains "$OUT" "FAIL top: profile.yaml:4: a layer's check overrides arrive with a later task (A layer overrides a check); remove the checks.* lines"
-  assert_no_file base.ran
-
-  run jig verify --explain --profile top
-  assert_eq 1 "$RC"
-  assert_contains "$OUT" "PLAN top: error (profile.yaml:4: a layer's check overrides"
-}
-
-test_verify_accepts_the_plain_checks_list_on_a_layer_and_check_rows_on_a_base() {
+test_verify_accepts_check_table_rows_on_a_base_and_a_layer_over_it() {
   fixture_repo
   jig init --from "$JIG_HOME" --profiles generic >/dev/null
   _fixture_stack_base base
   # A base's rows in the check table's own format (schemas/profile.md, Check
   # table): a role its checks list names, a known field.
   printf 'checks: [tests]\nchecks.tests.full: --fast\n' >> .ai/profiles/base/profile.yaml
-  _fixture_stack_layer top base 'checks: [tests]'
+  _fixture_stack_layer top base
   run jig verify --profile top
   assert_eq 0 "$RC"
   assert_contains "$OUT" "RESULT base: pass"
+}
+
+# --- a layer overrides a check of its base (adr-20261118-a-layer-overrides-its-bases-checks-by-role) --
+
+# _fixture_override_base <name> [<extra profile.yaml line>...] — a profile with a
+# check table of two roles that asks the library for each check's command line
+# and reports it, as `<name>: <role>: pass (cmd <words>)` (a `PLAN … full (cmd
+# <words>)` under --explain). BASE_MODE=narrowed asks `tests` for its narrowed
+# line, with the selection `s1 s2`.
+_fixture_override_base() {
+  local name="$1" line
+  shift
+  mkdir -p ".ai/profiles/$name"
+  {
+    printf 'name: %s\nscope: [explain]\nchecks: [tests, lint]\n' "$name"
+    printf 'checks.tests.command: run-tests\nchecks.tests.full: --all\n'
+    printf 'checks.tests.narrowed: --some {selection}\n'
+    printf 'checks.lint.command: lint\n'
+    for line in "$@"; do printf '%s\n' "$line"; done
+  } > ".ai/profiles/$name/profile.yaml"
+  cat > ".ai/profiles/$name/verify.sh" <<EOS
+#!/usr/bin/env bash
+. "\$(dirname "\$0")/../../scripts/lib/profile.sh"
+jp_begin $name
+for role in tests lint; do
+  jp_covered "\$role" "\$role" && continue
+  mode=full
+  [ "\$role" = tests ] && mode=\${BASE_MODE:-full}
+  jp_check_cmd "\$role" "\$role" "\$mode" -- s1 s2 || continue
+  if [ -n "\${JIG_VERIFY_EXPLAIN:-}" ]; then
+    jp_plan "\$role" full "cmd \${JP_CMD[*]}"
+  else
+    jp_pass "\$role" "cmd \${JP_CMD[*]}"
+  fi
+done
+[ -z "\${JIG_VERIFY_EXPLAIN:-}" ] || exit 0
+jp_end
+EOS
+}
+
+# _override_project <layer-line>... — a base and a pure layer `top` over it, the
+# layer's profile.yaml lines given.
+_override_project() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_override_base base
+  _fixture_stack_layer top base "$@"
+}
+
+test_verify_a_layer_overrides_the_arguments_of_a_base_check_and_names_itself() {
+  _override_project 'checks.tests.full: --fast'
+  run jig verify --profile top
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "base: tests: pass (cmd run-tests --fast)"
+  # the field it left alone, and the other role, are the base's
+  assert_contains "$OUT" "base: lint: pass (cmd lint)"
+  assert_contains "$OUT" "verify: base:tests: full from top"
+  assert_not_contains "$OUT" "verify: base:lint"
+  # said before the base's own lines
+  local said=${OUT%%"base: tests"*}
+  assert_contains "$said" "verify: base:tests: full from top"
+}
+
+test_verify_a_layer_overrides_narrowed_command_and_erases_with_empty_brackets() {
+  _override_project 'checks.tests.narrowed: --pick {selection}' 'checks.lint.command: other-lint' \
+    'checks.lint.full: []'
+  BASE_MODE=narrowed run jig verify --profile top
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "base: tests: pass (cmd run-tests --pick s1 s2)"
+  assert_contains "$OUT" "base: lint: pass (cmd other-lint)"
+  assert_contains "$OUT" "verify: base:tests: narrowed from top"
+  assert_contains "$OUT" "verify: base:lint: command, full from top"
+
+  # `full: []` erases the base's `--all`.
+  rm -rf .ai/profiles/top
+  _fixture_stack_layer top base 'checks.tests.full: []'
+  run jig verify --profile top
+  assert_contains "$OUT" "base: tests: pass (cmd run-tests)"
+}
+
+test_verify_explain_shows_a_layers_override_and_runs_nothing() {
+  _override_project 'checks.tests.full: --fast'
+  run jig verify --explain --profile top
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "verify: base:tests: full from top"
+  assert_contains "$OUT" "PLAN base: tests: full (cmd run-tests --fast)"
+  assert_contains "$OUT" "PLAN base: lint: full (cmd lint)"
+  assert_no_file base.ran
+}
+
+test_verify_a_layer_drops_a_check_in_a_run_and_in_a_preview() {
+  _override_project 'checks.tests.drop: true'
+  run jig verify --profile top
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "base: tests: skip (scope: dropped by top, base:tests)"
+  assert_contains "$OUT" "base: lint: pass (cmd lint)"
+  assert_not_contains "$OUT" "run-tests"
+  # a drop is named by the check's own skip, not by a line of verify:
+  assert_not_contains "$OUT" "verify: base:tests"
+
+  run jig verify --explain --profile top
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN base: tests: skip (scope: dropped by top, base:tests)"
+  assert_contains "$OUT" "PLAN base: lint: full (cmd lint)"
+}
+
+test_verify_two_layers_in_a_chain_win_field_by_field_and_both_are_named() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_override_base base
+  _fixture_stack_layer mid base 'checks.tests.full: --mid' 'checks.tests.narrowed: --mid {selection}'
+  _fixture_stack_layer top mid 'checks.tests.full: --top'
+  run jig verify --profile top
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "base: tests: pass (cmd run-tests --top)"
+  assert_contains "$OUT" "verify: base:tests: full from top; narrowed from mid"
+  BASE_MODE=narrowed run jig verify --profile top
+  assert_contains "$OUT" "base: tests: pass (cmd run-tests --mid s1 s2)"
+  # the layer under the top one alone: its own full
+  run jig verify --profile mid
+  assert_contains "$OUT" "base: tests: pass (cmd run-tests --mid)"
+  assert_contains "$OUT" "verify: base:tests: full, narrowed from mid"
+}
+
+test_verify_refuses_a_field_or_a_drop_over_a_role_a_lower_layer_dropped() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_override_base base
+  _fixture_stack_layer mid base 'checks.tests.drop: true'
+  _fixture_stack_layer top mid 'checks.tests.full: --top'
+  run jig verify --profile top
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "FAIL top: profile.yaml:3: base:tests is dropped by mid; an override here would never be read"
+  assert_not_contains "$OUT" "RESULT"
+  run jig verify --explain --profile top
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN top: error (profile.yaml:3: base:tests is dropped by mid; an override here would never be read)"
+
+  # a second drop of the same role is refused for the same reason
+  _fixture_stack_layer top mid 'checks.tests.drop: true'
+  run jig verify --profile top
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "FAIL top: profile.yaml:3: base:tests is dropped by mid"
+
+  # the lower layer alone is fine, and a role it left alone can still be changed above it
+  _fixture_stack_layer top mid 'checks.lint.command: other-lint'
+  run jig verify --profile top
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "base: tests: skip (scope: dropped by mid, base:tests)"
+  assert_contains "$OUT" "base: lint: pass (cmd other-lint)"
+}
+
+# --- a run whose checks were all dropped ------------------------------------------
+
+test_verify_a_profile_whose_every_check_was_dropped_is_named_not_blamed_on_tools() {
+  _override_project 'checks.tests.drop: true' 'checks.lint.drop: true'
+  # a full run streams live and reads no output: the gap ending, as ever, exit 3
+  run jig verify --full --profile top
+  assert_eq 3 "$RC" "$OUT"
+  assert_contains "$OUT" "verify: nothing was checked, so this is not a pass — every check of base was dropped by top; nothing verified it"
+  assert_not_contains "$OUT" "install the project's tools"
+
+  # narrowed to changed files: the exit code and the ending are what they were
+  # (every skip names a scope), and the dropped checks are said beside it
+  sed 's/^scope: .*/scope: [changed, explain]/' .ai/profiles/base/profile.yaml > base.yaml
+  cp base.yaml .ai/profiles/base/profile.yaml
+  printf 'x\n' > changed.txt
+  run jig verify --changed --profile top
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "verify: every check of base was dropped by top; nothing verified it"
+  assert_not_contains "$OUT" "so this is not a pass"
+  assert_contains "$OUT" "this change touches nothing any profile covers"
+}
+
+# A covered profile whose checks all skip by scope beside a fully dropped base,
+# on a change that touches neither: no refusal, as before.
+test_verify_a_dropped_base_beside_a_scope_skipping_profile_does_not_refuse_a_narrowed_run() {
+  _override_project 'checks.tests.drop: true' 'checks.lint.drop: true'
+  sed 's/^scope: .*/scope: [changed, explain]/' .ai/profiles/base/profile.yaml > base.yaml
+  cp base.yaml .ai/profiles/base/profile.yaml
+  mkdir -p .ai/profiles/other
+  printf 'name: other\nscope: [changed]\n' > .ai/profiles/other/profile.yaml
+  printf '#!/usr/bin/env bash\necho "other: tests: skip (scope: changed, nothing in scope)"\nexit 2\n' > .ai/profiles/other/verify.sh
+  printf 'profiles: [generic, top, other]\nadapters: [claude, codex]\n' > .ai/config.yaml
+  printf 'x\n' > notes.md
+  run jig verify --changed
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "verify: every check of base was dropped by top; nothing verified it"
+  assert_contains "$OUT" "this change touches nothing any profile covers"
+  assert_not_contains "$OUT" "so this is not a pass"
+}
+
+test_verify_dropping_only_some_checks_still_passes() {
+  _override_project 'checks.tests.drop: true'
+  run jig verify --full --profile top
+  assert_eq 0 "$RC" "$OUT"
+  assert_not_contains "$OUT" "was dropped by"
+}
+
+test_verify_a_base_named_alone_gets_no_layers_overrides() {
+  _override_project 'checks.tests.full: --fast'
+  run jig verify --profile base
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "base: tests: pass (cmd run-tests --all)"
+  assert_not_contains "$OUT" "from top"
+}
+
+test_verify_two_branches_over_one_base_changing_one_role_are_refused() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_override_base base
+  _fixture_stack_layer a base 'checks.tests.full: --a'
+  _fixture_stack_layer b base 'checks.tests.full: --b'
+  printf 'profiles: [generic, a, b]\nadapters: [claude, codex]\n' > .ai/config.yaml
+  run jig verify
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "FAIL b: profile.yaml:3: a and b both override base:tests; base runs once, so one of them would be ignored"
+  assert_not_contains "$OUT" "RESULT"
+  run jig verify --explain
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN b: error (profile.yaml:3: a and b both override base:tests"
+
+  # different roles merge: the base runs with both layers' fields
+  _fixture_stack_layer b base 'checks.lint.command: other-lint'
+  run jig verify
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "base: tests: pass (cmd run-tests --a)"
+  assert_contains "$OUT" "base: lint: pass (cmd other-lint)"
+  assert_contains "$OUT" "verify: base:tests: full from a"
+  assert_contains "$OUT" "verify: base:lint: command from b"
+}
+
+# _layer_refused <reason> <layer-line>... — `top` over `base` with those lines
+# fails the whole run, in a run and in a preview, and nothing ran.
+_layer_refused() {
+  local want="$1"
+  shift
+  rm -rf .ai/profiles/top
+  _fixture_stack_layer top base "$@"
+  rm -f base.ran
+  run jig verify --profile top
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "FAIL top: profile.yaml:"
+  assert_contains "$OUT" "$want"
+  assert_not_contains "$OUT" "RESULT"
+  assert_no_file base.ran
+  run jig verify --explain --profile top
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "PLAN top: error (profile.yaml:"
+  assert_contains "$OUT" "$want"
+  assert_not_contains "$OUT" "PLAN base"
+}
+
+test_verify_refuses_a_layer_whose_override_cannot_work() {
+  _override_project
+  _layer_refused "role 'nope' is in no checks: of top's chain (base)" 'checks.nope.full: --x'
+  _layer_refused "drop must be exactly true" 'checks.tests.drop: false'
+  _layer_refused "checks.tests.drop cannot be combined with another field of tests" \
+    'checks.tests.drop: true' 'checks.tests.full: --x'
+  _layer_refused "command cannot be []" 'checks.tests.command: []'
+  # a pure layer lists no checks of its own, even an empty-looking one
+  _layer_refused "a layer with no verify.sh runs no check of its own, so checks: must be empty" \
+    'checks: [tests]'
+}
+
+test_verify_refuses_an_override_of_a_base_without_a_table_or_a_narrowed_field() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_override_base base
+  _layer_refused "base:lint does not narrow; a narrowed override would never be read" \
+    'checks.lint.narrowed: {selection}'
+
+  # a base that lists the role but declares no table: its verify.sh would not read one
+  _fixture_stack_base plain
+  printf 'checks: [tests]\n' >> .ai/profiles/plain/profile.yaml
+  rm -rf .ai/profiles/top
+  _fixture_stack_layer top plain 'checks.tests.full: --x'
+  rm -f plain.ran
+  run jig verify --profile top
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "FAIL top: profile.yaml:3: plain declares no check table; an override of plain:tests would not be read"
+  assert_no_file plain.ran
+}
+
+test_verify_a_layer_cannot_override_a_base_role_it_shares_a_name_with() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_override_base base
+  # `top` has its own verify.sh and its own `tests`: its rows are its own table,
+  # and the base's `tests` is out of reach (schemas/profile.md, Layer overrides).
+  _fixture_override_base top
+  printf 'name: top\nextends: base\nscope: [explain]\nchecks: [tests, lint]\n' > .ai/profiles/top/profile.yaml
+  printf 'checks.tests.command: own-tests\nchecks.tests.full: --own\nchecks.lint.command: own-lint\n' \
+    >> .ai/profiles/top/profile.yaml
+  run jig verify --profile top
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "top: tests: pass (cmd own-tests --own)"
+  assert_contains "$OUT" "base: tests: pass (cmd run-tests --all)"
+  assert_not_contains "$OUT" "verify: base:tests"
+}
+
+# --- covers and overrides ---------------------------------------------------------
+
+# _cover_override_project — `up` covers `low:tests`; `warehouse` is a pure layer
+# over `up`. Both bases have a table and stand their checks down through the
+# library.
+_cover_override_project() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_override_base up 'covers: [low:tests]'
+  _fixture_override_base low
+  _fixture_stack_layer warehouse up
+  printf 'profiles: [generic, warehouse, low]\nadapters: [claude, codex]\n' > .ai/config.yaml
+}
+
+test_verify_a_dropped_check_covers_nothing_and_the_lower_profile_runs_it() {
+  _cover_override_project
+  run jig verify
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "low: tests: skip (scope: covered by up, low:tests)"
+  assert_contains "$OUT" "up: tests: pass (cmd run-tests --all)"
+
+  _fixture_stack_layer warehouse up 'checks.tests.drop: true'
+  run jig verify
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "verify: up:tests is dropped by warehouse, so up no longer covers low:tests; low runs it"
+  assert_contains "$OUT" "up: tests: skip (scope: dropped by warehouse, up:tests)"
+  assert_contains "$OUT" "low: tests: pass (cmd run-tests --all)"
+  assert_not_contains "$OUT" "covered by up"
+
+  run jig verify --explain
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "verify: up:tests is dropped by warehouse, so up no longer covers low:tests; low runs it"
+  assert_contains "$OUT" "PLAN up: tests: skip (scope: dropped by warehouse, up:tests)"
+  assert_contains "$OUT" "PLAN low: tests: full (cmd run-tests --all)"
+}
+
+test_verify_warns_of_an_override_of_a_check_another_profile_covers() {
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  _fixture_override_base up 'covers: [low:tests]'
+  _fixture_override_base low
+  _fixture_stack_layer shop low 'checks.tests.full: --x'
+  printf 'profiles: [generic, up, shop]\nadapters: [claude, codex]\n' > .ai/config.yaml
+  run jig verify
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "verify: warning: shop overrides low:tests, but up runs it in this run (covers), so the override has no effect"
+  assert_contains "$OUT" "low: tests: skip (scope: covered by up, low:tests)"
+
+  # the cover does not hold with `up` out of the run: no warning, the override works
+  run jig verify --profile shop
+  assert_not_contains "$OUT" "warning: shop overrides"
+  assert_contains "$OUT" "low: tests: pass (cmd run-tests --x)"
 }
 
 # --- the shell profile's check table (adr-20261117-a-profile-declares-its-checks-in-a-table) --

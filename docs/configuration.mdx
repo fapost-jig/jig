@@ -452,8 +452,23 @@ extends: laravel
 The layer runs before its base. A base that is not installed, a cycle, a list after `extends`, or
 a profile of your own that has the name of a stock one is refused by `jig verify` and
 `jig upgrade` before anything runs or is placed. A layer that is only a `profile.yaml`, with no
-`verify.sh`, is fine: `jig verify` says its checks run in its bases. A layer cannot yet change a
-check of its base (`checks.*` rows are refused until that arrives).
+`verify.sh`, is fine: `jig verify` says its checks run in its bases.
+
+A layer can change a check of its base with `checks.<role>.<field>` lines, without naming the
+base: `full` and `narrowed` are the words of a full and of a narrowed run, `command` the program,
+`drop: true` removes the check. A line you do not write keeps the base's.
+
+```yaml
+# .ai/profiles/warehouse/profile.yaml
+name: warehouse
+extends: laravel
+checks.tests.full: --parallel --functional
+checks.tests.narrowed: --compact {selection}
+```
+
+`jig verify` names the layer before the base's own lines (`verify: laravel:tests: full, narrowed
+from warehouse`), and a mistake in a layer's lines refuses the whole run before anything runs.
+The rules are in `schemas/profile.md`, **Layer overrides**.
 
 ### Where checks run
 

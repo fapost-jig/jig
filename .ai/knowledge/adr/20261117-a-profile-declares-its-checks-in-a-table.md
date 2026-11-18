@@ -45,7 +45,8 @@ table line stays valid. The fields are `command` (absent: the profile chooses it
 (the arguments of a full run, and of a narrowed run that falls back to the full set; absent: none) and
 `narrowed` (the arguments of a narrowed run, with `{selection}`; absent: the check does not narrow by
 selection). `drop` is reserved for a layer that removes a check and is refused by the linter until it
-is implemented, so it never silently does nothing.
+is implemented, so it never silently does nothing. (Implemented, with a layer's rows naming a base's role, by
+adr-20261118-a-layer-overrides-its-bases-checks-by-role.)
 
 **D2. A value is plain words.** Split on blanks, never globbed, the grammar of `run.exec`; no quotes
 `"` `'`, `$`, backtick or backslash; `#` starts a comment. `[]` is an explicit empty list of words and

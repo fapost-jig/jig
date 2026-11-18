@@ -163,20 +163,31 @@ _profiles_check_err() {
 # override that does nothing; `jig verify` runs it and fails the profile.
 #
 # Checked: a role that `checks:` does not list, a role outside `[a-z0-9_-]`, an
-# unknown field (`drop` is reserved and refused until it is implemented), a key
-# set twice (the reader would take the first and drop the rest), an indented
-# `checks.` key (invisible to the reader), a character the word grammar forbids
-# (`"` `'` `$` backtick backslash), an empty value (`[]` is the explicit empty),
-# `command: []`, and `{selection}` — exactly once, as a whole word, in
-# `narrowed` and nowhere else.
+# unknown field, a key set twice (the reader would take the first and drop the
+# rest), an indented `checks.` key (invisible to the reader), a character the
+# word grammar forbids (`"` `'` `$` backtick backslash), an empty value (`[]` is
+# the explicit empty), `command: []`, and `{selection}` — exactly once, as a
+# whole word, in `narrowed` and nowhere else.
+#
+# A layer's table (adr-20261118-a-layer-overrides-its-bases-checks-by-role)
+# passes <base-roles>, space-separated: the roles of its bases it may write
+# beside its own. Only for those is `drop` a field, and its value is exactly
+# `true`, alone in its role; <note> names the chain in the error for a role
+# nobody in it lists. Without <base-roles> `drop` is refused: a profile with no
+# base has no check to remove.
 profiles_check_table() {
   local file="$1/profile.yaml" line n=0 key after role field value roles
-  local seen="" sub whole tmp w
-  local -a ws
+  local seen="" sub whole tmp w baser=$'\n' isbase dropped=$'\n' touched=$'\n'
+  local note="${3:-}"
+  local -a ws br
   local indented_re='^[[:space:]]+checks\.' role_re='^[a-z0-9_-]+$'
   local tok='{selection}'
   [ -f "$file" ] || return 0
   roles=$'\n'"$(_profiles_list_lines "$1" checks)"$'\n'
+  IFS=$' \t' read -r -a br <<EOF
+${2:-}
+EOF
+  for w in ${br[@]+"${br[@]}"}; do baser="$baser$w"$'\n'; done
   while IFS= read -r line || [ -n "$line" ]; do
     n=$((n + 1))
     line=${line%$'\r'}
@@ -199,22 +210,48 @@ profiles_check_table() {
     [[ $role =~ $role_re ]] \
       || _profiles_check_err "$n" "role '$role' must be lowercase letters, digits, '_' and '-'" || return 1
     case $field in
-      command|full|narrowed) ;;
-      drop) _profiles_check_err "$n" "field 'drop' is reserved and not implemented yet" || return 1 ;;
+      command|full|narrowed|drop) ;;
       *) _profiles_check_err "$n" "unknown field '$field' (command, full, narrowed)" || return 1 ;;
+    esac
+    isbase=0
+    case $baser in
+      *$'\n'"$role"$'\n'*) isbase=1 ;;
     esac
     case $roles in
       *$'\n'"$role"$'\n'*) ;;
-      *) _profiles_check_err "$n" "role '$role' is not listed in checks:" || return 1 ;;
+      *)
+        if [ "$isbase" = 0 ] && [ -n "$note" ]; then
+          _profiles_check_err "$n" "role '$role' is in no checks: of $note" || return 1
+        elif [ "$isbase" = 0 ]; then
+          _profiles_check_err "$n" "role '$role' is not listed in checks:" || return 1
+        fi
+        ;;
     esac
+    if [ "$field" = drop ] && [ "$isbase" = 0 ]; then
+      _profiles_check_err "$n" "field 'drop' removes the check of a base; role '$role' is not one of a base's" || return 1
+    fi
     case $seen in
       *$'\n'"$role.$field"$'\n'*) _profiles_check_err "$n" "checks.$role.$field is set twice" || return 1 ;;
     esac
     seen="$seen"$'\n'"$role.$field"$'\n'
+    case $dropped in
+      *$'\n'"$role"$'\n'*)
+        _profiles_check_err "$n" "checks.$role.drop cannot be combined with another field of $role" || return 1 ;;
+    esac
     value=${line#*:}
     value=${value%%#*}
     value=${value#"${value%%[![:space:]]*}"}
     value=${value%"${value##*[![:space:]]}"}
+    if [ "$field" = drop ]; then
+      [ "$value" = true ] || _profiles_check_err "$n" "drop must be exactly true" || return 1
+      case $touched in
+        *$'\n'"$role"$'\n'*)
+          _profiles_check_err "$n" "checks.$role.drop cannot be combined with another field of $role" || return 1 ;;
+      esac
+      dropped="$dropped$role"$'\n'
+      continue
+    fi
+    touched="$touched$role"$'\n'
     case $value in
       *\"*|*\'*|*\$*|*\`*|*\\*)
         _profiles_check_err "$n" "a value cannot contain quotes, \$, backtick or backslash" || return 1 ;;
@@ -252,15 +289,18 @@ EOF
   return 0
 }
 
-# profiles_check_rows <profile-dir> — the check table as `<role><TAB><field>
-# <TAB><value>` lines, the value as written (comment and outer blanks off, `[]`
-# kept), in file order. Prints nothing for a profile without a table. Call
+# profiles_check_rows <profile-dir> [--lines] — the check table as `<role><TAB>
+# <field><TAB><value>` lines, the value as written (comment and outer blanks
+# off, `[]` kept), in file order; with --lines each is led by its line number
+# in profile.yaml and a tab. Prints nothing for a profile without a table. Call
 # profiles_check_table first: a line it would refuse is not filtered here.
 profiles_check_rows() {
-  local file="$1/profile.yaml" line after role field value
+  local file="$1/profile.yaml" line after role field value n=0 lead=0
   local row_re='^checks\.([a-z0-9_-]+)\.([a-z]+):'
+  [ "${2:-}" != --lines ] || lead=1
   [ -f "$file" ] || return 0
   while IFS= read -r line || [ -n "$line" ]; do
+    n=$((n + 1))
     line=${line%$'\r'}
     [[ $line =~ $row_re ]] || continue
     role=${BASH_REMATCH[1]}
@@ -269,28 +309,363 @@ profiles_check_rows() {
     value=${value%%#*}
     value=${value#"${value%%[![:space:]]*}"}
     value=${value%"${value##*[![:space:]]}"}
+    [ "$lead" = 0 ] || printf '%s\t' "$n"
     printf '%s\t%s\t%s\n' "$role" "$field" "$value"
   done < "$file"
 }
 
-# profiles_check_handdown <profile-dir> — what `jig verify` hands a profile as
-# JIG_VERIFY_CHECKS: a `<role><TAB>listed<TAB>` row for every role in `checks`,
-# then the table's rows (profiles_check_rows). Prints nothing for a profile
-# without table rows: the rows are the declaration, and `checks: [tests]` alone
-# is not one. One producer, so a test that runs a profile's verify.sh directly
-# hands it the same file `jig verify` would.
-profiles_check_handdown() {
-  local rows listed role
-  rows=$(profiles_check_rows "$1")
-  [ -n "$rows" ] || return 0
-  listed=$(_profiles_list_lines "$1" checks)
-  while IFS= read -r role; do
-    [ -z "$role" ] || printf '%s\tlisted\t\n' "$role"
-  done <<EOF
-$listed
-EOF
-  printf '%s\n' "$rows"
+# --- layers over a check table -------------------------------------------------
+# A layer writes `checks.<role>.<field>` lines for the checks of its bases; the
+# role belongs to the first profile of the layer's chain (itself, then the
+# bases by `extends`) that lists it in `checks:`
+# (adr-20261118-a-layer-overrides-its-bases-checks-by-role). A profile with no
+# verify.sh and an `extends` is a pure layer: it runs nothing, so it owns no role.
+# <edges> are `<layer><TAB><base>` lines, profiles_stack_v --edges: the layers
+# of the run, never a layer the run does not contain.
+
+# _profiles_is_pure <profile-dir> — true for a profile with an `extends` and no
+# verify.sh of its own.
+_profiles_is_pure() {
+  local __pi_ext
+  [ -f "$1/profile.yaml" ] && [ ! -f "$1/verify.sh" ] || return 1
+  profile_get_v __pi_ext "$1" extends || return 1
+  [ -n "$__pi_ext" ]
 }
+
+# _profiles_roles_v <var> <profile-dir> — the roles of `checks:`, each between
+# newlines (`\nlint\ntests\n`), for a `case` match; `\n` alone for none.
+_profiles_roles_v() {
+  local __pr_item __pr_out=$'\n'
+  while IFS= read -r __pr_item; do
+    [ -z "$__pr_item" ] || __pr_out="$__pr_out$__pr_item"$'\n'
+  done < <(_profiles_list_lines "$2" checks)
+  printf -v "$1" '%s' "$__pr_out"
+}
+
+# _profiles_chain_v <var> <name> <edges> — <name>, then the base it extends, then
+# that one's base: space-separated.
+_profiles_chain_v() {
+  local __pc_cur="$2" __pc_out="$2" __pc_l __pc_b __pc_next
+  while :; do
+    __pc_next=""
+    while IFS=$'\t' read -r __pc_l __pc_b; do
+      if [ "$__pc_l" = "$__pc_cur" ]; then __pc_next=$__pc_b; break; fi
+    done <<EOF
+$3
+EOF
+    [ -n "$__pc_next" ] || break
+    __pc_out="$__pc_out $__pc_next"
+    __pc_cur=$__pc_next
+  done
+  printf -v "$1" '%s' "$__pc_out"
+}
+
+# _profiles_role_owner_v <var> <role> <chain> <root> — the first profile of
+# <chain> (under <root>) that is not a pure layer and lists <role>; empty when
+# nobody does.
+_profiles_role_owner_v() {
+  local __po_n __po_roles
+  printf -v "$1" '%s' ""
+  for __po_n in $3; do
+    [ -d "$4/$__po_n" ] || continue
+    ! _profiles_is_pure "$4/$__po_n" || continue
+    _profiles_roles_v __po_roles "$4/$__po_n"
+    case $__po_roles in
+      *$'\n'"$2"$'\n'*) printf -v "$1" '%s' "$__po_n"; return 0 ;;
+    esac
+  done
+  return 0
+}
+
+# _profiles_base_roles_v <var> <name> <root> <edges> — the role words the bases
+# in <name>'s chain list and <name> itself does not: what a layer may write
+# beside its own roles.
+_profiles_base_roles_v() {
+  local __pb_chain __pb_bases __pb_n __pb_r __pb_own=$'\n' __pb_theirs __pb_out=""
+  _profiles_chain_v __pb_chain "$2" "$4"
+  case $__pb_chain in
+    *" "*) __pb_bases=${__pb_chain#* } ;;
+    *) __pb_bases="" ;;
+  esac
+  if [ -d "$3/$2" ] && ! _profiles_is_pure "$3/$2"; then
+    _profiles_roles_v __pb_own "$3/$2"
+  fi
+  for __pb_n in $__pb_bases; do
+    [ -d "$3/$__pb_n" ] || continue
+    ! _profiles_is_pure "$3/$__pb_n" || continue
+    _profiles_roles_v __pb_theirs "$3/$__pb_n"
+    while IFS= read -r __pb_r; do
+      [ -n "$__pb_r" ] || continue
+      case $__pb_own in *$'\n'"$__pb_r"$'\n'*) continue ;; esac
+      case " $__pb_out " in *" $__pb_r "*) continue ;; esac
+      __pb_out="${__pb_out:+$__pb_out }$__pb_r"
+    done <<EOF
+$__pb_theirs
+EOF
+  done
+  printf -v "$1" '%s' "$__pb_out"
+}
+
+# _profiles_key_line_v <var> <profile-dir> <key> — the line number of `<key>:`
+# in profile.yaml (0 when there is none).
+_profiles_key_line_v() {
+  local __pk_line __pk_n=0
+  printf -v "$1" '%s' 0
+  [ -f "$2/profile.yaml" ] || return 0
+  while IFS= read -r __pk_line || [ -n "$__pk_line" ]; do
+    __pk_n=$((__pk_n + 1))
+    case $__pk_line in
+      "$3:"*) printf -v "$1" '%s' "$__pk_n"; return 0 ;;
+    esac
+  done < "$2/profile.yaml"
+  return 0
+}
+
+# _profiles_check_layer <root> <edges> <name> <claims-var> — the lint of one
+# layer for profiles_check_layers: one `<name><TAB><line><TAB><reason>` line for
+# its first problem, exit 1; exit 0 when it is fine. <claims-var> names the
+# variable of `<base>:<role><TAB><layer>` lines of the layers checked so far;
+# a layer that passes adds its own.
+_profiles_check_layer() {
+  local root="$1" edges="$2" name="$3" cv="$4" dir="$1/$3" chain bases baseroles
+  local err n role field value owner brows key claimed=" " other lyr ochain row
+  local haverows
+  _profiles_chain_v chain "$name" "$edges"
+  case $chain in
+    *" "*) bases=${chain#* } ;;
+    *) bases="" ;;
+  esac
+  _jig_replace_all_v bases "$bases" ' ' ', '
+  if _profiles_is_pure "$dir"; then
+    _profiles_roles_v owner "$dir"
+    if [ "$owner" != $'\n' ]; then
+      _profiles_key_line_v n "$dir" checks
+      printf '%s\t%s\t%s\n' "$name" "$n" "a layer with no verify.sh runs no check of its own, so checks: must be empty; its checks.<role>.* rows name roles of its bases"
+      return 1
+    fi
+  fi
+  _profiles_base_roles_v baseroles "$name" "$root" "$edges"
+  if ! err=$(profiles_check_table "$dir" "$baseroles" "$name's chain ($bases)"); then
+    printf '%s\t%s\t%s\n' "$name" "${err%%: *}" "${err#*: }"
+    return 1
+  fi
+  while IFS=$'\t' read -r n role field value; do
+    [ -n "$n" ] || continue
+    _profiles_role_owner_v owner "$role" "$chain" "$root"
+    [ -n "$owner" ] && [ "$owner" != "$name" ] || continue
+    brows=$(profiles_check_rows "$root/$owner")
+    if [ -z "$brows" ]; then
+      printf '%s\t%s\t%s\n' "$name" "$n" "$owner declares no check table; an override of $owner:$role would not be read"
+      return 1
+    fi
+    # A layer between this one and the owner that dropped the role: whatever is
+    # written here would never be read.
+    for lyr in ${chain#"$name"}; do
+      [ "$lyr" != "$owner" ] || break
+      while IFS=$'\t' read -r row other _; do
+        if [ "$row" = "$role" ] && [ "$other" = drop ]; then
+          printf '%s\t%s\t%s\n' "$name" "$n" "$owner:$role is dropped by $lyr; an override here would never be read"
+          return 1
+        fi
+      done < <(profiles_check_rows "$root/$lyr")
+    done
+    if [ "$field" = narrowed ]; then
+      haverows=0
+      while IFS=$'\t' read -r row other _; do
+        if [ "$row" = "$role" ] && [ "$other" = narrowed ]; then haverows=1; break; fi
+      done <<EOF
+$brows
+EOF
+      if [ "$haverows" = 0 ]; then
+        printf '%s\t%s\t%s\n' "$name" "$n" "$owner:$role does not narrow; a narrowed override would never be read"
+        return 1
+      fi
+    fi
+    key="$owner:$role"
+    case $claimed in *" $key "*) continue ;; esac
+    claimed="$claimed$key "
+    while IFS=$'\t' read -r other lyr; do
+      [ "$other" = "$key" ] || continue
+      _profiles_chain_v ochain "$lyr" "$edges"
+      case " $ochain " in *" $name "*) continue ;; esac
+      case " $chain " in *" $lyr "*) continue ;; esac
+      printf '%s\t%s\t%s\n' "$name" "$n" "$lyr and $name both override $key; $owner runs once, so one of them would be ignored"
+      return 1
+    done <<EOF
+${!cv}
+EOF
+  done < <(profiles_check_rows "$dir" --lines)
+  for key in $claimed; do
+    printf -v "$cv" '%s' "${!cv}${!cv:+$'\n'}$key"$'\t'"$name"
+  done
+  return 0
+}
+
+# profiles_check_layers <root> <edges> [<name>...] — lint the check table of every
+# profile among <name>... (the run's stack, in run order) that has an `extends`,
+# before any profile runs (adr-20261118-a-layer-overrides-its-bases-checks-by-role).
+# Prints `<layer><TAB><line><TAB><reason>` for the first problem of each layer
+# and exits 1; prints nothing and exits 0 when every layer is fine.
+#
+# Checked: profiles_check_table's grammar, over the roles of the layer and its
+# chain; a role in no `checks:` of the chain; an override of a base that has no
+# check table (its verify.sh would not read it) and a `narrowed` for a check the
+# base never narrows; a role a layer below already dropped (so a field or a
+# second drop would never be read); a non-empty `checks:` on a pure layer, whose role would
+# hide the base's; and two layers on different branches over one base changing
+# the same role, which would leave one of them ignored in silence.
+profiles_check_layers() {
+  # shellcheck disable=SC2034 # claims is read and set by name in _profiles_check_layer
+  local root="$1" edges="$2" name ext failed=0 claims=""
+  shift 2
+  for name in "$@"; do
+    profile_get_v ext "$root/$name" extends || continue
+    [ -n "$ext" ] || continue
+    _profiles_check_layer "$root" "$edges" "$name" claims || failed=1
+  done
+  [ "$failed" = 0 ]
+}
+
+# _profiles_tab_find_v <var> <table> <role> <field> [<layer-var>] — the value of
+# the line `<role><TAB><field><TAB><value>[<TAB><layer>]` of <table> into <var>
+# (and the layer into <layer-var>); exit 1 when there is none.
+_profiles_tab_find_v() {
+  local __pf_r __pf_f __pf_v __pf_l
+  printf -v "$1" '%s' ""
+  [ -z "${5:-}" ] || printf -v "$5" '%s' ""
+  while IFS=$'\t' read -r __pf_r __pf_f __pf_v __pf_l; do
+    if [ "$__pf_r" = "$3" ] && [ "$__pf_f" = "$4" ]; then
+      printf -v "$1" '%s' "$__pf_v"
+      [ -z "${5:-}" ] || printf -v "$5" '%s' "$__pf_l"
+      return 0
+    fi
+  done <<EOF
+$2
+EOF
+  return 1
+}
+
+# profiles_check_overrides_v <var> <profile-dir> <edges> — what the layers above
+# <profile-dir> in the run change of its check table, into <var>, one
+# `<role><TAB><field><TAB><value><TAB><layer>` line each. The layers come nearest
+# first and each of their rows for a role this profile owns (the first profile of
+# the layer's chain that lists it) replaces the same field of the layers below,
+# so the top layer wins field by field. A `drop` stands whatever a layer writes
+# beside it or above it: the role keeps only that line, value `true`, <layer> the
+# topmost layer that dropped it. Empty when no layer in <edges> reaches it.
+profiles_check_overrides_v() {
+  local __po_dir="$2" __po_root __po_name __po_edges="$3" __po_frontier __po_above=""
+  local __po_next __po_l __po_b __po_acc="" __po_new __po_chain __po_owner
+  local __po_r __po_f __po_v __po_x __po_lyr __po_drops=" " __po_cf __po_cv __po_cl
+  __po_root=${__po_dir%/*}
+  __po_name=${__po_dir##*/}
+  printf -v "$1" '%s' ""
+  [ -n "$__po_edges" ] || return 0
+  __po_frontier=" $__po_name "
+  while :; do
+    __po_next=""
+    while IFS=$'\t' read -r __po_l __po_b; do
+      [ -n "$__po_l" ] || continue
+      case $__po_frontier in
+        *" $__po_b "*) __po_next="$__po_next $__po_l" ;;
+      esac
+    done <<EOF
+$__po_edges
+EOF
+    [ -n "$__po_next" ] || break
+    __po_above="$__po_above$__po_next"
+    __po_frontier="$__po_next "
+  done
+  for __po_lyr in $__po_above; do
+    _profiles_chain_v __po_chain "$__po_lyr" "$__po_edges"
+    while IFS=$'\t' read -r __po_r __po_f __po_v; do
+      [ -n "$__po_r" ] || continue
+      _profiles_role_owner_v __po_owner "$__po_r" "$__po_chain" "$__po_root"
+      [ "$__po_owner" = "$__po_name" ] || continue
+      # The older line of the same field goes; the new one is last.
+      __po_new=""
+      while IFS=$'\t' read -r __po_x __po_cf __po_cv __po_cl; do
+        [ -n "$__po_x" ] || continue
+        if [ "$__po_x" = "$__po_r" ] && [ "$__po_cf" = "$__po_f" ]; then continue; fi
+        __po_new="${__po_new:+$__po_new$'\n'}$__po_x"$'\t'"$__po_cf"$'\t'"$__po_cv"$'\t'"$__po_cl"
+      done <<EOF
+$__po_acc
+EOF
+      [ "$__po_f" != drop ] || __po_v=true
+      __po_acc="${__po_new:+$__po_new$'\n'}$__po_r"$'\t'"$__po_f"$'\t'"$__po_v"$'\t'"$__po_lyr"
+    done < <(profiles_check_rows "$__po_root/$__po_lyr")
+  done
+  # A dropped role keeps its drop line alone.
+  __po_new=""
+  while IFS=$'\t' read -r __po_r __po_f __po_v __po_x; do
+    [ "$__po_f" != drop ] || __po_drops="$__po_drops$__po_r "
+  done <<EOF
+$__po_acc
+EOF
+  while IFS=$'\t' read -r __po_r __po_f __po_v __po_x; do
+    [ -n "$__po_r" ] || continue
+    case $__po_drops in
+      *" $__po_r "*) [ "$__po_f" = drop ] || continue ;;
+    esac
+    __po_new="${__po_new:+$__po_new$'\n'}$__po_r"$'\t'"$__po_f"$'\t'"$__po_v"$'\t'"$__po_x"
+  done <<EOF
+$__po_acc
+EOF
+  printf -v "$1" '%s' "$__po_new"
+}
+
+# profiles_check_merged <profile-dir> [<edges>] — what `jig verify` hands a profile
+# as JIG_VERIFY_CHECKS: a `<role><TAB>listed<TAB>` row for every role in `checks`,
+# then the table's rows (profiles_check_rows) of the roles the profile owns, each
+# field as the layers above it in <edges> set it (profiles_check_overrides_v). A
+# role a layer dropped has no field rows and one `<role><TAB>drop<TAB><layer>`
+# row. Prints nothing for a profile without table rows: the rows are the
+# declaration, and `checks: [tests]` alone is not one. One producer, so a test
+# that runs a profile's verify.sh directly hands it the same file `jig verify`
+# would.
+profiles_check_merged() {
+  local dir="$1" edges="${2:-}" ovr rows="" roles ext r f v x lyr used=$'\n' dropped
+  local line
+  profiles_check_overrides_v ovr "$dir" "$edges"
+  profile_get_v ext "$dir" extends || true
+  _profiles_roles_v roles "$dir"
+  while IFS=$'\t' read -r r f v; do
+    [ -n "$r" ] || continue
+    if [ -n "$ext" ]; then
+      case $roles in *$'\n'"$r"$'\n'*) ;; *) continue ;; esac
+      ! _profiles_is_pure "$dir" || continue
+    fi
+    rows="${rows:+$rows$'\n'}$r"$'\t'"$f"$'\t'"$v"
+  done < <(profiles_check_rows "$dir")
+  [ -n "$rows" ] || return 0
+  while IFS= read -r r; do
+    [ -z "$r" ] || printf '%s\tlisted\t\n' "$r"
+  done < <(_profiles_list_lines "$dir" checks)
+  while IFS=$'\t' read -r r f v; do
+    if _profiles_tab_find_v x "$ovr" "$r" drop; then continue; fi
+    if _profiles_tab_find_v x "$ovr" "$r" "$f"; then v=$x; fi
+    printf '%s\t%s\t%s\n' "$r" "$f" "$v"
+    used="$used$r.$f"$'\n'
+  done <<EOF
+$rows
+EOF
+  while IFS=$'\t' read -r r f v lyr; do
+    [ -n "$r" ] || continue
+    case $f in
+      drop) printf '%s\tdrop\t%s\n' "$r" "$lyr" ;;
+      *)
+        case $used in *$'\n'"$r.$f"$'\n'*) continue ;; esac
+        printf '%s\t%s\t%s\n' "$r" "$f" "$v"
+        ;;
+    esac
+  done <<EOF
+$ovr
+EOF
+}
+
+# profiles_check_handdown <profile-dir> — profiles_check_merged with no layers:
+# the profile's own check table as it stands.
+profiles_check_handdown() { profiles_check_merged "$1" ""; }
 
 # profiles_applies <profile-dir> — true when the profile's own stack is in
 # the project: `detect` is `always`, absent (a project's profile, activated

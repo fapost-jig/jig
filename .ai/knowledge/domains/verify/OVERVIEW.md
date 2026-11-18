@@ -79,6 +79,13 @@ it actually did.
 - The check table: `profiles_check_table` lints a profile's `checks.<role>.<field>` lines
   before it runs (a bad table fails the profile), `profiles_check_rows` turns them into rows,
   and the rows reach a profile that has them as `JIG_VERIFY_CHECKS`, read by `jp_check_cmd`.
+- Layer overrides: a layer's `checks.<role>.<field>` rows (and `drop: true`) address the nearest
+  profile of its `extends` chain that lists the role. `profiles_check_layers` lints every layer
+  of the stack before anything runs (a bad layer table refuses the run),
+  `profiles_check_merged` overlays the layers' fields on the base's own rows, top layer winning,
+  and is the one producer of `JIG_VERIFY_CHECKS`. `jig verify` prints
+  `verify: <base>:<role>: <fields> from <layer>`; a dropped check is skipped by `jp_covered` as
+  `scope: dropped by <layer>` (adr-20261118-a-layer-overrides-its-bases-checks-by-role).
 
 ## Boundaries
 
@@ -100,7 +107,8 @@ contract. A change to how profiles are *copied* still belongs to `install`.
 
 - `scripts/lib/verify.sh` — `cmd_verify`, `_verify_changed_files`, `_verify_map_check`,
   `_verify_map_apply`.
-- `scripts/lib/profiles.sh` — `profiles_check_table`, `profiles_check_rows` (the check table).
+- `scripts/lib/profiles.sh` — `profiles_check_table`, `profiles_check_rows` (the check table),
+  `profiles_check_layers`, `profiles_check_overrides_v`, `profiles_check_merged` (layer overrides).
 - `scripts/lib/profile.sh` — `jp_begin`, `jp_covered`, `jp_check_cmd`, `jp_changed`, `jp_changed_any`, `jp_decide`,
   `jp_path_matches`, `jp_is_doc`, `jp_first_missing`, `jp_files`, `jp_version`, `jp_run`,
   `jp_exec`, `jp_have`, `jp_skip`, `jp_end`; under `verify.full_run: ci`, `jp_select`,

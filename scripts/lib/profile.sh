@@ -87,6 +87,22 @@ jp_begin() {
 # jp_scoped — exit 0 when this run is narrowed to changed files.
 jp_scoped() { [ "$JP_SCOPED" = 1 ]; }
 
+# _jp_dropped_by_v <var> <role> — the layer that dropped <role>, from the
+# `<role><TAB>drop<TAB><layer>` row of JIG_VERIFY_CHECKS, into <var>; empty when
+# no row says so.
+_jp_dropped_by_v() {
+  local __jd_r __jd_f __jd_v
+  printf -v "$1" '%s' ""
+  [ -n "${JIG_VERIFY_CHECKS:-}" ] && [ -f "$JIG_VERIFY_CHECKS" ] || return 0
+  while IFS=$'\t' read -r __jd_r __jd_f __jd_v || [ -n "$__jd_r" ]; do
+    if [ "$__jd_r" = "$2" ] && [ "$__jd_f" = drop ]; then
+      printf -v "$1" '%s' "$__jd_v"
+      return 0
+    fi
+  done < "$JIG_VERIFY_CHECKS"
+  return 0
+}
+
 # jp_covered <check> <label> — exit 0 when another profile in this run took
 # over this profile's check named <check> (a role such as `tests`, never a
 # tool), after printing the check's skip line — or its PLAN line under
@@ -101,8 +117,16 @@ jp_scoped() { [ "$JP_SCOPED" = 1 ]; }
 # starts `scope:`: the check's tools are fine and the work is another
 # profile's, so a run where everything else narrowed away is not read as a
 # gap in coverage (adr-20261107-a-profile-covers-a-check-of-another).
+#
+# A second reason stands the check down the same way: a layer above this
+# profile dropped it (`checks.<check>.drop: true` in the layer's profile.yaml),
+# which `jig verify` hands down as a `<check><TAB>drop<TAB><layer>` row of
+# JIG_VERIFY_CHECKS. The skip then reads `scope: dropped by <layer>, <profile>:
+# <check>` — the work is nobody's in this run, a decision of the project, not a
+# gap to fix (adr-20261118-a-layer-overrides-its-bases-checks-by-role). A cover
+# wins when both hold. Signature and return codes are as they were.
 jp_covered() {
-  local check="$1" label="$2" word by="" reason IFS=$' \t\n'
+  local check="$1" label="$2" word by="" reason IFS=$' \t\n' dropper=""
   set -f
   for word in ${JIG_VERIFY_COVERED:-}; do
     case "$word" in
@@ -110,8 +134,13 @@ jp_covered() {
     esac
   done
   set +f
-  [ -n "$by" ] || return 1
-  reason="scope: covered by $by, $JP_PROFILE:$check"
+  if [ -n "$by" ]; then
+    reason="scope: covered by $by, $JP_PROFILE:$check"
+  else
+    _jp_dropped_by_v dropper "$check"
+    [ -n "$dropper" ] || return 1
+    reason="scope: dropped by $dropper, $JP_PROFILE:$check"
+  fi
   if [ "${JIG_VERIFY_EXPLAIN:-}" = 1 ]; then
     jp_plan "$label" skip "$reason"
   else
@@ -135,6 +164,11 @@ jp_covered() {
 #   jp_check_cmd tests "$label" narrowed "$test_bin" -- "$@" || continue
 #   jp_run "$label" "$note" "${JP_CMD[@]}"
 #
+# A role a layer dropped (a `<role> drop <layer>` row, see jp_covered) is not
+# run: it prints the skip `scope: dropped by <layer>, <profile>:<role>` — a PLAN
+# skip under `--explain` — and returns 1, so a verify.sh that never called
+# jp_covered still runs nothing the project removed.
+#
 # Returns 1, after printing the check's fail line under <label> — or a PLAN
 # skip line under `--explain`, which is no verdict — when the table cannot
 # answer: `jig verify` hands it down as JIG_VERIFY_CHECKS, a file of
@@ -149,7 +183,7 @@ jp_covered() {
 # shellcheck disable=SC2034  # JP_CMD is read by the profile that sourced this
 jp_check_cmd() {
   local role="$1" label="$2" mode="$3" r f v w reason=""
-  local known=0 have_cmd=0 have_full=0 have_narrowed=0 cmd_v="" full_v="" narrowed_v=""
+  local known=0 have_cmd=0 have_full=0 have_narrowed=0 cmd_v="" full_v="" narrowed_v="" dropper=""
   local -a cmdw=() argw=() sel=() defw=()
   shift 3
   while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do
@@ -162,6 +196,16 @@ jp_check_cmd() {
     full|narrowed) ;;
     *) printf 'jp_check_cmd: mode must be full or narrowed, not %s\n' "$mode" >&2; return 2 ;;
   esac
+  _jp_dropped_by_v dropper "$role"
+  if [ -n "$dropper" ]; then
+    reason="scope: dropped by $dropper, $JP_PROFILE:$role"
+    if [ "${JIG_VERIFY_EXPLAIN:-}" = 1 ]; then
+      jp_plan "$label" skip "$reason"
+    else
+      jp_skip "$label" "$reason"
+    fi
+    return 1
+  fi
   if [ -n "${JIG_VERIFY_CHECKS:-}" ] && [ -f "$JIG_VERIFY_CHECKS" ]; then
     while IFS=$'\t' read -r r f v || [ -n "$r" ]; do
       [ "$r" = "$role" ] || continue
