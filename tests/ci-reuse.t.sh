@@ -4,8 +4,9 @@
 # No network: `gh` is a stub on PATH. It answers the pull request that made a
 # commit from $PWD/pulls.txt (the head commits the script's filter would
 # keep), the pull-request runs from $PWD/runs.txt and a run's jobs from
-# $PWD/jobs-<id>.txt, fails a call whose file is missing, and logs every call
-# to $PWD/gh.log. Every test builds
+# $PWD/jobs-<id>.txt, a run's `plan` artifact download from $PWD/plan-<id>/
+# (copied into the -D directory), fails a call whose file is missing, and logs
+# every call to $PWD/gh.log. Every test builds
 # a fixture history under its own tmp dir — main, a pull request's branch and
 # its merge — and runs the script there with HEAD at the merge (cr_check),
 # the way the `scope` job does on a push to main. Helpers are prefixed cr_.
@@ -102,6 +103,16 @@ cr_gh() {
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$PWD/gh.log"
 case "\$*" in
+  "run download "*)
+    id="\$3"
+    dir=""
+    while [ \$# -gt 0 ]; do
+      [ "\$1" != -D ] || dir="\$2"
+      shift
+    done
+    [ -d "$PWD/plan-\$id" ] && [ -n "\$dir" ] || exit 1
+    cp "$PWD/plan-\$id/"* "\$dir/"
+    ;;
   */pulls*)
     [ -f "$PWD/pulls.txt" ] || exit 1
     cat "$PWD/pulls.txt"
@@ -122,11 +133,48 @@ STUB
   chmod +x "$PWD/stub-bin/gh"
 }
 
-# cr_check <dir> <before> — run the script under test in <dir>.
+# cr_check <dir> <before> [<suite> <filters-file>] — run the script under test
+# in <dir>.
 cr_check() {
-  local stub="$PWD/stub-bin"
-  (cd "$1" && PATH="$stub:$PATH" GITHUB_REPOSITORY=example/jig \
-    "$JIG_HOME/.github/scripts/ci-reuse.sh" "$2")
+  local stub="$PWD/stub-bin" dir="$1"
+  shift
+  (cd "$dir" && PATH="$stub:$PATH" GITHUB_REPOSITORY=example/jig \
+    "$JIG_HOME/.github/scripts/ci-reuse.sh" "$@")
+}
+
+# cr_filters <file> <filter>... — the filters of the push, one per line.
+cr_filters() {
+  local file="$1"
+  shift
+  printf '%s\n' "$@" > "$file"
+}
+
+# cr_plan <id> <filter>... — the `plan` artifact of run <id>, with its filters.
+cr_plan() {
+  local id="$1"
+  shift
+  mkdir -p "$PWD/plan-$id"
+  printf '%s\n' "$@" > "$PWD/plan-$id/filters"
+}
+
+# cr_selected_jobs <id> — the jobs of a pull-request run of selected tests.
+cr_selected_jobs() {
+  cr_jobs "$1" "success scope" "skipped knowledge" "success ubuntu-latest 1/1 (selected)" \
+    "success macos-latest 1/1 (selected)" "success windows-latest (Git Bash) 1/2 (selected)" \
+    "success windows-latest (Git Bash) 2/2 (selected)" \
+    "success windows-latest smoke (install.ps1)" \
+    "success changelog" "skipped epic-pr" "skipped release" "success ci-ok"
+}
+
+# cr_selected_setup <dir> — a history, a stub and a selected run 7 of it;
+# sets CR_PR and CR_BEFORE.
+cr_selected_setup() {
+  cr_history "$1" yes
+  CR_PR=$(cr_sha "$1" pr)
+  CR_BEFORE=$(cr_sha "$1" before)
+  cr_gh
+  cr_pulls "$CR_PR"
+  cr_runs "7 $CR_PR https://github.com/example/jig/actions/runs/7"
 }
 
 # --- reuse -------------------------------------------------------------------
@@ -198,7 +246,7 @@ test_ci_reuse_branch_behind_main_tests_everything() {
   run cr_check "$repo" "$before"
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" "did not contain main's tip $before"
-  assert_contains "$OUT" "test (no full green pull-request run tested tree"
+  assert_contains "$OUT" "test (no green pull-request run tested what this push needs of tree"
 }
 
 # The branch is up to date, but a later commit on main has a tree no pull
@@ -232,7 +280,7 @@ test_ci_reuse_a_light_run_tests_everything() {
 
   run cr_check "$repo" "$before"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "test (no full green pull-request run tested tree"
+  assert_contains "$OUT" "test (no green pull-request run tested what this push needs of tree"
 }
 
 # Windows skipped: Linux and macOS ran, the Git Bash shares did not.
@@ -441,4 +489,157 @@ test_ci_reuse_all_suffix_matches_the_workflow() {
     || fail "the test jobs no longer end their names in the suite; update CR_ALL_SUFFIX"
   grep -qF "printf 'full=true\\nsuite=all\\n'" "$file" \
     || fail "scope no longer calls the whole suite 'all'; update CR_ALL_SUFFIX"
+}
+
+# --- selected tests ----------------------------------------------------------
+
+# A push of selected tests reuses a pull request's run of selected tests when
+# that run's plan holds every filter the push needs.
+test_ci_reuse_selected_run_with_a_superset_of_filters_is_reused() {
+  local repo="$PWD/repo"
+  cr_selected_setup "$repo"
+  cr_selected_jobs 7
+  cr_plan 7 "ci-reuse" "ci-scope" "knowledge"
+  cr_filters "$PWD/filters" "ci-scope" "ci-reuse"
+
+  run cr_check "$repo" "$CR_BEFORE" selected "$PWD/filters"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "reuse (https://github.com/example/jig/actions/runs/7 tested tree"
+  assert_file_contains "$PWD/gh.log" "run download 7 -R example/jig -n plan -D"
+}
+
+test_ci_reuse_selected_run_missing_a_filter_is_not_reused() {
+  local repo="$PWD/repo"
+  cr_selected_setup "$repo"
+  cr_selected_jobs 7
+  cr_plan 7 "ci-reuse"
+  cr_filters "$PWD/filters" "ci-reuse" "ci-scope"
+
+  run cr_check "$repo" "$CR_BEFORE" selected "$PWD/filters"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "it did not run the filter 'ci-scope' this push needs"
+  assert_contains "$OUT" "test ("
+}
+
+# A filter is compared whole: a longer filter does not stand for a shorter one.
+test_ci_reuse_selected_filters_are_compared_whole() {
+  local repo="$PWD/repo"
+  cr_selected_setup "$repo"
+  cr_selected_jobs 7
+  cr_plan 7 "ci-reuse-extra"
+  cr_filters "$PWD/filters" "ci-reuse"
+
+  run cr_check "$repo" "$CR_BEFORE" selected "$PWD/filters"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "test ("
+}
+
+test_ci_reuse_selected_run_without_a_plan_artifact_is_not_reused() {
+  local repo="$PWD/repo"
+  cr_selected_setup "$repo"
+  cr_selected_jobs 7
+  cr_filters "$PWD/filters" "ci-reuse"
+
+  run cr_check "$repo" "$CR_BEFORE" selected "$PWD/filters"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "its plan artifact cannot be read"
+  assert_contains "$OUT" "test ("
+}
+
+test_ci_reuse_selected_run_without_windows_is_not_reused() {
+  local repo="$PWD/repo"
+  cr_selected_setup "$repo"
+  cr_jobs 7 "success scope" "skipped knowledge" "success ubuntu-latest 1/1 (selected)" \
+    "success macos-latest 1/1 (selected)" "success windows-latest smoke (install.ps1)" \
+    "success changelog" "skipped epic-pr" "skipped release" "success ci-ok"
+  cr_plan 7 "ci-reuse"
+  cr_filters "$PWD/filters" "ci-reuse"
+
+  run cr_check "$repo" "$CR_BEFORE" selected "$PWD/filters"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "it skipped the Windows Git Bash shares"
+  assert_contains "$OUT" "test ("
+}
+
+test_ci_reuse_selected_run_with_mixed_shares_is_not_reused() {
+  local repo="$PWD/repo"
+  cr_selected_setup "$repo"
+  cr_jobs 7 "success scope" "skipped knowledge" "success ubuntu-latest 1/1 (all)" \
+    "success macos-latest 1/1 (selected)" "success windows-latest (Git Bash) 1/1 (selected)" \
+    "success changelog" "skipped epic-pr" "skipped release" "success ci-ok"
+  cr_plan 7 "ci-reuse"
+  cr_filters "$PWD/filters" "ci-reuse"
+
+  run cr_check "$repo" "$CR_BEFORE" selected "$PWD/filters"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "its shares mix the whole suite and selected tests"
+  assert_contains "$OUT" "test ("
+}
+
+# A run of the whole suite covers any selection, with no plan to read.
+test_ci_reuse_selected_push_reuses_a_run_of_the_whole_suite() {
+  local repo="$PWD/repo"
+  cr_selected_setup "$repo"
+  cr_full_jobs 7
+  cr_filters "$PWD/filters" "ci-reuse"
+
+  run cr_check "$repo" "$CR_BEFORE" selected "$PWD/filters"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "reuse (https://github.com/example/jig/actions/runs/7 tested tree"
+}
+
+# The default suite is `all`: a run of selected tests does not count, plan or
+# no plan.
+test_ci_reuse_suite_all_still_refuses_a_selected_run() {
+  local repo="$PWD/repo"
+  cr_selected_setup "$repo"
+  cr_selected_jobs 7
+  cr_plan 7 "ci-reuse"
+
+  run cr_check "$repo" "$CR_BEFORE" all
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "did not run the whole suite"
+
+  run cr_check "$repo" "$CR_BEFORE"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "did not run the whole suite"
+  assert_contains "$OUT" "test ("
+
+  cr_filters "$PWD/filters" "ci-reuse"
+  run cr_check "$repo" "$CR_BEFORE" all "$PWD/filters"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "did not run the whole suite"
+  assert_contains "$OUT" "test ("
+}
+
+test_ci_reuse_selected_needs_its_filters_file_and_a_known_suite() {
+  local repo="$PWD/repo"
+  cr_selected_setup "$repo"
+
+  run cr_check "$repo" "$CR_BEFORE" selected
+  assert_eq 2 "$RC" "$OUT"
+  assert_contains "$OUT" "usage:"
+
+  run cr_check "$repo" "$CR_BEFORE" everything "$PWD/filters"
+  assert_eq 2 "$RC" "$OUT"
+  assert_contains "$OUT" "usage:"
+
+  # A filters file that is missing or empty names nothing to compare.
+  cr_selected_jobs 7
+  cr_plan 7 "ci-reuse"
+  run cr_check "$repo" "$CR_BEFORE" selected "$PWD/no-such-file"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "test ("
+  : > "$PWD/empty"
+  run cr_check "$repo" "$CR_BEFORE" selected "$PWD/empty"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "this push names no filter to compare"
+}
+
+# The workflow hands scope's suite and the filters it wrote to the script.
+test_ci_reuse_workflow_passes_the_suite_and_the_filters() {
+  local file="$JIG_HOME/.github/workflows/ci.yml"
+  # shellcheck disable=SC2016 # workflow expressions, matched literally
+  grep -qF '.github/scripts/ci-reuse.sh "$BEFORE" "$suite" "$plan/filters"' "$file" \
+    || fail "scope does not hand the suite and the filters to ci-reuse.sh"
 }

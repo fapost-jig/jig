@@ -13,7 +13,9 @@ paths:
   - .github/scripts/ci-reuse.sh
   - .github/scripts/red-main.sh
   - tests/run.sh
-summary: Why a pull request and a push run only the tests the shell profile says the change reaches, with the whole suite nightly and for a release; how shares are sized by estimated work and divided by measured durations from one plan; why a selected run never releases, is never reused and never closes red-main.
+  - .github/scripts/ci-nightly-tested.sh
+summary: Why a pull request and a push run only the tests the shell profile says the change reaches, with the whole suite nightly (skipped on a tree already tested in full) and for a release; how shares are sized by estimated work and divided by measured durations from one plan; why a selected run never releases and never closes red-main, and is reused only by a push needing no test beyond its plan.
+reviewed_at: 2026-11-18
 ---
 # <Decision in one sentence>
 # A pull request runs the tests its change reaches; the whole suite runs nightly and for a release
@@ -126,3 +128,5 @@ now applies to a pull request's run of the whole suite only.
   line. A change to that line makes `ci-scope.sh` answer `all`: slower, never narrower.
 - Undoing it is one line: have `ci-scope.sh` print `full` where it prints `selected`. The even
   shares stay, and without a `plan` the runner divides by round-robin as before.
+
+> **Amendment (2026-11-18): a selected run is not repeated on `main`, and a tested tree is not repeated at night.** The alternative of keeping the push to `main` full is dropped for a push whose pull request tested the same tree: `ci-reuse.sh` also counts a pull request's run of selected tests when every share is `(selected)` and the run's `plan` artifact holds every filter the push needs, and `ci-reuse.sh` still refuses a mixed run and any run without a Windows share. The nightly run is `light` when `ci-nightly-tested.sh` finds `main` green and the last successful nightly run's tree equal to the tree of `HEAD`; a map line that lets a change skip a test is still found by the next nightly run on a tree that moved. Durations for the plan come from the newest successful nightly run that has `report-*` artifacts. Rules and risk: adr-20261027-main-is-not-retested-when-a-pull-request-tested-its-tree, amended 2026-11-18.

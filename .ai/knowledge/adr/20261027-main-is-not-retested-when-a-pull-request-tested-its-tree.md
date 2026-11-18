@@ -8,7 +8,9 @@ paths:
   - .github/workflows/ci.yml
   - .github/scripts/ci-reuse.sh
   - .github/scripts/ci-ok.sh
-summary: Why a push to main skips the suite and goes straight to the release tag when a full green pull-request run already tested its tree, how that tree is proved without the merge ref, and the risk left.
+  - .github/scripts/ci-nightly-tested.sh
+summary: Why a push to main skips the suite when a green pull-request run already tested its tree with everything the push needs (the whole suite, or a selected plan holding every filter of the push), how that tree is proved without the merge ref, and the risk left.
+reviewed_at: 2026-11-18
 ---
 # A push to main is not tested again when a full pull-request run already tested its tree
 
@@ -117,3 +119,10 @@ after the fact, which tree a pull-request run tested.
   it to `ci.yml`. A rename that slipped past would only make `main` test everything.
 
 > **Amendment (2026-11-10).** A pull request's run counts only when it ran the whole suite: test shares are named `… (all)` or `… (selected)`, and `ci-reuse.sh` refuses a run with any share not ending in `(all)` (adr-20261110-a-pull-request-runs-the-tests-its-change-reaches).
+
+> **Amendment (2026-11-18): a tree is tested once per test set.** Two rules, one idea: a suite that already ran green on this tree does not run on it again.
+>
+> - *A run of selected tests is reused too.* A push to `main` whose scope is `selected` is skipped when the merged pull request's run tested the same tree (same checks as above) and either ran the whole suite on every share, or ran selected tests on every share and its `plan` artifact holds every filter of the push. `ci-reuse.sh <before> [<suite> <filters-file>]` takes the push's suite and filters from `scope`. A run's shares are of one kind, `(all)` or `(selected)`, never a mix. The push's selection is measured from the last green run on `main`, not from the pull request, so it can be wider; hence the filters are compared, not assumed. A missing or unreadable artifact (kept seven days), a missing filter and an empty filter list each mean the run does not count: unmeasurable is never a reason to skip. A push whose scope is `all` still reuses only a run of the whole suite. Such a push never releases (`release` asks for `suite == all`) and never closes `red-main` (a selected run is not green for the whole suite).
+> - *The nightly run is light on a tree already tested.* `ci-nightly-tested.sh` prints `tested` when the newest finished run of `ci` on `main` (a push or the nightly one; cancelled and skipped runs are looked past, a manual dispatch is not counted) succeeded and the newest successful `schedule` run's head commit has the tree of `HEAD`. `scope` then makes the nightly `light` (the knowledge check only); any other answer, an API that does not answer included, keeps it `full`. A manual dispatch stays full. A light nightly is green with no `report-*` artifacts, so the plan step takes durations from the newest of the last ten successful nightly runs that has reports, and `release` (whole suite only) and `red-main` (a light green leaves the issue open) stay as they were. The chain holds because a light nightly exists only on a tree an earlier nightly tested whole.
+>
+> Residual risk: the nightly no longer repeats a suite on an unchanged tree, so a flaky test or a changed runner image is found on the next tree that moves, not the next night; the whole suite still runs on every tree that reaches `main` through a push that needs it, and before every release. Reverting is one line in each script (ci-reuse: refuse `(selected)`; scope: drop the nightly question).

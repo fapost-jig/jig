@@ -70,13 +70,22 @@ jobs:
   # nightly run, and a release never ships without the whole suite.
   #
   # A push to main then asks one more question: whether a pull
-  # request's run already tested this very tree, the whole suite on every
-  # platform (.github/scripts/ci-reuse.sh, which has tests and a header with
-  # the argument). When it did, `reuse` is true, the suite's jobs skip, and
-  # the run goes straight on to `release`: a release merged from an
+  # request's run already tested this very tree, what the push needs of the
+  # suite, on every platform (.github/scripts/ci-reuse.sh, which has tests and
+  # a header with the argument): the whole suite for a push that needs it, and
+  # for a push that needs selected tests either the whole suite or selected
+  # tests whose plan holds every filter of the push. When it did, `reuse` is
+  # true, the suite's jobs skip, and the run goes straight on to `release`
+  # (which asks for a whole-suite scope itself): a release merged from an
   # up-to-date pull request costs one run of the suite, not two
   # (adr-20261027-main-is-not-retested-when-a-pull-request-tested-its-tree).
-  # The nightly run, a manual one and an epic branch never reuse.
+  # A manual run and an epic branch never reuse.
+  #
+  # The nightly run tests the whole suite unless that was already done: when
+  # the newest finished run on main succeeded and the newest successful
+  # nightly run tested the very tree main has, the night is light — the
+  # knowledge check only (.github/scripts/ci-nightly-tested.sh, which has
+  # tests). A manual dispatch is always full.
   scope:
     runs-on: ubuntu-latest
     permissions:
@@ -148,20 +157,29 @@ jobs:
               ;;
             *) line="full ($EVENT runs everything)" ;;
           esac
+          if [ "$EVENT:$BRANCH" = schedule:main ]; then
+            nightly=$(.github/scripts/ci-nightly-tested.sh) \
+              || nightly="test (ci-nightly-tested.sh failed; testing everything)"
+            echo "nightly: $nightly"
+            case "$nightly" in
+              tested*) line="light (nightly: ${nightly#tested })" ;;
+            esac
+          fi
           echo "scope: $line"
+          suite=all
           case "$line" in
-            light*) printf 'full=false\nsuite=none\n' >> "$GITHUB_OUTPUT" ;;
-            selected*) printf 'full=true\nsuite=selected\n' >> "$GITHUB_OUTPUT" ;;
+            light*) suite=none; printf 'full=false\nsuite=none\n' >> "$GITHUB_OUTPUT" ;;
+            selected*) suite=selected; printf 'full=true\nsuite=selected\n' >> "$GITHUB_OUTPUT" ;;
             *) printf 'full=true\nsuite=all\n' >> "$GITHUB_OUTPUT" ;;
           esac
 
-          # Whether a pull request's run already tested this tree, the whole
-          # suite. Asked on a push to main that tests anything; a light run
-          # tests nothing anyway.
+          # Whether a pull request's run already tested this tree, what this
+          # push needs of the suite. Asked on a push to main that tests
+          # anything; a light run tests nothing anyway.
           reuse="test ($EVENT to $BRANCH is always tested)"
           case "$EVENT:$BRANCH:$line" in
             push:main:full* | push:main:selected*)
-              reuse=$(.github/scripts/ci-reuse.sh "$BEFORE") \
+              reuse=$(.github/scripts/ci-reuse.sh "$BEFORE" "$suite" "$plan/filters") \
                 || reuse="test (ci-reuse.sh failed; testing everything)"
               ;;
           esac
@@ -200,8 +218,9 @@ jobs:
           esac
 
       # How many shares each platform runs, and the table that divides the
-      # tests among them: the per-test reports of the last green nightly run,
-      # which always runs the whole suite. Read here once and handed to every
+      # tests among them: the per-test reports of the newest green nightly run
+      # that has some (a nightly run on a tree already tested is light, green
+      # and without reports), which ran the whole suite. Read here once and handed to every
       # share in the `plan` artifact — two shares reading two tables would
       # divide the suite two ways, and a test could run in neither. No table
       # (the first run, an expired artifact, an API that does not answer)
@@ -216,12 +235,19 @@ jobs:
           plan="$RUNNER_TEMP/plan"
           mkdir -p "$plan/durations" "$RUNNER_TEMP/reports"
           [ -f "$plan/filters" ] || : > "$plan/filters"
-          id=$(gh api -X GET "repos/$REPO/actions/workflows/ci.yml/runs" \
-            -f event=schedule -f status=success -f per_page=1 \
-            --jq '.workflow_runs[0].id // empty' 2>/dev/null) || id=""
-          echo "durations from: ${id:-no green nightly run}"
-          if [ -n "$id" ] \
-            && gh run download "$id" -R "$REPO" -p 'report-*' -D "$RUNNER_TEMP/reports" >/dev/null 2>&1; then
+          ids=$(gh api -X GET "repos/$REPO/actions/workflows/ci.yml/runs" \
+            -f event=schedule -f status=success -f per_page=10 \
+            --jq '.workflow_runs[].id' 2>/dev/null) || ids=""
+          from=""
+          for id in $ids; do
+            if gh run download "$id" -R "$REPO" -p 'report-*' -D "$RUNNER_TEMP/reports" >/dev/null 2>&1 \
+              && [ -n "$(find "$RUNNER_TEMP/reports" -name report.tsv 2>/dev/null | head -n 1)" ]; then
+              from="$id"
+              break
+            fi
+          done
+          echo "durations from: ${from:-no green nightly run with reports}"
+          if [ -n "$from" ]; then
             for pair in ubuntu-latest:linux macos-latest:macos windows-latest:windows; do
               find "$RUNNER_TEMP/reports" -path "*report-${pair%%:*}-*" -name report.tsv \
                 -exec cat {} + > "$plan/durations/${pair#*:}.tsv" 2>/dev/null || true
