@@ -7760,7 +7760,8 @@ _task_artifact_read() {
   json_quote "$id"; out="{\"task\":$_JSON,\"kind\":\"$kind\","
   json_str_or_null "$_TASK_ART_AT"; out="$out\"updated_at\":$_JSON,"
   json_int_or_null "$_TASK_ART_BYTES"; out="$out\"bytes\":$_JSON,"
-  json_quote "$content"
+  # A whole document: json_quote over all of it is quadratic on bash 3.2.
+  json_quote_text "$content"
   printf '%s"content":%s}\n' "$out" "$_JSON"
 }
 

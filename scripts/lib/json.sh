@@ -49,8 +49,8 @@ json_quote() {
       # Rare (a hand-edited state file, an escape sequence in a reason or a
       # task document), so the pass is paid only when one is there. One
       # substitution per control byte, not a loop over the string's
-      # characters: `task artifact read --json` quotes whole documents, and a
-      # per-character loop that appends grows with the square of their size.
+      # characters: a long field can reach here, and a per-character loop
+      # that appends grows with the square of its size.
       # The replacement is quoted, so neither `\` nor `&` (bash 5.2's
       # patsub_replacement) means anything in it.
       n=${#_JSON_CTRL}
