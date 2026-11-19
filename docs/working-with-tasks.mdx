@@ -609,7 +609,10 @@ It answers four questions, in this order:
 3. **Specifications.** How far every roadmap has got, phase by phase. For a specification built on
    its own branch, the progress is read from that branch as your copy of it last saw it. An item
    whose task was closed here, or that the last housekeeping saw merged, counts as done even before
-   its checkmark reaches that branch.
+   its checkmark reaches that branch, and housekeeping's purge of a merged task's workspace does not
+   change that. The gap is named: `jig spec list` adds *N merged but unchecked* to the progress, and
+   `jig status` prints `roadmap behind: <spec>` among what needs you. `jig spec item check <spec> --merged`
+   checks those items through a pull request, as every roadmap edit goes.
 4. **Details.** The counts at a glance, and the complete `jig status` text, folded away at the bottom.
 
 **Why some data is marked stale.** Whether a pull request is open or merged comes from housekeeping,

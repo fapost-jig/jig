@@ -666,7 +666,7 @@ test_spec_without_subcommand_fails() {
   fixture_repo
   run jig spec
   [ "$RC" -ne 0 ] || fail "expected non-zero exit, got 0"
-  assert_contains "$OUT" "usage: jig spec new <id> | jig spec resume <id> | jig spec list [--json] | jig spec read <id> spec|roadmap [--json] | jig spec draft write <id> --from <file>|- | jig spec draft rename <id> <new-id> | jig spec draft list | jig spec draft drop <id> | jig spec plan <id> --phase <n> [--format text|tsv] | jig spec stop <id> --phase <n> --reason <text> | jig spec done <task-id> | jig spec drop <task-id> [--revision <n>] [--json] | jig spec link <spec-id> <task-id> | jig spec item add <id> --phase <n> --text <t> [--after <item> | --top | --bottom] | jig spec item move <id> <item> [--phase <n>] [--after <item> | --top | --bottom] | jig spec item file <id> <item> --task <task-id> | --new <task-id> [--goal <text>] (each [--revision <n>] [--json]) | jig spec close <id> [--leftovers-handled] | jig spec remove <id> [--dry-run] [--abandon-unstarted] | jig spec epic <id> [--release patch|minor|major | --finish [--leftovers-handled] | --reopen] | jig spec ship <id> [--message-file <file>] [--title <t>] [--body-file <file>]"
+  assert_contains "$OUT" "usage: jig spec new <id> | jig spec resume <id> | jig spec list [--json] | jig spec read <id> spec|roadmap [--json] | jig spec draft write <id> --from <file>|- | jig spec draft rename <id> <new-id> | jig spec draft list | jig spec draft drop <id> | jig spec plan <id> --phase <n> [--format text|tsv] | jig spec stop <id> --phase <n> --reason <text> | jig spec done <task-id> | jig spec drop <task-id> [--revision <n>] [--json] | jig spec link <spec-id> <task-id> | jig spec item add <id> --phase <n> --text <t> [--after <item> | --top | --bottom] | jig spec item move <id> <item> [--phase <n>] [--after <item> | --top | --bottom] | jig spec item check <id> <item> | --merged | jig spec item file <id> <item> --task <task-id> | --new <task-id> [--goal <text>] (each [--revision <n>] [--json]) | jig spec close <id> [--leftovers-handled] | jig spec remove <id> [--dry-run] [--abandon-unstarted] | jig spec epic <id> [--release patch|minor|major | --finish [--leftovers-handled] | --reopen] | jig spec ship <id> [--message-file <file>] [--title <t>] [--body-file <file>]"
 }
 
 test_spec_unknown_subcommand_fails_naming_it() {
@@ -680,7 +680,7 @@ test_spec_help_exits_zero() {
   fixture_repo
   run jig spec --help
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "usage: jig spec new <id> | jig spec resume <id> | jig spec list [--json] | jig spec read <id> spec|roadmap [--json] | jig spec draft write <id> --from <file>|- | jig spec draft rename <id> <new-id> | jig spec draft list | jig spec draft drop <id> | jig spec plan <id> --phase <n> [--format text|tsv] | jig spec stop <id> --phase <n> --reason <text> | jig spec done <task-id> | jig spec drop <task-id> [--revision <n>] [--json] | jig spec link <spec-id> <task-id> | jig spec item add <id> --phase <n> --text <t> [--after <item> | --top | --bottom] | jig spec item move <id> <item> [--phase <n>] [--after <item> | --top | --bottom] | jig spec item file <id> <item> --task <task-id> | --new <task-id> [--goal <text>] (each [--revision <n>] [--json]) | jig spec close <id> [--leftovers-handled] | jig spec remove <id> [--dry-run] [--abandon-unstarted] | jig spec epic <id> [--release patch|minor|major | --finish [--leftovers-handled] | --reopen] | jig spec ship <id> [--message-file <file>] [--title <t>] [--body-file <file>]"
+  assert_contains "$OUT" "usage: jig spec new <id> | jig spec resume <id> | jig spec list [--json] | jig spec read <id> spec|roadmap [--json] | jig spec draft write <id> --from <file>|- | jig spec draft rename <id> <new-id> | jig spec draft list | jig spec draft drop <id> | jig spec plan <id> --phase <n> [--format text|tsv] | jig spec stop <id> --phase <n> --reason <text> | jig spec done <task-id> | jig spec drop <task-id> [--revision <n>] [--json] | jig spec link <spec-id> <task-id> | jig spec item add <id> --phase <n> --text <t> [--after <item> | --top | --bottom] | jig spec item move <id> <item> [--phase <n>] [--after <item> | --top | --bottom] | jig spec item check <id> <item> | --merged | jig spec item file <id> <item> --task <task-id> | --new <task-id> [--goal <text>] (each [--revision <n>] [--json]) | jig spec close <id> [--leftovers-handled] | jig spec remove <id> [--dry-run] [--abandon-unstarted] | jig spec epic <id> [--release patch|minor|major | --finish [--leftovers-handled] | --reopen] | jig spec ship <id> [--message-file <file>] [--title <t>] [--body-file <file>]"
 }
 
 # `help` (no dashes) is the subcommand form, same as `--help`/`-h`.
@@ -688,7 +688,7 @@ test_spec_help_subcommand_exits_zero() {
   fixture_repo
   run jig spec help
   assert_eq 0 "$RC"
-  assert_contains "$OUT" "usage: jig spec new <id> | jig spec resume <id> | jig spec list [--json] | jig spec read <id> spec|roadmap [--json] | jig spec draft write <id> --from <file>|- | jig spec draft rename <id> <new-id> | jig spec draft list | jig spec draft drop <id> | jig spec plan <id> --phase <n> [--format text|tsv] | jig spec stop <id> --phase <n> --reason <text> | jig spec done <task-id> | jig spec drop <task-id> [--revision <n>] [--json] | jig spec link <spec-id> <task-id> | jig spec item add <id> --phase <n> --text <t> [--after <item> | --top | --bottom] | jig spec item move <id> <item> [--phase <n>] [--after <item> | --top | --bottom] | jig spec item file <id> <item> --task <task-id> | --new <task-id> [--goal <text>] (each [--revision <n>] [--json]) | jig spec close <id> [--leftovers-handled] | jig spec remove <id> [--dry-run] [--abandon-unstarted] | jig spec epic <id> [--release patch|minor|major | --finish [--leftovers-handled] | --reopen] | jig spec ship <id> [--message-file <file>] [--title <t>] [--body-file <file>]"
+  assert_contains "$OUT" "usage: jig spec new <id> | jig spec resume <id> | jig spec list [--json] | jig spec read <id> spec|roadmap [--json] | jig spec draft write <id> --from <file>|- | jig spec draft rename <id> <new-id> | jig spec draft list | jig spec draft drop <id> | jig spec plan <id> --phase <n> [--format text|tsv] | jig spec stop <id> --phase <n> --reason <text> | jig spec done <task-id> | jig spec drop <task-id> [--revision <n>] [--json] | jig spec link <spec-id> <task-id> | jig spec item add <id> --phase <n> --text <t> [--after <item> | --top | --bottom] | jig spec item move <id> <item> [--phase <n>] [--after <item> | --top | --bottom] | jig spec item check <id> <item> | --merged | jig spec item file <id> <item> --task <task-id> | --new <task-id> [--goal <text>] (each [--revision <n>] [--json]) | jig spec close <id> [--leftovers-handled] | jig spec remove <id> [--dry-run] [--abandon-unstarted] | jig spec epic <id> [--release patch|minor|major | --finish [--leftovers-handled] | --reopen] | jig spec ship <id> [--message-file <file>] [--title <t>] [--body-file <file>]"
 }
 
 # --- specs are not knowledge --------------------------------------------------
@@ -3019,7 +3019,7 @@ test_spec_list_counts_an_item_done_when_its_task_merged() {
   _merged_roadmap_spec
   run jig spec list
   assert_eq 0 "$RC"
-  assert_eq "merged   Merged   roadmap 3/5 done, 2 filed, fog 0" "$OUT"
+  assert_eq "merged   Merged   roadmap 3/5 done, 2 filed, fog 0, 2 merged but unchecked" "$OUT"
 }
 
 # In a `--worktree` checkout the tasks directory is a link to the owner's
@@ -3032,7 +3032,7 @@ test_spec_list_counts_closed_tasks_through_a_linked_workspace() {
   ln -s "$JIG_TEST_TMP.owner-tasks" .ai/workspace/tasks
   run jig spec list
   assert_eq 0 "$RC"
-  assert_eq "merged   Merged   roadmap 3/5 done, 2 filed, fog 0" "$OUT"
+  assert_eq "merged   Merged   roadmap 3/5 done, 2 filed, fog 0, 2 merged but unchecked" "$OUT"
   printf '\n## Waves\n\n1. `t-2`\n' >> .ai/specs/merged/roadmap.md
   local tab
   tab=$(printf '\t')
@@ -3053,6 +3053,75 @@ test_spec_list_json_says_which_items_count_done() {
   assert_contains "$OUT" '"text":"`t-3` — merged by housekeeping, unchecked","checked":false,"done":true,"task":"t-3","fog":false}'
   assert_contains "$OUT" '"text":"`t-4` — filed, still active","checked":false,"done":false,"task":"t-4","fog":false}'
   assert_contains "$OUT" '"text":"`axb` — filed, a dotted id closed elsewhere","checked":false,"done":false,"task":"axb","fog":false}'
+}
+
+# housekeeping purges a merged task's workspace at once, so a later run no longer
+# lists it: the purge line, kept for the whole history of the log, is what still
+# says it merged — unless a workspace of that name exists again (a reused id).
+_purged_roadmap_spec() {
+  mkdir -p .ai/specs/purged
+  printf '# Purged\n' > .ai/specs/purged/spec.md
+  # shellcheck disable=SC2016 # backticked task ids, literal
+  printf '%s\n' '## Phase 1 — One' '' '- [ ] `t-1` — purged after its merge' \
+    '- [ ] `t-2` — purged unmerged' '- [ ] `t-3` — merged, id reused by a live task' > .ai/specs/purged/roadmap.md
+  fixture_task t-3 task/t-3 active
+  mkdir -p .ai/runtime
+  {
+    printf -- '--- run 2026-11-18T14:00:00Z forge=github\n'
+    printf '2026-11-18T14:40:30Z task=t-1 status=consolidated remote=merged via=forge action=purge dest=x class=T3 created=2026-11-17 consolidated=true\n'
+    printf '2026-11-18T14:40:31Z task=t-2 status=active remote=open via=forge action=purge dest=x class=T3 created=2026-11-17 consolidated=false\n'
+    printf '2026-11-18T14:40:32Z task=t-3 status=consolidated remote=merged via=forge action=purge dest=x class=T3 created=2026-11-17 consolidated=true\n'
+    printf -- '--- run 2026-11-19T09:00:00Z forge=github\n'
+  } > .ai/runtime/housekeeping.log
+}
+
+test_spec_list_counts_an_item_done_when_its_task_was_purged_as_merged() {
+  fixture_jig_repo
+  _purged_roadmap_spec
+  _sl_json
+  assert_eq 0 "$RC" "$ERR"
+  assert_contains "$OUT" '"text":"`t-1` — purged after its merge","checked":false,"done":true,"task":"t-1"'
+  assert_contains "$OUT" '"text":"`t-2` — purged unmerged","checked":false,"done":false,"task":"t-2"'
+  assert_contains "$OUT" '"text":"`t-3` — merged, id reused by a live task","checked":false,"done":false,"task":"t-3"'
+  run jig spec list
+  assert_eq 0 "$RC"
+  assert_eq "purged   Purged   roadmap 1/3 done, 2 filed, fog 0, 1 merged but unchecked" "$OUT"
+}
+
+# A task worktree links only the tasks directory and has no housekeeping log of
+# its own: the purge lines are read from the main checkout's.
+test_spec_list_reads_purged_merged_tasks_from_a_worktree() {
+  fixture_jig_repo
+  _purged_roadmap_spec
+  git add -A .ai/specs && git commit -qm 'spec'
+  git worktree add -q ../wt -b wt
+  cd ../wt || return 1
+  run jig spec list
+  assert_eq 0 "$RC" "$OUT"
+  # t-3's live workspace is the main checkout's alone here, so its old purge counts too.
+  assert_contains "$OUT" "roadmap 2/3 done, 1 filed, fog 0, 2 merged but unchecked"
+}
+
+test_spec_plan_labels_a_purged_merged_task_housekeeping() {
+  fixture_jig_repo
+  _purged_roadmap_spec
+  printf '\n## Waves\n\n1. `t-1`\n' >> .ai/specs/purged/roadmap.md
+  local tab
+  tab=$(printf '\t')
+  run jig spec plan purged --phase 1 --format tsv
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "item${tab}1${tab}t-1${tab}"
+  assert_contains "$OUT" "${tab}housekeeping${tab}"
+}
+
+test_spec_list_text_is_unchanged_when_nothing_is_merged_but_unchecked() {
+  fixture_jig_repo
+  mkdir -p .ai/specs/calm
+  printf '# Calm\n' > .ai/specs/calm/spec.md
+  # shellcheck disable=SC2016 # backticked task ids, literal
+  printf '%s\n' '- [x] `t-1` — done' '- [ ] `t-2` — open' > .ai/specs/calm/roadmap.md
+  run jig spec list
+  assert_eq "calm   Calm   roadmap 1/2 done, 1 filed, fog 0" "$OUT"
 }
 
 # The lifecycle still reads the checkboxes: a spec whose last items merged but
@@ -5258,6 +5327,129 @@ test_spec_item_add_refuses_with_codes_and_writes_nothing() {
   assert_contains "$OUT" '"code":"not-found"'
   assert_eq 0 "$(git rev-list --count main..spec/idea-x 2>/dev/null || printf 0)"
   own_tree_gone
+}
+
+# _ic_repo — own_tree_repo whose roadmap names tasks: t-1 closed (merged), t-2 active, t-3
+# merged and purged by housekeeping, one item with no task, and one checked.
+_ic_repo() {
+  own_tree_repo commit
+  # shellcheck disable=SC2016 # backticked task ids, literal
+  printf '%s\n' '# Roadmap: Idea X' '' '## Phase 1 — One' '' \
+    '- [ ] `t-1` — Closed item' '  continued here' '- [ ] `t-2` — Active item' \
+    '- [ ] `t-3` — Purged item' '- [ ] Plain item' '- [x] `t-4` — Checked item' > .ai/specs/idea-x/roadmap.md
+  git add -A >/dev/null
+  git commit -q -m "tasks"
+  git push -q origin HEAD:main
+  fixture_task t-1 task/t-1 consolidated
+  fixture_task t-2 task/t-2 active
+  mkdir -p .ai/runtime
+  printf '2026-11-18T14:40:30Z task=t-3 status=consolidated remote=merged via=forge action=purge dest=x class=T3 created=2026-11-17 consolidated=true\n' \
+    > .ai/runtime/housekeeping.log
+}
+
+test_spec_item_check_checks_one_item_by_its_handle() {
+  _ic_repo
+  local h
+  h=$(_si_id '`t-2` — Active item')
+  run jig spec item check idea-x "$h"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "spec item: check $h in idea-x"
+  assert_contains "$OUT" "branch: spec/idea-x (into main)"
+  assert_contains "$OUT" "commit: $(git rev-parse spec/idea-x)"
+  assert_contains "$OUT" "merged: no"
+  assert_eq '- [ ] `t-1` — Closed item
+  continued here
+- [x] `t-2` — Active item
+- [ ] `t-3` — Purged item
+- [ ] Plain item
+- [x] `t-4` — Checked item' "$(_si_roadmap | grep -E '^(- \[|  continued)')"
+  assert_eq 'Check a roadmap item of idea-x
+
+`t-2` — Active item' "$(git log -1 --format=%B spec/idea-x)"
+  # The handle survives the check: the item can be found by it again.
+  run jig spec item check idea-x "$h" --json
+  assert_contains "$OUT" '"code":"already-closed"'
+  own_tree_gone
+}
+
+test_spec_item_check_merged_checks_only_the_items_whose_task_merged() {
+  _ic_repo
+  run jig spec item check idea-x --merged --json
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" '"data":{"spec":"idea-x","items":[{"id":"i-'
+  assert_contains "$OUT" '"text":"`t-1` — Closed item continued here","checked":true,"task":"t-1","fog":false,"phase":1},{"id":"i-'
+  assert_contains "$OUT" '"text":"`t-3` — Purged item","checked":true,"task":"t-3","fog":false,"phase":1}],"write":{"target":"spec:idea-x","branch":"spec/idea-x","base":"main"'
+  assert_eq '- [x] `t-1` — Closed item
+  continued here
+- [ ] `t-2` — Active item
+- [x] `t-3` — Purged item
+- [ ] Plain item
+- [x] `t-4` — Checked item' "$(_si_roadmap | grep -E '^(- \[|  continued)')"
+  assert_eq 'Check roadmap items of idea-x' "$(git log -1 --format=%s spec/idea-x)"
+  assert_contains "$(git log -1 --format=%B spec/idea-x)" '`t-1` — Closed item continued here
+`t-3` — Purged item'
+  # Nothing is left to check now.
+  run jig spec item check idea-x --merged --json
+  assert_contains "$OUT" '"code":"not-found"'
+  assert_contains "$OUT" "no unchecked item of the roadmap of idea-x names a task known to have merged"
+  own_tree_gone
+}
+
+test_spec_item_check_text_answer_names_every_item() {
+  _ic_repo
+  run jig spec item check idea-x --merged
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "spec item: check $(_si_id '`t-1` — Closed item continued here') in idea-x"
+  assert_contains "$OUT" "spec item: check $(_si_id '`t-3` — Purged item') in idea-x"
+  assert_contains "$OUT" "branch: spec/idea-x (into main)"
+}
+
+test_spec_item_check_refuses_with_codes_and_writes_nothing() {
+  _ic_repo
+  local h
+  run jig spec item check idea-x --json
+  assert_contains "$OUT" '"code":"usage"'
+  h=$(_si_id '`t-2` — Active item')
+  run jig spec item check idea-x "$h" --merged --json
+  assert_contains "$OUT" '"code":"usage"'
+  run jig spec item check idea-x "$h" --phase 1 --json
+  assert_contains "$OUT" '"code":"usage"'
+  run jig spec item check idea-x --merged --text x --json
+  assert_contains "$OUT" '"code":"usage"'
+  run jig spec item check idea-x "$h" --revision abc --json
+  assert_contains "$OUT" '"code":"usage"'
+  run jig spec item check idea-x i-000000000000 --json
+  assert_contains "$OUT" '"code":"not-found"'
+  run jig spec item check idea-x "$(_si_id '`t-4` — Checked item')" --json
+  assert_contains "$OUT" '"code":"already-closed"'
+  assert_eq 0 "$(git rev-list --count main..spec/idea-x 2>/dev/null || printf 0)"
+  own_tree_gone
+}
+
+test_spec_item_check_is_refused_at_agent_git_none() {
+  _ic_repo
+  own_tree_level none
+  run jig spec item check idea-x --merged --json
+  assert_contains "$OUT" '"code":"git-not-allowed"'
+  assert_eq 0 "$(git rev-list --count main..spec/idea-x 2>/dev/null || printf 0)"
+}
+
+# The workspace of a merged task is gone (housekeeping purged it): `spec done` cannot read
+# its task.md, and says which pull request-bound command checks the item instead. It never
+# writes the working tree.
+test_spec_done_without_a_workspace_names_the_item_check() {
+  _ic_repo
+  local h before
+  h=$(_si_id '`t-3` — Purged item')
+  before=$(cat .ai/specs/idea-x/roadmap.md)
+  run jig spec "done" t-3
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "t-3 has no workspace here"
+  assert_contains "$OUT" "jig spec item check idea-x $h"
+  assert_eq "$before" "$(cat .ai/specs/idea-x/roadmap.md)"
+  run jig spec "done" nobody
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "unknown task: nobody"
 }
 
 test_spec_item_add_finds_no_spec_that_is_only_in_a_working_tree() {

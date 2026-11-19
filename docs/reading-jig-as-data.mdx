@@ -132,7 +132,7 @@ be reworded.
 | `already-archived` | the task you asked to archive is archived already: somebody archived it first. Nothing was written — read again |
 | `not-archived` | the task you asked to unarchive is not archived: somebody unarchived it first. Nothing was written — read again |
 | `wrong-status` | the task's status does not let the command run: archiving a task that is `consolidated`, abandoning one that is `archived` (unarchive it first), or closing a roadmap item for a task that is not `abandoned`. Nothing was written — read again |
-| `already-closed` | `jig spec drop` found every roadmap item that names the task checked already: somebody closed it first. Nothing was written — read again |
+| `already-closed` | `jig spec drop` found every roadmap item that names the task checked already, or `jig spec item check` found the item checked: somebody closed it first. Nothing was written — read again |
 | `ship-running` | a `jig task ship` of the task is waiting for CI and lands or merges the pull request itself (`shipping` in `jig task list --json`). Nothing was written |
 | `git-level` | a command without `--by human` ran at an `agent.git` below what it needs. The action is the person's, not the agent's |
 | `forge-unavailable` | the command could not ask the forge: none set up for this clone, its CLI missing or not signed in, or the call failed (`jig pr reviewers`, `jig task land --by human`, `jig task promote --json`, `jig task request-review`, `jig task merge-pr`, `jig task pr-status`). `message` holds why |
@@ -332,7 +332,8 @@ both read as `null`). `progress` is the same count `jig spec list` prints, and t
 which a [roadmap write](#changing-a-roadmap) names it by, and says whether it is checked, whether it
 counts as done, which task it names, if any, and whether it is
 still fog. An item counts as done when it is checked, or when the task it names is known on this
-machine to have merged — closed, or seen merged by the last `jig housekeeping` — even before its
+machine to have merged — closed, seen merged by the last `jig housekeeping`, or removed as merged by
+any run of it, while no task of that name is here — even before its
 checkbox reaches the branch you read.
 
 `waiting` is the edit of this spec that has not landed yet, or `null` when none waits. It is the
@@ -681,6 +682,8 @@ jig spec item add foo --phase 2 --text "Export a page" --revision 1793825280 --j
 jig spec item move foo i-7d2bc8dc7707 --phase 1 --top --revision 1793825290 --json
 jig spec item file foo i-7d2bc8dc7707 --task export-page --revision 1793825300 --json
 jig spec item file foo i-7d2bc8dc7707 --new export-page --goal "Export a page" --revision 1793825300 --json
+jig spec item check foo i-7d2bc8dc7707 --revision 1793825310 --json
+jig spec item check foo --merged --revision 1793825310 --json
 ```
 
 `add` takes `--after <item>`, `--top` or `--bottom`, the bottom by default, and `move` takes the same or
@@ -689,6 +692,10 @@ task is linked to the spec. With `--new <task-id> [--goal <text>]` in
 place of `--task`, `file` files the task as well, in the same write, so the `--revision` you carry is the one of
 your read: `jig task new` moves the revision, and a task filed first would make the write stale. Everything is checked
 before anything is written; a refusal files no task. A spec with an open epic is edited through a pull request into the epic.
+
+`check` turns an item's `[ ]` into `[x]`: the item you name, or with `--merged` every unchecked item
+whose task is known to have merged. Its answer lists the items it checked under `items`. An item that
+is checked already is refused with `already-closed`, and `--merged` with nothing to check with `not-found`.
 
 The `id` holds through a move, a check and a filing, because it is a digest of the item's words. Reword the
 item and the `id` changes, and a write with the old one is refused with `not-found`: it never touches

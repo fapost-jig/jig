@@ -1335,6 +1335,38 @@ test_status_shows_epic_branch_missing() {
   assert_contains "$OUT" "epic: idea-x on epic/idea-x, branch missing"
 }
 
+# A roadmap item still unchecked although its task merged counts as done (spec list), so
+# status is where the missing checkmark is named, with the command that makes it.
+test_status_names_a_roadmap_behind_its_merged_tasks() {
+  fixture_jig_repo
+  mkdir -p .ai/specs/idea-a
+  printf '# Idea A\n' > .ai/specs/idea-a/spec.md
+  # shellcheck disable=SC2016 # backticked task ids, literal
+  printf '%s\n' '## Phase 1 — One' '' '- [x] `t-1` — checked' '- [ ] `t-2` — merged, unchecked' \
+    '- [ ] `t-3` — still active' > .ai/specs/idea-a/roadmap.md
+  fixture_task t-2 task/t-2 consolidated
+  fixture_task t-3 task/t-3 active
+  run jig status
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "roadmap behind: idea-a — 1 merged but unchecked (jig spec item check idea-a --merged)"
+  run jig status --html
+  assert_eq 0 "$RC"
+  assert_contains "$(cat .ai/runtime/status.html)" "roadmap behind: idea-a — 1 merged but unchecked"
+}
+
+test_status_says_nothing_of_a_roadmap_that_is_not_behind() {
+  fixture_jig_repo
+  mkdir -p .ai/specs/idea-a
+  printf '# Idea A\n' > .ai/specs/idea-a/spec.md
+  # shellcheck disable=SC2016 # backticked task ids, literal
+  printf '%s\n' '## Phase 1 — One' '' '- [x] `t-1` — checked' '- [ ] `t-3` — still active' \
+    > .ai/specs/idea-a/roadmap.md
+  fixture_task t-3 task/t-3 active
+  run jig status
+  assert_eq 0 "$RC"
+  assert_not_contains "$OUT" "roadmap behind"
+}
+
 test_status_finished_epic_has_no_epic_line() {
   status_epic_setup
   jig spec new idea-x >/dev/null
