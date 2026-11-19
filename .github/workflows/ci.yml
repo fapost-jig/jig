@@ -19,8 +19,9 @@ on:
     branches: [main, 'epic/**']
   pull_request:
   workflow_dispatch:
-  # Every night the whole suite runs on main whatever changed: a mistake in the
-  # verify map that lets a change skip the tests it needed shows up within a day.
+  # Every night the whole suite runs on main, unless an earlier nightly run
+  # already tested main's very tree whole; a mistake in the verify map that
+  # lets a change skip the tests it needed shows up within a day.
   schedule:
     - cron: '17 3 * * *'
 
@@ -63,11 +64,16 @@ jobs:
   # A change that reaches only some tests runs those (`suite: selected`):
   # ci-scope.sh asks the shell profile which tests the change reaches, the
   # same answer a local `jig verify` acts on, and anything the profile cannot
-  # name runs the whole suite (`suite: all`), as do the nightly run, a manual
-  # one, a change of JIG_VERSION, the test harness and CI itself
+  # name runs the whole suite (`suite: all`), as do the nightly run (unless it
+  # already tested main's tree, below), a manual one, a change of JIG_VERSION,
+  # the test harness and CI itself
   # (adr-20261110-a-pull-request-runs-the-tests-its-change-reaches). A map
   # line that lets a change skip a test it needed is found by the next
-  # nightly run, and a release never ships without the whole suite.
+  # nightly run. A release is tagged only on a whole-suite proof (`whole`,
+  # see `release`), which a narrowed run gives without running the whole
+  # suite on HEAD, so a test such a map line broke can ship until that
+  # nightly run finds it
+  # (adr-20261118-main-tests-what-changed-since-a-full-pull-request-run).
   #
   # A push to main then asks one more question: whether a pull
   # request's run already tested this very tree, what the push needs of the
@@ -261,8 +267,10 @@ jobs:
       # How many shares each platform runs, and the table that divides the
       # tests among them: the per-test reports of the newest green nightly run
       # that has some (a nightly run on a tree already tested is light, green
-      # and without reports), which ran the whole suite. Read here once and handed to every
-      # share in the `plan` artifact — two shares reading two tables would
+      # and without reports), which ran the whole suite. Each run is read into
+      # its own directory, so a partial download of one never mixes into the
+      # next. Read here once and handed to every share in the `plan` artifact
+      # — two shares reading two tables would
       # divide the suite two ways, and a test could run in neither. No table
       # (the first run, an expired artifact, an API that does not answer)
       # costs only balance: the runner then divides by round-robin.
@@ -274,23 +282,28 @@ jobs:
           SUITE: ${{ steps.scope.outputs.suite }}
         run: |
           plan="$RUNNER_TEMP/plan"
-          mkdir -p "$plan/durations" "$RUNNER_TEMP/reports"
+          mkdir -p "$plan/durations"
           [ -f "$plan/filters" ] || : > "$plan/filters"
           ids=$(gh api -X GET "repos/$REPO/actions/workflows/ci.yml/runs" \
             -f event=schedule -f status=success -f per_page=10 \
             --jq '.workflow_runs[].id' 2>/dev/null) || ids=""
           from=""
+          reports=""
           for id in $ids; do
-            if gh run download "$id" -R "$REPO" -p 'report-*' -D "$RUNNER_TEMP/reports" >/dev/null 2>&1 \
-              && [ -n "$(find "$RUNNER_TEMP/reports" -name report.tsv 2>/dev/null | head -n 1)" ]; then
+            dir="$RUNNER_TEMP/nightly-reports/$id"
+            rm -rf "$dir"
+            mkdir -p "$dir"
+            if gh run download "$id" -R "$REPO" -p 'report-*' -D "$dir" >/dev/null 2>&1 \
+              && [ -n "$(find "$dir" -name report.tsv 2>/dev/null | head -n 1)" ]; then
               from="$id"
+              reports="$dir"
               break
             fi
           done
           echo "durations from: ${from:-no green nightly run with reports}"
           if [ -n "$from" ]; then
             for pair in ubuntu-latest:linux macos-latest:macos windows-latest:windows; do
-              find "$RUNNER_TEMP/reports" -path "*report-${pair%%:*}-*" -name report.tsv \
+              find "$reports" -path "*report-${pair%%:*}-*" -name report.tsv \
                 -exec cat {} + > "$plan/durations/${pair#*:}.tsv" 2>/dev/null || true
             done
           fi

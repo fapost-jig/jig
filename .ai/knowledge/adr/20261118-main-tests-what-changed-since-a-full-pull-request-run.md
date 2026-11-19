@@ -12,7 +12,7 @@ paths:
   - .github/scripts/ci-ok.sh
   - .github/scripts/ci-outputs.sh
 summary: Why a push to main whose pull request was behind main tests only what changed since the tree that pull request's whole-suite run tested, how that tree is proved from a record in its plan artifact, why release reads whole (decided in ci-outputs.sh), and the risk left.
-reviewed_at: 2026-11-18
+reviewed_at: 2026-11-19
 ---
 # A push to main tests what changed since the tree a pull request tested in full
 
@@ -96,12 +96,20 @@ and the pull request's head `P`. GitHub forgets `B` and `refs/pull/N/merge` afte
 
 - A pull request behind `main` costs `main` only the tests its difference reaches, usually none, instead
   of the whole suite; a release pull request that lagged is tagged when those finish.
-- **Residual risk.** The argument is the one the verify map already rests on: a test that no file of the
-  difference between the tested tree and `HEAD` reaches sees in `HEAD` the files it saw in the tested
-  tree, where it passed. Two faults it cannot see: a test reached by *no* changed file but broken by
-  the *combination* of the pull request and what landed (the map has no line for such a coupling);
-  the nightly run still tests the whole suite and finds it within a day. A release never ships
-  without a whole-suite proof, since `whole` is true only for the three cases above.
+- **Residual risk.** The argument is the one the verify map already rests on: a test that no file of
+  the difference between the tested tree and `HEAD` reaches sees in `HEAD` the files it saw in the
+  tested tree, where it passed. Two faults it cannot see, both a test `t` broken through a coupling
+  the map has no line for. First, the *combination* of the pull request and what landed breaks `t`,
+  though no changed file reaches it. Second, a change X that landed on `main` meanwhile breaks `t`
+  by itself, and the pull request, a release among them, merges before any whole-suite run on X has
+  failed: no `red-main` issue is open, so narrowing is not refused, the difference (X's files) does
+  not reach `t`, the run is `selected` and green with `whole` true, and a release is tagged with `t`
+  failing on `HEAD`, where the release push used to run the whole suite and fail. The window for
+  both is from the merge until the next whole-suite run on `main` fails and opens `red-main`, at the
+  latest the nightly run, within a day; after that narrowing is refused and a release runs the whole
+  suite. So a release's proof is the whole suite on the tree the pull request recorded plus the
+  tests the difference reaches on `HEAD`, not the whole suite on `HEAD`: `whole` is true only for
+  the three cases above, and inside that window such a proof can tag a version with a test failing.
 - The artifact is kept seven days; a pull request merged later gets the whole-suite rerun, as
   before.
 - `git merge-tree --write-tree` needs git 2.38; `ubuntu-latest` has it. An older git makes the
