@@ -84,3 +84,9 @@ This amends adr-20260921-autopilot-runs-a-task-to-its-stops (a stop no longer ho
 adr-20261013-human-answer-resumes-stopped-unattended-run (the answer may be recorded first),
 adr-20261022-the-next-task-is-advised-from-the-queue (`resume`, `slots`, `waiting`) and
 adr-20260922-a-phase-run-is-coordinated (the slot predicate is shared).
+
+> **Amendment (2026-11-19).** An attended run stopped while its task's design waits at the gate is
+> shown as the gate's item (`gate-waiting` or `gate-changed`, with `stopped_at`), not as
+> `autopilot-stopped`, and a person's approval or answer at the gate also answers the stop — the
+> `answer` line and `autopilot_answered` this ADR describes — so it resumes on a free slot
+> (adr-20261119-a-gate-takes-an-answer).

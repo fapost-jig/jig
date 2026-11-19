@@ -234,7 +234,7 @@ lines `_task_blocking_findings` prints, the line `task_receipt_check` prints (`c
 `not checked (…)` where the gates would say `current`), `_task_worktree_note` and the task base; an autopilot run as
 `_task_autopilot_facts` gives it (state, repairs, last stage and its time, last stop and its time,
 the run's phase, and when a person took it over — the same producer `autopilot report` summarises); and a T3/T4 design as `_task_gate_state` answers
-(`waiting`, `changed`, `approved`). Those strings are read by a person on the page as well as by the
+(`waiting`, `answered`, `changed`, `approved`; `answered` is a person's answer to the design, not an approval, adr-20261119-a-gate-takes-an-answer). Those strings are read by a person on the page as well as by the
 gates: change one and the page and its tests change with it. `status.sh` reads every `state` in one
 awk pass (`_status_task_rows`), so a renamed key empties a column there too. At a terminal
 `jig status` also reads its own `task …` lines back (`_status_task_needs`): a task is listed first,

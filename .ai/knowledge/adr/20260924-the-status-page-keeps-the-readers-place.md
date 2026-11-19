@@ -191,3 +191,8 @@ Rejected by adr-20260922-the-status-page-stays-current-without-a-server, and sti
     writes.
   - The page is redrawn with the main checkout's own jig, so a worktree running a newer jig does
     not change how the page looks until the main checkout is upgraded.
+
+> **Amendment (2026-11-19).** The gate has a fourth state, `answered`: a person answered the design
+> with `jig task gate <id> answered --answer <text>` instead of approving it, and it waits for the
+> agent, so the page shows no card for it until the design is rewritten — then it is `waiting` again
+> (adr-20261119-a-gate-takes-an-answer).

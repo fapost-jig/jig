@@ -86,7 +86,9 @@ Usage: jig <command> [args]
   task autopilot <id> start|stage|repair|stop|resume|end|report
                                  run a task's route without stopping between stages;
                                  repair caps out at 2 and stops the run (exit 3)
-  task gate <id> approved        record the human's approval of a T3/T4 design
+  task gate <id> approved|answered
+                                 record the human's approval of a T3/T4 design, or their
+                                 answer (--answer <text>) to its gate questions
   context [...]                  relevant knowledge for a task
   context resolve [...]          required documents; --stage, --no-task, --catalog
   context pending|guard [...]    knowledge required but not yet acknowledged

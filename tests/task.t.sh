@@ -12633,8 +12633,8 @@ test_task_list_json_pins_a_task_with_every_fact() {
   _tl_json
   assert_eq 0 "$RC" "$ERR"
   _tl_cut_actions
-  assert_eq '[{"id":"start","command":"jig task start SRD-9-full","offered":true,"reason":null},{"id":"pause","command":"jig task pause SRD-9-full","offered":false,"reason":"task pause: already paused: SRD-9-full"},{"id":"resume","command":"jig task resume SRD-9-full","offered":true,"reason":null},{"id":"request-pause","command":"jig queue request task:SRD-9-full pause","offered":false,"reason":"queue request: task SRD-9-full is already paused"},{"id":"cancel-pause-request","command":"jig queue cancel task:SRD-9-full pause","offered":false,"reason":"queue cancel: no pause of task:SRD-9-full is requested"},{"id":"approve-gate","command":"jig task gate SRD-9-full approved","offered":false,"reason":"task gate: SRD-9-full is stopped; if a human answered, run: jig task autopilot SRD-9-full resume --answer <text> --by human; then approve with --by agent; or, if a person takes the task on: jig task autopilot SRD-9-full handover --by human --answer <text>"},{"id":"answer-stop","command":"jig task autopilot SRD-9-full answer --answer <text> --by human","offered":true,"reason":null},{"id":"handover","command":"jig task autopilot SRD-9-full handover --by human --answer <text>","offered":true,"reason":null},{"id":"set-class","command":"jig task set SRD-9-full class <Tn>","offered":true,"reason":null},{"id":"ship","command":"jig task ship SRD-9-full --message-file <file>","offered":false,"reason":"task ship: agent.git is none in this clone; the human commits"},{"id":"land","command":"jig task land SRD-9-full --by human","offered":false,"reason":"task land: SRD-9-full is not on the staging flow; a task in this project lands with jig task ship"},{"id":"request-review","command":"jig task request-review SRD-9-full --reviewer <login> --by human","offered":true,"reason":null},{"id":"merge","command":"jig task merge-pr SRD-9-full --by human","offered":false,"reason":"task merge-pr: the forge cache says the checks of SRD-9-full'"'"'s pull request are red; the table withholds the merge until they are green (the command itself looks at the forge now)"},{"id":"promote","command":"jig task promote SRD-9-full --by human","offered":false,"reason":"task promote: SRD-9-full is not on the staging flow; a task in this project reaches main with jig task ship"},{"id":"pr-status","command":"jig task pr-status SRD-9-full --json","offered":true,"reason":null},{"id":"close","command":"jig task set SRD-9-full status consolidated","offered":false,"reason":"task set: status consolidated requires knowledge_consolidated true; record the knowledge decision first: jig task set SRD-9-full knowledge_consolidated true"},{"id":"abandon","command":"jig task abandon SRD-9-full","offered":true,"reason":null},{"id":"archive","command":"jig task archive SRD-9-full","offered":true,"reason":null},{"id":"unarchive","command":"jig task unarchive SRD-9-full","offered":false,"reason":"task unarchive: task SRD-9-full is not archived"},{"id":"reopen","command":"jig task set SRD-9-full status active","offered":false,"reason":"task SRD-9-full is active, not abandoned"},{"id":"drop-item","command":"jig spec drop SRD-9-full --json","offered":false,"reason":"spec drop: SRD-9-full is active; abandon it first: jig task abandon SRD-9-full --reason <text>"}]' "$ACTIONS"
-  assert_eq "{\"schema\":1,\"revision\":\"R\",\"generated_at\":\"T\",\"data\":{\"tasks\":[{\"id\":\"SRD-9-full\",\"class\":\"T3\",\"status\":\"active\",\"issue\":\"SRD-9\",\"goal\":\"Ship the list as \\\"data\\\".\",\"knowledge_consolidated\":false,\"paused\":true,\"pause_request\":null,\"created_at\":\"2026-10-01\",\"updated_at\":\"$upd\",\"archived_at\":null,\"archived_reason\":null,\"archived_from\":null,\"absorbed_into\":null,\"absorbs\":[],\"absorbs_partly\":[],\"partly_in\":[],\"branch\":\"task/SRD-9-full\",\"base_branch\":\"main\",\"spec\":null,\"worktree\":{\"path\":\"$wt\",\"uncommitted\":1},\"gate\":{\"state\":\"approved\",\"by\":\"human\"},\"autopilot\":{\"state\":\"stopped\",\"mode\":\"unattended\",\"repairs\":1,\"stage\":\"implement\",\"stage_at\":\"2026-10-02T10:00:00Z\",\"stop_reason\":\"Which \\\"name\\\"?\",\"stop_at\":\"2026-10-02T11:00:00Z\",\"phase\":\"spec-x/1\",\"handover_at\":null,\"answered_at\":null},\"pull_request\":{\"url\":\"https://github.com/example/example/pull/7\",\"state\":\"open\",\"ci\":\"red\",\"fetched_at\":\"2026-10-02T12:00:00Z\",\"base\":\"main\",\"mergeable\":null,\"review\":null},\"shipping\":null,\"housekeeping_flags\":[\"wrong-base\",\"STALE_CANDIDATE\"],\"waivers\":[]}],\"hidden\":0,\"archived\":0,\"housekeeping\":{\"ran_at\":\"2026-10-02T12:00:00Z\",\"forge\":\"github\"}}}" "$OUT"
+  assert_eq '[{"id":"start","command":"jig task start SRD-9-full","offered":true,"reason":null},{"id":"pause","command":"jig task pause SRD-9-full","offered":false,"reason":"task pause: already paused: SRD-9-full"},{"id":"resume","command":"jig task resume SRD-9-full","offered":true,"reason":null},{"id":"request-pause","command":"jig queue request task:SRD-9-full pause","offered":false,"reason":"queue request: task SRD-9-full is already paused"},{"id":"cancel-pause-request","command":"jig queue cancel task:SRD-9-full pause","offered":false,"reason":"queue cancel: no pause of task:SRD-9-full is requested"},{"id":"approve-gate","command":"jig task gate SRD-9-full approved","offered":false,"reason":"task gate: SRD-9-full is stopped; if a human answered, run: jig task autopilot SRD-9-full resume --answer <text> --by human; then approve with --by agent; or, if a person takes the task on: jig task autopilot SRD-9-full handover --by human --answer <text>"},{"id":"answer-gate","command":"jig task gate SRD-9-full answered --answer <text>","offered":false,"reason":"task gate: SRD-9-full is stopped; if a human answered, run: jig task autopilot SRD-9-full resume --answer <text> --by human; then approve with --by agent; or, if a person takes the task on: jig task autopilot SRD-9-full handover --by human --answer <text>"},{"id":"answer-stop","command":"jig task autopilot SRD-9-full answer --answer <text> --by human","offered":true,"reason":null},{"id":"handover","command":"jig task autopilot SRD-9-full handover --by human --answer <text>","offered":true,"reason":null},{"id":"set-class","command":"jig task set SRD-9-full class <Tn>","offered":true,"reason":null},{"id":"ship","command":"jig task ship SRD-9-full --message-file <file>","offered":false,"reason":"task ship: agent.git is none in this clone; the human commits"},{"id":"land","command":"jig task land SRD-9-full --by human","offered":false,"reason":"task land: SRD-9-full is not on the staging flow; a task in this project lands with jig task ship"},{"id":"request-review","command":"jig task request-review SRD-9-full --reviewer <login> --by human","offered":true,"reason":null},{"id":"merge","command":"jig task merge-pr SRD-9-full --by human","offered":false,"reason":"task merge-pr: the forge cache says the checks of SRD-9-full'"'"'s pull request are red; the table withholds the merge until they are green (the command itself looks at the forge now)"},{"id":"promote","command":"jig task promote SRD-9-full --by human","offered":false,"reason":"task promote: SRD-9-full is not on the staging flow; a task in this project reaches main with jig task ship"},{"id":"pr-status","command":"jig task pr-status SRD-9-full --json","offered":true,"reason":null},{"id":"close","command":"jig task set SRD-9-full status consolidated","offered":false,"reason":"task set: status consolidated requires knowledge_consolidated true; record the knowledge decision first: jig task set SRD-9-full knowledge_consolidated true"},{"id":"abandon","command":"jig task abandon SRD-9-full","offered":true,"reason":null},{"id":"archive","command":"jig task archive SRD-9-full","offered":true,"reason":null},{"id":"unarchive","command":"jig task unarchive SRD-9-full","offered":false,"reason":"task unarchive: task SRD-9-full is not archived"},{"id":"reopen","command":"jig task set SRD-9-full status active","offered":false,"reason":"task SRD-9-full is active, not abandoned"},{"id":"drop-item","command":"jig spec drop SRD-9-full --json","offered":false,"reason":"spec drop: SRD-9-full is active; abandon it first: jig task abandon SRD-9-full --reason <text>"}]' "$ACTIONS"
+  assert_eq "{\"schema\":1,\"revision\":\"R\",\"generated_at\":\"T\",\"data\":{\"tasks\":[{\"id\":\"SRD-9-full\",\"class\":\"T3\",\"status\":\"active\",\"issue\":\"SRD-9\",\"goal\":\"Ship the list as \\\"data\\\".\",\"knowledge_consolidated\":false,\"paused\":true,\"pause_request\":null,\"created_at\":\"2026-10-01\",\"updated_at\":\"$upd\",\"archived_at\":null,\"archived_reason\":null,\"archived_from\":null,\"absorbed_into\":null,\"absorbs\":[],\"absorbs_partly\":[],\"partly_in\":[],\"branch\":\"task/SRD-9-full\",\"base_branch\":\"main\",\"spec\":null,\"worktree\":{\"path\":\"$wt\",\"uncommitted\":1},\"gate\":{\"state\":\"approved\",\"by\":\"human\",\"questions\":null,\"answer\":null},\"autopilot\":{\"state\":\"stopped\",\"mode\":\"unattended\",\"repairs\":1,\"stage\":\"implement\",\"stage_at\":\"2026-10-02T10:00:00Z\",\"stop_reason\":\"Which \\\"name\\\"?\",\"stop_at\":\"2026-10-02T11:00:00Z\",\"phase\":\"spec-x/1\",\"handover_at\":null,\"answered_at\":null},\"pull_request\":{\"url\":\"https://github.com/example/example/pull/7\",\"state\":\"open\",\"ci\":\"red\",\"fetched_at\":\"2026-10-02T12:00:00Z\",\"base\":\"main\",\"mergeable\":null,\"review\":null},\"shipping\":null,\"housekeeping_flags\":[\"wrong-base\",\"STALE_CANDIDATE\"],\"waivers\":[]}],\"hidden\":0,\"archived\":0,\"housekeeping\":{\"ran_at\":\"2026-10-02T12:00:00Z\",\"forge\":\"github\"}}}" "$OUT"
 }
 
 test_task_list_json_says_null_for_every_fact_a_task_does_not_have() {
@@ -12643,7 +12643,7 @@ test_task_list_json_says_null_for_every_fact_a_task_does_not_have() {
   _tl_json
   assert_eq 0 "$RC" "$ERR"
   _tl_cut_actions
-  assert_eq 21 "$(printf '%s\n' "$ACTIONS" | grep -o '{"id":' | wc -l | tr -d ' ')"
+  assert_eq 22 "$(printf '%s\n' "$ACTIONS" | grep -o '{"id":' | wc -l | tr -d ' ')"
   assert_eq '{"schema":1,"revision":"R","generated_at":"T","data":{"tasks":[{"id":"bare","class":null,"status":"active","issue":null,"goal":null,"knowledge_consolidated":false,"paused":false,"pause_request":null,"created_at":"2026-10-01","updated_at":"2026-10-01","archived_at":null,"archived_reason":null,"archived_from":null,"absorbed_into":null,"absorbs":[],"absorbs_partly":[],"partly_in":[],"branch":null,"base_branch":"main","spec":null,"worktree":null,"gate":null,"autopilot":null,"pull_request":null,"shipping":null,"housekeeping_flags":[],"waivers":[]}],"hidden":0,"archived":0,"housekeeping":null}}' "$OUT"
 }
 
@@ -13608,7 +13608,7 @@ _tl_agree() {
   _tl_json --all
   assert_eq 0 "$RC" "$ERR"
   rows=$(_tl_action_rows)
-  assert_eq 21 "$(printf '%s\n' "$rows" | grep -c .)" "$OUT"
+  assert_eq 22 "$(printf '%s\n' "$rows" | grep -c .)" "$OUT"
   saved=$(mktemp -d "${TMPDIR:-/tmp}/jig-tl-agree.XXXXXX")
   # The queue too: a pause request written by one command must not change
   # what the next is judged on.
@@ -13678,7 +13678,7 @@ test_task_actions_at_a_gate_and_a_stop_agree_with_their_commands() {
 the design
 EOF
   printf 'autopilot: stopped\nautopilot_mode: attended\nautopilot_repairs: 1\npaused: true\n' >> .ai/workspace/tasks/big/state
-  _tl_agree big "resume approve-gate answer-stop handover set-class abandon archive"
+  _tl_agree big "resume approve-gate answer-gate answer-stop handover set-class abandon archive"
 }
 
 # A pending pause request: it can be cancelled and not asked again; a direct
@@ -18117,4 +18117,396 @@ test_task_actions_withholding_drop_item_for_a_closed_spec_branch_agree_with_the_
   git commit -q -am "closed on the branch"
   git switch -q main
   _tl_agree T-1 "archive reopen"
+}
+
+# --- an answer at the human gate (adr-20261119-a-gate-takes-an-answer) --------
+#
+# `jig task gate <id> answered --answer <text>` records the human's answer to a
+# design's `## Gate questions` without approving it: state `gate: answered`,
+# the line in `gate-answers`, and the gate waits again when the design is
+# rewritten. Both decisions answer the stop of an attended run at the gate.
+
+# _ga_design — the T3 task T-1's design.md, with two questions.
+_ga_design() {
+  cat > .ai/workspace/tasks/T-1/design.md <<'DESIGN'
+# Design
+
+The decision in one paragraph.
+
+## Gate questions
+
+### Which card is shown?
+Context line one.
+Context line two.
+- the gate card
+- the stop card
+Recommended: the first, one card per situation.
+
+### Is the limit five?
+Recommended: yes.
+
+## Alternatives
+
+### Not a question
+- not an option
+DESIGN
+}
+
+# _ga_task — a started T3 task T-1 with that design.
+_ga_task() {
+  route_task --class T3
+  _ga_design
+}
+
+_ga_gate_state() {
+  jig task list --json | sed -n 's/.*"gate":{"state":"\([a-z]*\)".*/\1/p'
+}
+
+test_task_gate_answered_writes_state_and_the_answers_journal() {
+  _ga_task
+  run jig task gate T-1 answered --answer "the stop card; limit stays"
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "gate: answered" "$OUT"
+  assert_file_contains .ai/workspace/tasks/T-1/state "gate: answered"
+  assert_file_contains .ai/workspace/tasks/T-1/state "gate_by: human"
+  local hash line
+  hash=$(sed -n 's/^gate_design:[[:space:]]*//p' .ai/workspace/tasks/T-1/state)
+  [ -n "$hash" ] || fail "gate_design was not recorded"
+  line=$(cat .ai/workspace/tasks/T-1/gate-answers)
+  assert_eq 1 "$(printf '%s\n' "$line" | wc -l | tr -d ' ')"
+  assert_eq "$hash" "$(printf '%s\n' "$line" | cut -f 2)"
+  assert_eq human "$(printf '%s\n' "$line" | cut -f 3)"
+  assert_eq "the stop card; limit stays" "$(printf '%s\n' "$line" | cut -f 4)"
+  assert_contains "$(printf '%s\n' "$line" | cut -f 1)" "T"
+  assert_eq answered "$(_ga_gate_state)"
+  # The answer pins the same design a review receipt does, as an approval does.
+  jig task receipt T-1 --stage review >/dev/null
+  assert_eq "$hash" "$(sed -n 's/^design:[[:space:]]*//p' .ai/workspace/tasks/T-1/receipt)"
+  # Answering again before the rewrite: a new line, and the latest is shown.
+  run jig task gate T-1 answered --answer "second thoughts"
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq 2 "$(wc -l < .ai/workspace/tasks/T-1/gate-answers | tr -d ' ')"
+  run jig task show T-1
+  assert_contains "$OUT" "gate: answered"
+  assert_contains "$OUT" "gate_state: answered"
+  assert_contains "$OUT" " second thoughts"
+  assert_not_contains "$OUT" "the stop card"
+}
+
+test_task_gate_answered_json_names_the_answer_and_lands_as_one_write() {
+  _tw_t3
+  _tr_rev
+  local before=$REV
+  _tw_json gate T-1 answered --answer "use the second one"
+  assert_eq 0 "$RC" "$ERR"
+  _tw_one_line
+  _tr_rev
+  assert_eq "$((before + 2))" "$REV" "an answer must raise the revision by exactly two"
+  assert_contains "$OUT" '"gate":{"state":"answered","by":"human","design":"'
+  assert_contains "$OUT" '"answer":"use the second one"}}'
+  # The task in the reply is the one after the write.
+  assert_contains "$OUT" '"gate":{"state":"answered","by":null,"questions":null,"answer":{"text":"use the second one","at":"'
+  _tw_no_tmp T-1
+  # --revision before or after the answer; a stale one is refused.
+  _tr_rev
+  _tw_json gate T-1 answered --revision "$REV" --answer "again"
+  assert_eq 0 "$RC" "$ERR"
+  _tw_json gate T-1 answered --answer "stale" --revision "$before"
+  assert_eq stale-revision "$(_tr_code)" "$OUT"
+  assert_not_contains "$(cat .ai/workspace/tasks/T-1/gate-answers)" "stale"
+}
+
+test_task_gate_answered_refusals_write_nothing() {
+  _ga_task
+  local state
+  state=$(cat .ai/workspace/tasks/T-1/state)
+  _tw_json gate T-1 answered
+  assert_eq usage "$(_tr_code)" "$OUT"
+  assert_contains "$OUT" "--answer is required"
+  _tw_json gate T-1 answered --answer ""
+  assert_eq usage "$(_tr_code)" "$OUT"
+  _tw_json gate T-1 answered --answer "$(printf 'one\ntwo')"
+  assert_eq usage "$(_tr_code)" "$OUT"
+  _tw_json gate T-1 answered --answer "$(printf 'one\ttwo')"
+  assert_eq usage "$(_tr_code)" "$OUT"
+  assert_contains "$OUT" "a single line with no tab"
+  _tw_json gate T-1 answered --answer
+  assert_eq usage "$(_tr_code)" "$OUT"
+  _tw_json gate T-1 answered --answer x --by agent
+  assert_eq usage "$(_tr_code)" "$OUT"
+  assert_contains "$OUT" "an answer is a human's"
+  _tw_json gate T-1 approved --answer x
+  assert_eq usage "$(_tr_code)" "$OUT"
+  _tw_json gate NOPE answered --answer x
+  assert_eq not-found "$(_tr_code)" "$OUT"
+  assert_eq "$state" "$(cat .ai/workspace/tasks/T-1/state)" "a refused answer changed the state"
+  [ ! -e .ai/workspace/tasks/T-1/gate-answers ] || fail "a refused answer was journalled"
+  _tw_no_tmp T-1
+}
+
+test_task_gate_answered_without_a_gate_is_no_gate() {
+  route_task --class T2
+  printf '# design\n' > .ai/workspace/tasks/T-1/design.md
+  _tw_json gate T-1 answered --answer x
+  assert_eq no-gate "$(_tr_code)" "$OUT"
+  jig task new T-2 --class T3 --goal "The goal." >/dev/null
+  _tw_json gate T-2 answered --answer x
+  assert_eq no-gate "$(_tr_code)" "$OUT"
+  assert_contains "$OUT" "T-2 has no design.md to answer"
+}
+
+test_task_gate_answered_is_refused_once_the_design_is_approved() {
+  _ga_task
+  jig task gate T-1 approved >/dev/null
+  run jig task gate T-1 answered --answer "too late"
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "T-1's design is approved; nothing waits at its gate"
+  _tw_json gate T-1 answered --answer "too late"
+  assert_eq failed "$(_tr_code)" "$OUT"
+  assert_eq approved "$(_ga_gate_state)"
+  [ ! -e .ai/workspace/tasks/T-1/gate-answers ] || fail "a refused answer was journalled"
+  # The design moved after the approval: the gate is `changed`, and takes one.
+  printf '\nmore\n' >> .ai/workspace/tasks/T-1/design.md
+  run jig task gate T-1 answered --answer "now"
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq answered "$(_ga_gate_state)"
+}
+
+test_task_gate_state_answered_becomes_waiting_when_the_design_is_rewritten() {
+  _ga_task
+  jig task gate T-1 answered --answer "go with the first" >/dev/null
+  assert_eq answered "$(_ga_gate_state)"
+  # Nothing was approved, so the rewrite is `waiting`, never `changed`.
+  jig task artifact write T-1 design --from - >/dev/null 2>&1 <<'EOF'
+# Design v2
+
+## Gate questions
+
+None.
+EOF
+  assert_eq waiting "$(_ga_gate_state)"
+  # `task show` says so too: the `gate` key stays `answered`, the state does not.
+  run jig task show T-1
+  assert_contains "$OUT" "gate_state: waiting"
+  # The past answer stays beside the new questions, for the board to show.
+  run jig task list --json
+  assert_contains "$OUT" '"gate":{"state":"waiting","by":null,"questions":[],"answer":{"text":"go with the first",'
+  # Approving after an answer, without rewriting, is allowed: the human changed their mind.
+  jig task gate T-1 answered --answer "wait" >/dev/null
+  run jig task gate T-1 approved
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq approved "$(_ga_gate_state)"
+}
+
+test_task_gate_answered_does_not_pass_the_route() {
+  _ga_task
+  jig task gate T-1 answered --answer "wait" >/dev/null
+  jig task receipt T-1 --stage architecture-review >/dev/null
+  run jig task set T-1 status ready
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "human gate (no approval recorded: jig task gate T-1 approved)"
+}
+
+test_task_gate_questions_are_read_from_the_design() {
+  _ga_task
+  run jig task list --json
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" '"gate":{"state":"waiting","by":null,"questions":[{"question":"Which card is shown?","context":"Context line one. Context line two.","options":["the gate card","the stop card"],"recommendation":"the first, one card per situation."},{"question":"Is the limit five?","context":null,"options":[],"recommendation":"yes."}],"answer":null}'
+}
+
+test_task_gate_questions_none_empty_and_fenced() {
+  route_task --class T3
+  # No section: null.
+  printf '# Design\n\n## Alternatives\n\n### Not a question\n' > .ai/workspace/tasks/T-1/design.md
+  run jig task list --json
+  assert_contains "$OUT" '"questions":null,"answer":null}'
+  # A section with no question: [].
+  printf '# Design\n\n## Gate questions\n\nNone.\n\n## Alternatives\n' > .ai/workspace/tasks/T-1/design.md
+  run jig task list --json
+  assert_contains "$OUT" '"questions":[],"answer":null}'
+  # The section at the end of the file, a question with no options, escapes.
+  printf '# Design\n\n## Gate questions\n### Say "why"?\n' > .ai/workspace/tasks/T-1/design.md
+  run jig task list --json
+  assert_contains "$OUT" '"questions":[{"question":"Say \"why\"?","context":null,"options":[],"recommendation":null}]'
+  # A heading and a question inside a fenced block are neither.
+  cat > .ai/workspace/tasks/T-1/design.md <<'DESIGN'
+# Design
+
+```
+## Gate questions
+### Not this
+```
+
+## Gate questions
+
+### The real one
+```
+## Alternatives
+### Nor this
+- nor this
+```
+- yes
+DESIGN
+  run jig task list --json
+  assert_contains "$OUT" '"questions":[{"question":"The real one","context":null,"options":["yes"],"recommendation":null}]'
+  # Only fenced: no section at all.
+  printf '# Design\n\n%s\n## Gate questions\n### x\n%s\n' '```' '```' > .ai/workspace/tasks/T-1/design.md
+  run jig task list --json
+  assert_contains "$OUT" '"questions":null,'
+}
+
+test_task_gate_is_null_for_a_task_without_a_design() {
+  route_task --class T3
+  run jig task list --json
+  assert_contains "$OUT" '"gate":null'
+}
+
+test_task_actions_offer_answer_gate_beside_approve_gate() {
+  task_setup_clean
+  jig task new big --class T3 >/dev/null
+  jig task artifact write big design --from - >/dev/null 2>&1 <<'EOF'
+the design
+EOF
+  _tl_json
+  assert_contains "$OUT" '{"id":"approve-gate","command":"jig task gate big approved","offered":true,"reason":null},{"id":"answer-gate","command":"jig task gate big answered --answer <text>","offered":true,"reason":null},{"id":"answer-stop"'
+  jig task gate big answered --answer "x" >/dev/null
+  _tl_json
+  assert_contains "$OUT" '"id":"answer-gate","command":"jig task gate big answered --answer <text>","offered":true,"reason":null}'
+  assert_contains "$OUT" '"id":"approve-gate","command":"jig task gate big approved","offered":true,"reason":null}'
+  jig task gate big approved >/dev/null
+  _tl_json
+  assert_contains "$OUT" '"id":"answer-gate","command":"jig task gate big answered --answer <text>","offered":false,"reason":"task gate: big'"'"'s design is approved; nothing waits at its gate"}'
+  printf 'changed\n' >> .ai/workspace/tasks/big/design.md
+  _tl_json
+  assert_contains "$OUT" '"id":"answer-gate","command":"jig task gate big answered --answer <text>","offered":true,"reason":null}'
+}
+
+test_task_actions_answer_gate_agrees_with_its_command() {
+  task_setup_clean
+  ship_cfg_local agent.git commit
+  jig task new big --class T3 --goal "The goal." >/dev/null
+  jig task start big >/dev/null
+  jig task artifact write big design --from - >/dev/null 2>&1 <<'EOF'
+the design
+EOF
+  _tl_agree big "pause request-pause approve-gate answer-gate set-class abandon archive"
+}
+
+test_task_gate_answered_in_an_unattended_run_is_refused_with_the_runs_codes() {
+  _ga_task
+  unattended_local
+  jig task autopilot T-1 start >/dev/null
+  _tw_json gate T-1 answered --answer "x"
+  assert_eq autopilot-running "$(_tr_code)" "$OUT"
+  assert_contains "$OUT" "nobody answers at its gate"
+  jig task autopilot T-1 stop --reason "q" >/dev/null
+  _tw_json gate T-1 answered --answer "x"
+  assert_eq autopilot-stopped "$(_tr_code)" "$OUT"
+  assert_contains "$OUT" "jig task autopilot T-1 resume --answer <text> --by human"
+  [ ! -e .ai/workspace/tasks/T-1/gate-answers ] || fail "a refused answer was journalled"
+  # The table withholds the row for the same reason.
+  _tl_json
+  assert_contains "$OUT" '"id":"answer-gate","command":"jig task gate T-1 answered --answer <text>","offered":false,"reason":"task gate: T-1 is stopped;'
+}
+
+# An attended run stopped at the gate: the decision is also the answer to the
+# stop, so the run is listed under `resume`.
+_ga_stopped_run() {
+  _ga_task
+  jig task autopilot T-1 start >/dev/null
+  jig task autopilot T-1 stop --reason "design waits at the gate" >/dev/null
+}
+
+test_task_gate_answer_on_an_attended_stopped_run_answers_the_stop() {
+  _ga_stopped_run
+  run jig task gate T-1 answered --answer "the stop card"
+  assert_eq 0 "$RC" "$OUT"
+  assert_file_contains .ai/workspace/tasks/T-1/state "autopilot: stopped"
+  assert_file_contains .ai/workspace/tasks/T-1/state "autopilot_answered: "
+  assert_file_contains .ai/workspace/tasks/T-1/autopilot "$(printf '\tanswer\tgate answered: the stop card')"
+  run jig queue next
+  assert_contains "$OUT" "resume first: task:T-1"
+  # The run takes the answer as `resume` does.
+  run jig task autopilot T-1 resume
+  assert_eq 0 "$RC" "$OUT"
+}
+
+test_task_gate_approval_on_an_attended_stopped_run_answers_the_stop() {
+  _ga_stopped_run
+  run jig task gate T-1 approved
+  assert_eq 0 "$RC" "$OUT"
+  assert_file_contains .ai/workspace/tasks/T-1/state "autopilot_answered: "
+  assert_file_contains .ai/workspace/tasks/T-1/autopilot "$(printf '\tanswer\tgate approved')"
+  run jig queue next
+  assert_contains "$OUT" "resume first: task:T-1"
+}
+
+test_task_gate_decision_without_a_stopped_run_writes_no_run_journal() {
+  _ga_task
+  jig task gate T-1 answered --answer "x" >/dev/null
+  [ ! -e .ai/workspace/tasks/T-1/autopilot ] || fail "a run journal appeared for a task with no run"
+  ! grep -q '^autopilot_answered' .ai/workspace/tasks/T-1/state || fail "autopilot_answered was set with no run"
+  # A run that is on is not answered by it either.
+  jig task autopilot T-1 start >/dev/null
+  jig task gate T-1 approved >/dev/null
+  ! grep -q '^autopilot_answered' .ai/workspace/tasks/T-1/state || fail "autopilot_answered was set for a run that is on"
+}
+
+test_task_gate_approving_an_approved_design_again_does_not_answer_a_stop() {
+  _ga_task
+  jig task gate T-1 approved >/dev/null
+  jig task autopilot T-1 start >/dev/null
+  jig task autopilot T-1 stop --reason "q" >/dev/null
+  jig task gate T-1 approved >/dev/null
+  ! grep -q '^autopilot_answered' .ai/workspace/tasks/T-1/state || fail "a stop about something else was answered by a repeated approval"
+}
+
+test_task_set_still_refuses_the_gate_keys_after_an_answer() {
+  _ga_task
+  jig task gate T-1 answered --answer "x" >/dev/null
+  run jig task set T-1 gate approved
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "not writable"
+}
+
+test_task_artifact_write_design_warns_about_missing_or_excess_gate_questions() {
+  route_task --class T3
+  run jig task artifact write T-1 design --from - <<'EOF'
+# Design
+no questions section
+EOF
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "has no \`## Gate questions\` section"
+  # A section, however short, is enough.
+  run jig task artifact write T-1 design --from - <<'EOF'
+# Design
+
+## Gate questions
+
+None.
+EOF
+  assert_eq 0 "$RC" "$OUT"
+  assert_not_contains "$OUT" "gate question"
+  local i
+  {
+    printf '# Design\n\n## Gate questions\n\n'
+    for i in 1 2 3 4 5 6; do printf '### Question %s\nRecommended: yes\n\n' "$i"; done
+  } > six.md
+  run jig task artifact write T-1 design --from six.md
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "has 6 gate questions; ask at most five"
+  head -n 14 six.md > five.md
+  run jig task artifact write T-1 design --from five.md
+  assert_not_contains "$OUT" "gate questions"
+  # Only the design of a T3/T4 task, and only a design.
+  jig task new T-2 --class T2 --goal "The goal." >/dev/null
+  run jig task artifact write T-2 design --from - <<'EOF'
+# Design
+EOF
+  assert_eq 0 "$RC"
+  assert_not_contains "$OUT" "Gate questions"
+  run jig task artifact write T-1 plan --from - <<'EOF'
+# Plan
+EOF
+  assert_not_contains "$OUT" "Gate questions"
 }
