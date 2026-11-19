@@ -57,7 +57,10 @@ gate of task `gate-answers` (2026-11-19), with its three questions settled as re
   `stopped` at a waiting gate, `approved` and `answered` also write the run's `answer` journal line
   and `autopilot_answered`, so the run is listed under `resume` and resumed on a free slot. Such a
   task is shown as the gate item, with the run's `stopped_at`, instead of `autopilot-stopped`: one
-  card for one situation, whose actions already answer the run. The card of an unattended or a
+  card for one situation, whose actions already answer the run. A stop at the gate is a stop
+  before any stage after it (the run's last stage since it started or resumed is none, discover,
+  specify, alternatives, design or the gate); a later stop, in review say after the design moved,
+  keeps its own card and is not answered by a gate decision. The card of an unattended or a
   phase run is unchanged (an unattended run's gate is the agent's; a phase run's stops are one
   item for its coordinator), and an unattended run refuses a human decision as before; a phase
   run's attended stop is answered by a decision at the gate, as `autopilot answer` from any

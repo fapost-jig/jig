@@ -3752,6 +3752,23 @@ _task_autopilot_at_limit() {
   [ "$repairs" -ge 2 ]
 }
 
+# _task_autopilot_stage_before_gate <stage> — exit 0 when <stage>, the last
+# stage a run reached (field 3 of _task_autopilot_facts: `-` or empty when it
+# has reached none since its last start or resume), is one before the human
+# gate of a T3/T4 route (_task_route: discover, specify, alternatives, design)
+# or the gate itself. A run that stops there stopped at the gate; one that
+# stops after it (implement, review, verify, ...) stopped about something
+# else, even while the gate waits or has changed, and keeps its own card and
+# its own answer (adr-20261119-a-gate-takes-an-answer). An allow-list: a stage
+# nobody listed reads as past the gate, the safe miss, because the stop card
+# still answers the run.
+_task_autopilot_stage_before_gate() {
+  case "$1" in
+    "" | - | discover | specify | alternatives | design | human-gate | gate) return 0 ;;
+  esac
+  return 1
+}
+
 # _task_autopilot_limit_roads <id> — what is left for a stopped unattended run
 # at its repair limit, as the refusals that meet it name it: the draft, or a
 # person taking the task over (adr-20261108-a-person-takes-over-a-stopped-run).
@@ -5579,6 +5596,9 @@ $path
 #
 # Either decision, by a human, on a task whose attended run is stopped at the
 # gate also answers that stop (_task_gate_answer_the_run), so the run resumes.
+# A stop at the gate is a stop before any stage after it
+# (_task_autopilot_stage_before_gate): a run that stopped in review keeps its
+# own stop, whatever the gate says.
 #
 # The three keys are one new state file under one revision claim, checked as
 # `task pause`'s write is: against the caller's `--revision`, or the one read
@@ -5666,7 +5686,7 @@ _task_gate_body() {
     fi
     jig_die "$_TASK_GATE_MSG"
   fi
-  local before run mode
+  local before run mode facts last_stage
   _task_gate_state_v before "$id"
   # An approved design is in work: an answer to it is said in the session, and
   # the agent changes the design (the gate is then `changed`).
@@ -5701,15 +5721,21 @@ _task_gate_body() {
   task_state_var run "$id" autopilot
   if [ "$run" = stopped ] && [ "$by" = human ]; then
     _task_autopilot_mode_v mode "$id"
-    case "$before:$mode" in
-      waiting:attended | changed:attended | answered:attended)
-        if [ "$decision" = answered ]; then
-          _task_autopilot_log "$id" answer "gate answered: $answer"
-        else
-          _task_autopilot_log "$id" answer "gate approved"
-        fi
-        _task_rewrite_state "$dir" autopilot_answered "$(_task_autopilot_now)" ;;
-    esac
+    _task_autopilot_facts_v facts "$id"
+    last_stage=${facts#*$'\t'}
+    last_stage=${last_stage#*$'\t'}
+    last_stage=${last_stage%%$'\t'*}
+    if _task_autopilot_stage_before_gate "$last_stage"; then
+      case "$before:$mode" in
+        waiting:attended | changed:attended | answered:attended)
+          if [ "$decision" = answered ]; then
+            _task_autopilot_log "$id" answer "gate answered: $answer"
+          else
+            _task_autopilot_log "$id" answer "gate approved"
+          fi
+          _task_rewrite_state "$dir" autopilot_answered "$(_task_autopilot_now)" ;;
+      esac
+    fi
   fi
 
   if [ "$as_json" = 1 ]; then
@@ -5933,27 +5959,47 @@ _task_gate_question_flush() {
   printf -v "$1" '%s' "${__tgf_prev:+$__tgf_prev,}$__tgf_o"
 }
 
-# _task_gate_answer_json_v <var> <id> — the task's last gate answer (the last
-# line of `gate-answers`, _task_gate_answer_line_into) into <var> as
-# `{"text","at","by","design"}`, `null` when there is none.
-_task_gate_answer_json_v() {
-  local __tga_file __tga_line="" __tga_l __tga_at __tga_design __tga_by __tga_text __tga_t=$'\t' __tga_o
-  printf -v "$1" '%s' null
-  task_dir_v __tga_file "$2"
+# _task_gate_answer_v <at-var> <design-var> <by-var> <text-var> <id> — the
+# task's last gate answer, the last non-empty line of `gate-answers`
+# (_task_gate_answer_line_into), split into its four fields. All four are empty
+# when there is no answer. The one reader: the JSON producer and `task show`
+# both ask it.
+_task_gate_answer_v() {
+  local __tga_file __tga_line="" __tga_l __tga_t=$'\t'
+  local __tga_at="" __tga_design="" __tga_by="" __tga_text=""
+  task_dir_v __tga_file "$5"
   __tga_file="$__tga_file/gate-answers"
-  [ -f "$__tga_file" ] || return 0
-  while IFS= read -r __tga_l || [ -n "$__tga_l" ]; do
-    [ -z "$__tga_l" ] || __tga_line=$__tga_l
-  done < "$__tga_file"
-  [ -n "$__tga_line" ] || return 0
-  IFS="$__tga_t" read -r __tga_at __tga_design __tga_by __tga_text <<EOF
+  if [ -f "$__tga_file" ]; then
+    while IFS= read -r __tga_l || [ -n "$__tga_l" ]; do
+      [ -z "$__tga_l" ] || __tga_line=$__tga_l
+    done < "$__tga_file"
+  fi
+  if [ -n "$__tga_line" ]; then
+    IFS="$__tga_t" read -r __tga_at __tga_design __tga_by __tga_text <<EOF
 $__tga_line
 EOF
-  json_quote "$__tga_text"; __tga_o="{\"text\":$_JSON"
-  json_str_or_null "$__tga_at"; __tga_o="$__tga_o,\"at\":$_JSON"
-  json_str_or_null "$__tga_by"; __tga_o="$__tga_o,\"by\":$_JSON"
-  json_str_or_null "$__tga_design"; __tga_o="$__tga_o,\"design\":$_JSON}"
-  printf -v "$1" '%s' "$__tga_o"
+  fi
+  printf -v "$1" '%s' "$__tga_at"
+  printf -v "$2" '%s' "$__tga_design"
+  printf -v "$3" '%s' "$__tga_by"
+  printf -v "$4" '%s' "$__tga_text"
+}
+
+# _task_gate_answer_json_v <var> <id> — the task's last gate answer
+# (_task_gate_answer_v) into <var> as `{"text","at","by","design"}`, `null`
+# when there is none.
+_task_gate_answer_json_v() {
+  local __tgj_at __tgj_design __tgj_by __tgj_text __tgj_o
+  _task_gate_answer_v __tgj_at __tgj_design __tgj_by __tgj_text "$2"
+  if [ -z "$__tgj_at$__tgj_design$__tgj_by$__tgj_text" ]; then
+    printf -v "$1" '%s' null
+    return 0
+  fi
+  json_quote "$__tgj_text"; __tgj_o="{\"text\":$_JSON"
+  json_str_or_null "$__tgj_at"; __tgj_o="$__tgj_o,\"at\":$_JSON"
+  json_str_or_null "$__tgj_by"; __tgj_o="$__tgj_o,\"by\":$_JSON"
+  json_str_or_null "$__tgj_design"; __tgj_o="$__tgj_o,\"design\":$_JSON}"
+  printf -v "$1" '%s' "$__tgj_o"
 }
 
 # _task_gate_questions_warn <id> — for a T3/T4 task whose design.md was just
@@ -7630,15 +7676,14 @@ task_show() {
   # after the design is rewritten, when the state is `waiting` again) and the
   # last answer given at it. A session picking the task up acts on an answer
   # only while `gate_state` is `answered` (the jig-task skill); the history is
-  # the `gate-answers` file.
-  local answers last gstate
+  # the `gate-answers` file, whose last line _task_gate_answer_v reads, as the
+  # JSON producer does.
+  # shellcheck disable=SC2034 # the design and author fields are not shown here
+  local gstate ga_at ga_design ga_by ga_text
   _task_gate_state_v gstate "$1"
   [ -z "$gstate" ] || printf 'gate_state: %s\n' "$gstate"
-  answers="$(task_dir "$1")/gate-answers"
-  if [ -f "$answers" ]; then
-    last=$(awk -F '\t' 'NF >= 4 { at = $1; text = $4 } END { if (at != "") print at " " text }' "$answers")
-    [ -z "$last" ] || printf 'gate_answer: %s\n' "$last"
-  fi
+  _task_gate_answer_v ga_at ga_design ga_by ga_text "$1"
+  [ -z "$ga_at" ] || printf 'gate_answer: %s %s\n' "$ga_at" "$ga_text"
 }
 
 # The task for this checkout's current branch (design §2). Deterministic,

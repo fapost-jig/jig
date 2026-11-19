@@ -5323,6 +5323,35 @@ test_status_json_an_attended_stop_at_the_gate_is_the_gate_item() {
   assert_not_contains "$OUT" "autopilot-stopped"
 }
 
+test_status_json_an_attended_stop_after_the_gate_keeps_its_own_card() {
+  fixture_jig_repo
+  _status_gate_task g-1
+  jig task gate g-1 approved >/dev/null
+  printf 'The design moved.\n' >> .ai/workspace/tasks/g-1/design.md
+  jig task autopilot g-1 start >/dev/null
+  jig task autopilot g-1 stage review >/dev/null
+  jig task autopilot g-1 stop --reason "review wants a change" >/dev/null
+  run jig status --json
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" '"kind":"autopilot-stopped"'
+  assert_not_contains "$OUT" "gate-changed"
+  assert_not_contains "$OUT" "gate-waiting"
+}
+
+test_status_json_an_attended_stop_in_the_design_stage_is_the_gate_item_after_a_change() {
+  fixture_jig_repo
+  _status_gate_task g-1
+  jig task gate g-1 approved >/dev/null
+  printf 'The design moved.\n' >> .ai/workspace/tasks/g-1/design.md
+  jig task autopilot g-1 start >/dev/null
+  jig task autopilot g-1 stage design >/dev/null
+  jig task autopilot g-1 stop --reason "design changed" >/dev/null
+  run jig status --json
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" '"kind":"gate-changed"'
+  assert_not_contains "$OUT" "autopilot-stopped"
+}
+
 test_status_json_a_stop_at_the_gate_in_an_unattended_run_or_a_phase_is_unchanged() {
   fixture_jig_repo
   mkdir -p .ai/runtime

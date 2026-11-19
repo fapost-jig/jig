@@ -2394,7 +2394,7 @@ _status_attention() {
   local stopped="" gates="" git_steps="" rec id stop_reason stop_at ago level queue url live hk_note pr_ids="" parked
   [ -n "$_STATUS_PARKED_READY" ] || _status_parked_read
   local nc wrong kept closed open open_closed settled phase phase_stops="" todo
-  local rvl rv rw rwl still title t=$'\t' verbatim by
+  local rvl rv rw rwl still title t=$'\t' verbatim by last_stage
   hk_note=""
   [ -z "$_STATUS_HK_AT" ] || hk_note="housekeeping at $_STATUS_HK_WHEN"
   level=$(jig_agent_git 2>/dev/null) || level=none
@@ -2531,8 +2531,12 @@ UPR
       # An attended run stopped at its design's gate: the reader's answer to
       # the stop is the gate's own, approving the design or answering its
       # questions (jig task gate), so the one card is the gate's, with the time
-      # the run stopped (adr-20261119-a-gate-takes-an-answer).
-      if [ "$(_task_autopilot_mode "$_ST_ID")" != unattended ]; then
+      # the run stopped (adr-20261119-a-gate-takes-an-answer). Only a stop at
+      # the gate: a run whose last stage is past it (review, after the design
+      # moved, say) stopped about something else and keeps its own card.
+      last_stage=$(printf '%s\n' "$_ST_APFACTS" | cut -f 3)
+      if [ "$(_task_autopilot_mode "$_ST_ID")" != unattended ] \
+        && _task_autopilot_stage_before_gate "$last_stage"; then
         case "$_ST_GATE" in
           waiting)
             gates="$gates$(_status_attn gate-waiting task "$_ST_ID" "$_ST_ID" \

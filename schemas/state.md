@@ -60,6 +60,12 @@ Reference: ADR-0005, ADR-0008. Written only through `jig task`, atomically
 | `created_at` | `jig task new` | `YYYY-MM-DD` |
 | `updated_at` | every `jig task set` | `YYYY-MM-DD` |
 
+`jig task show` prints this file, then two derived lines that are not keys of it:
+`gate_state: <waiting|answered|changed|approved>`, for a T3/T4 task with a design, where the gate
+stands now (the `gate` key stays `answered` after the design is rewritten, when the state is
+`waiting` again), and `gate_answer: <utc> <text>`, the last line of `gate-answers`, when there is one
+(adr-20261119-a-gate-takes-an-answer).
+
 `jig task set` accepts only `class`, `status`, `knowledge_consolidated`, `domains`,
 `route_depth` and the four `executor_*` keys above, and validates the value; every other key is refused, the `paused*` keys included:
 they are written only by `jig task pause`, `jig task resume` and, for a pause request, `jig task
