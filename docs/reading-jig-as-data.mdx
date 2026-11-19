@@ -257,7 +257,7 @@ killed does not stay on the card, even when its process number is reused.
 ## What a person may do next
 
 `actions` lists what a person can do with the task right now, so a dashboard can show the right
-buttons without knowing Jig's rules. Every task carries the same twenty-one actions, in the same order:
+buttons without knowing Jig's rules. Every task carries the same twenty-two actions, in the same order:
 
 | `id` | What it does |
 |---|---|
@@ -265,6 +265,7 @@ buttons without knowing Jig's rules. Every task carries the same twenty-one acti
 | `pause`, `resume` | Set the task aside, and pick it up again |
 | `request-pause`, `cancel-pause-request` | Ask a running task to pause when it finishes its current stage, and take the request back; a task nobody started is not offered a request, since no stage of it would take one — pause it with `pause` |
 | `approve-gate` | Approve the design of a T3 or T4 task waiting at its gate |
+| `answer-gate` | Answer that design instead of approving it — your choices on its questions, or what to change; its `command` asks for your words as `<text>` |
 | `answer-stop` | Answer an autopilot run that stopped to ask you something |
 | `handover` | Take a stopped autopilot run over and finish the task without autopilot; its `command` asks for your words as `<text>` |
 | `set-class` | Change the task's class |
@@ -396,7 +397,9 @@ A program acts on `kind` and `subject`; `title`, `detail` and `todo` are the wor
 person, and may be reworded. The kinds cover a stopped autopilot run (`autopilot-stopped`, or
 `phase-stopped` for a phase run, whose `tasks` lists every stopped task; a run a person has already
 answered is no item, and `autopilot-stopped` carries the run's `question` and `stopped_at`), a design at its gate
-(`gate-waiting`, `gate-changed`), a finished task waiting for your git step (`git-step`), pull
+(`gate-waiting`, `gate-changed`, which carry the design's `questions`, the last `answer` and, when
+an attended autopilot run stopped at that gate, its `stopped_at` — such a run is shown as the gate,
+not as `autopilot-stopped`), a finished task waiting for your git step (`git-step`), pull
 requests to review, merge or close (`pull-request-waiting`, `pull-request-was-open`,
 `pull-request-of-abandoned-task`), on the staging flow the staging branch drifting from the base
 branch (`staging-unpromoted`, with `"staging": {"branch", "days"}`; `staging-unowned`, your own
@@ -842,6 +845,45 @@ is now. Other refusals: `no-gate` (not a T3 or T4 task, or no design yet), `auto
 person's; the `message` of the stopped one names the way on) and `not-found`. Nothing is written in
 any of them. `--by agent` is the self-approval of an unattended run; anywhere else it is refused
 with `failed`, and a dashboard never sends it.
+
+## Answering a design
+
+What the design needs the person to decide is in the task's `gate`, as data: `questions` is the
+`## Gate questions` section of its `design.md`, each with the agent's options and its pick.
+Approving takes every pick. A person who wants something else answers instead, through the
+`answer-gate` action, in one line:
+
+```bash
+jig task gate booking-message answered --answer "1 — send it by SMS too; 2 — as recommended" --revision 1792079790 --json
+```
+
+```json
+{"schema":1,"revision":1792079790,"generated_at":"2026-10-19T12:05:00Z","data":{"task":{"id":"booking-message","gate":{"state":"answered","…":"…"},"…":"…"},"gate":{"state":"answered","by":"human","design":"069789757ba120c7030986efcf80aeee2b2e7c26","answer":"1 — send it by SMS too; 2 — as recommended"}}}
+```
+
+The gate is `answered` and its card leaves Needs you until the agent rewrites the design; then it is
+`waiting` again, with the new questions and, in `answer`, the words it was rewritten from. An answer
+is never an approval. The refusals are the approval's, and `usage` for an empty answer or one with a
+line break or a tab: join a longer answer into one line. An approved design that has not changed
+is not offered the action. When an attended autopilot run stopped at this gate, approving or
+answering also answers the run, and it resumes on the next free slot.
+
+A `gate` reads like this while it waits:
+
+```json
+"gate": {
+  "state": "waiting",
+  "by": null,
+  "questions": [
+    {"question": "Send the reference by SMS as well?", "context": null,
+     "options": ["Email only", "Email and SMS"], "recommendation": "Email only: SMS needs a provider we do not have"}
+  ],
+  "answer": null
+}
+```
+
+`questions` is `null` when the design has no such section (one written before it existed), and `[]`
+when the section asks nothing: the design needs only a yes.
 
 ## Giving a task up, and putting it away
 

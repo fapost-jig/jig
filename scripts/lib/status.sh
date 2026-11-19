@@ -2528,6 +2528,26 @@ UPR
 "
         continue
       fi
+      # An attended run stopped at its design's gate: the reader's answer to
+      # the stop is the gate's own, approving the design or answering its
+      # questions (jig task gate), so the one card is the gate's, with the time
+      # the run stopped (adr-20261119-a-gate-takes-an-answer).
+      if [ "$(_task_autopilot_mode "$_ST_ID")" != unattended ]; then
+        case "$_ST_GATE" in
+          waiting)
+            gates="$gates$(_status_attn gate-waiting task "$_ST_ID" "$_ST_ID" \
+              "A design is waiting for your decision" "$stop_reason" \
+              "Read the design the agent showed you and approve it, or answer its questions; the stopped run resumes after either." "" "${stop_at:--}")
+"
+            continue ;;
+          changed)
+            gates="$gates$(_status_attn gate-changed task "$_ST_ID" "$_ST_ID" \
+              "A design changed after you approved it" "$stop_reason" \
+              "Read what changed and approve it again, or answer its questions; the stopped run resumes after either." "" "${stop_at:--}")
+"
+            continue ;;
+        esac
+      fi
       # An unattended run at its repair limit is resumed by nothing: what is
       # left is its draft, or a person taking the task over
       # (adr-20261108-a-person-takes-over-a-stopped-run).
@@ -2911,7 +2931,7 @@ _status_is_pr_item() {
 # _status_json [--json] — the producer json_run runs for `jig status --json`.
 _status_json() {
   local arg attn rec kind stype sid tasks title detail todo url extra objs="" o t tl hk stale root vers
-  local xb xbase xst xat xto xk xl extra0 xt=$'\t' xurl xci xmg xa xo xc xr xmove xrows xrv xwf xrj pr_sids=""
+  local xb xbase xst xat xto xk xl extra0 xt=$'\t' xurl xci xmg xa xo xc xr xmove xrows xrv xwf xrj xq pr_sids=""
   for arg in "$@"; do
     [ "$arg" = --json ] || jig_fail usage "status --json: unknown argument: $arg (usage: jig status --json)"
   done
@@ -2992,6 +3012,17 @@ REC
     # An upgrade's pull request: which branch, into what, as of when, and the
     # version it brings (schemas/json.md).
     case "$kind" in
+      # A design at its gate: the questions of its design.md and the last answer
+      # given (jig task list --json's gate fields), and, for a stopped
+      # attended run, when it stopped.
+      gate-waiting | gate-changed)
+        [ "$extra" != - ] || extra=""
+        json_str_or_null "$extra"; o="$o,\"stopped_at\":$_JSON"
+        _task_gate_questions_v xq "$sid"
+        o="$o,\"questions\":$xq"
+        _task_gate_answer_json_v xq "$sid"
+        o="$o,\"answer\":$xq"
+        ;;
       # A stopped run's question as the journal has it, and when it stopped.
       autopilot-stopped)
         IFS="$xt" read -r xb xat <<X
@@ -3499,6 +3530,7 @@ _status_html_stage() {
   fi
   case "$_ST_GATE" in
     waiting) printf '<span class="badge warn">design at the gate</span>' ;;
+    answered) printf '<span class="badge">answer at the gate, waiting for the agent</span>' ;;
     changed) printf '<span class="badge warn">design changed after approval</span>' ;;
     approved) printf '<span class="badge ok">design approved</span>' ;;
     *) printf '<span class="muted">not tracked outside autopilot</span>' ;;

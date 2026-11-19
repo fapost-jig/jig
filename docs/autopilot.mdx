@@ -118,7 +118,7 @@ it, and it carries on from where it stopped.
 
 | The run stops when | What you do |
 |---|---|
-| The task is risky enough to need your approval of its design (classes T3 and T4) | Read the design it shows you and approve it, ask for changes, or reject it |
+| The task is risky enough to need your approval of its design (classes T3 and T4) | Read the design it shows you and approve it, answer its questions or ask for changes, or reject it. The design ends with the questions the agent needs you to decide, each with its options and the agent's pick; approving takes every pick |
 | A problem is still there after two attempts to fix it | Suggest another approach, decide the problem can stay (a serious one only you can wave through), or drop the task |
 | The task turns out bigger and now needs a design approval | The same as the first row |
 | It needs a decision nobody has made — a product choice not written down anywhere | Make the decision |
@@ -192,6 +192,12 @@ one a person took over with `autopilot=handed-over`. Every run waiting for an an
 in a `waiting for you:` block of `jig status`, each with its question word for word, so you can
 answer them all in one go from any session: `jig task autopilot <id> answer --answer <text>`
 (`--by human` for an unattended run).
+
+A run stopped at its design's approval is shown as the design waiting for you, not as a stopped
+run, with the design's questions. Answer it there, from any session or your board:
+`jig task gate <id> approved`, or `jig task gate <id> answered --answer <text>` to send the design
+back with your words. Either one also answers the stop, so the run resumes on the next free slot;
+after an answer it reworks the design and stops at the approval again.
 
 ## Watching a run
 

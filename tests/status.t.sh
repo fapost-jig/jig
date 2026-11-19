@@ -5233,3 +5233,118 @@ test_status_page_still_renders_a_stopped_run_with_its_item_data() {
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$(cat .ai/runtime/status.html)" 'Autopilot stopped and is waiting for you'
 }
+
+# --- an answer at the human gate (adr-20261119-a-gate-takes-an-answer) --------
+
+# _status_gate_task <id> — a started T3 task with a design that asks one question.
+_status_gate_task() {
+  jig task new "$1" --class T3 --goal "The goal." >/dev/null
+  jig task start "$1" >/dev/null
+  cat > ".ai/workspace/tasks/$1/design.md" <<'DESIGN'
+# Design
+
+## Gate questions
+
+### Which card?
+- the gate card
+- the stop card
+Recommended: the first.
+DESIGN
+}
+
+test_status_json_gate_items_carry_the_questions_and_the_last_answer() {
+  fixture_jig_repo
+  mkdir -p .ai/runtime
+  _status_gate_task g-1
+  run jig status --json
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" '"kind":"gate-waiting"'
+  assert_contains "$OUT" '"stopped_at":null,"questions":[{"question":"Which card?","context":null,"options":["the gate card","the stop card"],"recommendation":"the first."}],"answer":null'
+  # Approved and the design moves: `changed` carries the same fields.
+  jig task gate g-1 approved >/dev/null
+  printf '\nmore\n' >> .ai/workspace/tasks/g-1/design.md
+  run jig status --json
+  assert_contains "$OUT" '"kind":"gate-changed"'
+  assert_contains "$OUT" '"stopped_at":null,"questions":[{"question":"Which card?"'
+}
+
+test_status_json_has_no_gate_item_for_an_answered_gate_and_asks_again_after_a_rewrite() {
+  fixture_jig_repo
+  mkdir -p .ai/runtime
+  _status_gate_task g-1
+  jig task gate g-1 answered --answer "the stop card" >/dev/null
+  run jig status --json
+  assert_eq 0 "$RC" "$OUT"
+  assert_not_contains "$OUT" "gate-waiting"
+  assert_not_contains "$OUT" "gate-changed"
+  # The agent rewrites the design: the item is back, with the old answer.
+  printf '\nrewritten\n' >> .ai/workspace/tasks/g-1/design.md
+  run jig status --json
+  assert_contains "$OUT" '"kind":"gate-waiting"'
+  assert_contains "$OUT" '"answer":{"text":"the stop card","at":"'
+}
+
+test_status_page_and_text_say_a_gate_is_answered() {
+  fixture_jig_repo
+  mkdir -p .ai/runtime
+  _status_gate_task g-1
+  jig task gate g-1 answered --answer "the stop card" >/dev/null
+  run jig status --html
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$(cat .ai/runtime/status.html)" "answer at the gate, waiting for the agent"
+  assert_not_contains "$(cat .ai/runtime/status.html)" "A design is waiting for your decision"
+}
+
+# An attended run stopped at the gate is shown as the gate: the card the
+# decision (approve or answer) closes, with the time the run stopped.
+test_status_json_an_attended_stop_at_the_gate_is_the_gate_item() {
+  fixture_jig_repo
+  mkdir -p .ai/runtime
+  _status_gate_task g-1
+  jig task autopilot g-1 start >/dev/null
+  jig task autopilot g-1 stop --reason "design waits at the gate" >/dev/null
+  sed "s/^[^	]*	stop	/2026-01-01T00:00:00Z	stop	/" .ai/workspace/tasks/g-1/autopilot > .ai/runtime/ap.tmp
+  mv .ai/runtime/ap.tmp .ai/workspace/tasks/g-1/autopilot
+  run jig status --json
+  assert_eq 0 "$RC" "$OUT"
+  assert_not_contains "$OUT" "autopilot-stopped"
+  assert_contains "$OUT" '"kind":"gate-waiting"'
+  assert_contains "$OUT" '"detail":"stopped '
+  assert_contains "$OUT" '"stopped_at":"2026-01-01T00:00:00Z","questions":[{"question":"Which card?"'
+  # Answering at the gate answers the stop: neither card is left.
+  jig task gate g-1 answered --answer "the stop card" >/dev/null
+  run jig status --json
+  assert_not_contains "$OUT" "autopilot-stopped"
+  assert_not_contains "$OUT" "gate-waiting"
+  # Approving after the answer closes the gate; the run waits for a free slot.
+  jig task gate g-1 approved >/dev/null
+  run jig status --json
+  assert_not_contains "$OUT" '"kind":"gate-'
+  assert_not_contains "$OUT" "autopilot-stopped"
+}
+
+test_status_json_a_stop_at_the_gate_in_an_unattended_run_or_a_phase_is_unchanged() {
+  fixture_jig_repo
+  mkdir -p .ai/runtime
+  _status_gate_task u-1
+  printf 'autopilot.unattended: true\n' >> .ai/config.local.yaml
+  jig task autopilot u-1 start >/dev/null
+  jig task autopilot u-1 stop --reason "q" >/dev/null
+  run jig status --json
+  assert_contains "$OUT" '"kind":"autopilot-stopped"'
+  assert_not_contains "$OUT" "gate-waiting"
+  _status_gate_task p-1
+  jig task autopilot p-1 start --phase alpha/1 >/dev/null
+  jig task autopilot p-1 stop --reason "q" >/dev/null
+  run jig status --json
+  assert_contains "$OUT" '"kind":"phase-stopped"'
+}
+
+test_status_json_a_stopped_run_of_a_task_without_a_gate_keeps_its_stop_item() {
+  fixture_jig_repo
+  mkdir -p .ai/runtime
+  _status_stop_run run-1 "a question"
+  run jig status --json
+  assert_contains "$OUT" '"kind":"autopilot-stopped"'
+  assert_not_contains "$OUT" "gate-waiting"
+}
