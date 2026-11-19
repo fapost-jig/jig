@@ -18196,6 +18196,18 @@ test_task_gate_answered_writes_state_and_the_answers_journal() {
   assert_contains "$OUT" "gate_state: answered"
   assert_contains "$OUT" " second thoughts"
   assert_not_contains "$OUT" "the stop card"
+  # The derived line is the last answer's time and text, as the JSON reads it.
+  local last_at
+  last_at=$(tail -n 1 .ai/workspace/tasks/T-1/gate-answers | cut -f 1)
+  assert_contains "$OUT" "gate_answer: $last_at second thoughts"
+}
+
+test_task_show_prints_no_gate_answer_line_without_an_answer() {
+  _ga_task
+  run jig task show T-1
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "gate_state: waiting"
+  assert_not_contains "$OUT" "gate_answer:"
 }
 
 test_task_gate_answered_json_names_the_answer_and_lands_as_one_write() {
@@ -18444,6 +18456,36 @@ test_task_gate_approval_on_an_attended_stopped_run_answers_the_stop() {
   assert_file_contains .ai/workspace/tasks/T-1/autopilot "$(printf '\tanswer\tgate approved')"
   run jig queue next
   assert_contains "$OUT" "resume first: task:T-1"
+}
+
+test_task_gate_decision_does_not_answer_a_stop_after_a_stage_past_the_gate() {
+  local decision
+  for decision in approved answered; do
+    _ga_task
+    jig task autopilot T-1 start >/dev/null
+    jig task autopilot T-1 stage review >/dev/null
+    jig task autopilot T-1 stop --reason "review found something" >/dev/null
+    if [ "$decision" = answered ]; then
+      run jig task gate T-1 answered --answer "x"
+    else
+      run jig task gate T-1 approved
+    fi
+    assert_eq 0 "$RC" "$OUT"
+    ! grep -q '^autopilot_answered' .ai/workspace/tasks/T-1/state || fail "a stop in review was answered by a gate $decision"
+    ! grep -q "$(printf '\tanswer\t')" .ai/workspace/tasks/T-1/autopilot || fail "a stop in review got an answer line from a gate $decision"
+    rm -rf .ai/workspace/tasks/T-1
+  done
+}
+
+test_task_gate_decision_answers_a_stop_after_the_design_stage() {
+  _ga_task
+  jig task autopilot T-1 start >/dev/null
+  jig task autopilot T-1 stage design >/dev/null
+  jig task autopilot T-1 stop --reason "design waits at the gate" >/dev/null
+  run jig task gate T-1 approved
+  assert_eq 0 "$RC" "$OUT"
+  assert_file_contains .ai/workspace/tasks/T-1/state "autopilot_answered: "
+  assert_file_contains .ai/workspace/tasks/T-1/autopilot "$(printf '\tanswer\tgate approved')"
 }
 
 test_task_gate_decision_without_a_stopped_run_writes_no_run_journal() {

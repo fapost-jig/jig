@@ -399,7 +399,7 @@ person, and may be reworded. The kinds cover a stopped autopilot run (`autopilot
 answered is no item, and `autopilot-stopped` carries the run's `question` and `stopped_at`), a design at its gate
 (`gate-waiting`, `gate-changed`, which carry the design's `questions`, the last `answer` and, when
 an attended autopilot run stopped at that gate, its `stopped_at` — such a run is shown as the gate,
-not as `autopilot-stopped`), a finished task waiting for your git step (`git-step`), pull
+not as `autopilot-stopped`; a run that stopped after the gate, in review say, keeps its own item), a finished task waiting for your git step (`git-step`), pull
 requests to review, merge or close (`pull-request-waiting`, `pull-request-was-open`,
 `pull-request-of-abandoned-task`), on the staging flow the staging branch drifting from the base
 branch (`staging-unpromoted`, with `"staging": {"branch", "days"}`; `staging-unowned`, your own
@@ -865,7 +865,7 @@ The gate is `answered` and its card leaves Needs you until the agent rewrites th
 `waiting` again, with the new questions and, in `answer`, the words it was rewritten from. An answer
 is never an approval. The refusals are the approval's, and `usage` for an empty answer or one with a
 line break or a tab: join a longer answer into one line. An approved design that has not changed
-is not offered the action. When an attended autopilot run stopped at this gate, approving or
+is not offered the action. When an attended autopilot run stopped at this gate (not later, in review say), approving or
 answering also answers the run, and it resumes on the next free slot.
 
 A `gate` reads like this while it waits:
