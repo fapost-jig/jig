@@ -6432,15 +6432,33 @@ test_spec_list_json_summary_empty_line_then_blank_line_is_null() {
 # out as valid UTF-8 with the byte dropped, under the given locale. The locale is
 # set for the jig process through env, never in the test shell itself.
 _ss_invalid_byte_case() {
-  local loc="$1" out
+  local loc="$1"
   fixture_repo
   mkdir -p .ai/specs/s-bad
   printf '# Bad\n\nSummary: caf\303\251 \351 tail\n\n## Idea\n' > .ai/specs/s-bad/spec.md
   : > .ai/specs/s-bad/roadmap.md
-  out=$(env LC_ALL="$loc" "$JIG_BIN" spec list --json) || fail "spec list --json failed under $loc"
-  printf '%s\n' "$out" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1 \
+  run env LC_ALL="$loc" "$JIG_BIN" spec list --json
+  assert_eq 0 "$RC" "spec list --json failed under $loc: $OUT"
+  printf '%s\n' "$OUT" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1 \
     || fail "output is not valid UTF-8 under $loc"
-  assert_contains "$out" '"summary":"café  tail"'
+  assert_contains "$OUT" '"summary":"café  tail"'
+}
+
+# The title is cleaned with the rest of the list: a byte that is not UTF-8 in the
+# `# ` heading is dropped, and the envelope stays valid. Under the C locale, where
+# the heading's regex still matches such a byte; in a UTF-8 locale it does not, and
+# the title reads as null.
+test_spec_list_json_title_with_an_invalid_byte_is_valid_utf8() {
+  command -v iconv >/dev/null 2>&1 || skip "no iconv: every byte outside ASCII becomes ?"
+  fixture_repo
+  mkdir -p .ai/specs/t-bad
+  printf '# Caf\303\251 \377 title\n\nBody.\n' > .ai/specs/t-bad/spec.md
+  : > .ai/specs/t-bad/roadmap.md
+  run env LC_ALL=C "$JIG_BIN" spec list --json
+  assert_eq 0 "$RC" "$OUT"
+  printf '%s\n' "$OUT" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1 \
+    || fail "envelope is not valid UTF-8"
+  assert_contains "$OUT" '"id":"t-bad","title":"Café  title"'
 }
 
 test_spec_list_json_summary_with_an_invalid_byte_is_valid_utf8_in_the_c_locale() {
@@ -6527,10 +6545,10 @@ test_spec_read_json_drops_a_byte_that_is_not_utf8_and_says_so() {
   mkdir -p .ai/specs/r-bad
   printf 'caf\303\251 \351 x\n' > .ai/specs/r-bad/spec.md
   : > .ai/specs/r-bad/roadmap.md
-  local out
-  out=$(jig spec read r-bad spec --json)
-  printf '%s\n' "$out" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1 || fail "envelope is not valid UTF-8"
-  assert_contains "$out" '"bytes":10,"content":"café  x\n","lossy":true}}'
+  run jig spec read r-bad spec --json
+  assert_eq 0 "$RC" "$OUT"
+  printf '%s\n' "$OUT" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1 || fail "envelope is not valid UTF-8"
+  assert_contains "$OUT" '"bytes":10,"content":"café  x\n","lossy":true}}'
   jig spec read r-bad spec > got.out
   cmp -s got.out .ai/specs/r-bad/spec.md || fail "text form must keep the raw byte"
 }
@@ -6605,6 +6623,27 @@ test_spec_read_refuses_a_missing_spec_and_a_missing_file() {
   assert_contains "$OUT" "no spec nope"
 }
 
+# A file that exists and cannot be read is a refusal, not cat's own error and a
+# success; it holds in the text form as in the envelope. chmod 000 blocks no
+# read as root or in Git Bash on NTFS.
+test_spec_read_refuses_a_file_it_cannot_read() {
+  skip_unless_unreadable_files
+  fixture_repo
+  mkdir -p .ai/specs/r-nr
+  printf '# NR\n' > .ai/specs/r-nr/spec.md
+  : > .ai/specs/r-nr/roadmap.md
+  chmod 000 .ai/specs/r-nr/spec.md
+  run jig spec read r-nr spec
+  local rc=$RC out=$OUT
+  _sr_json r-nr spec
+  local jrc=$RC jout=$OUT
+  chmod 644 .ai/specs/r-nr/spec.md
+  assert_eq 1 "$rc" "$out"
+  assert_contains "$out" "spec read: cannot read .ai/specs/r-nr/spec.md"
+  assert_eq 1 "$jrc" "$jout"
+  assert_contains "$jout" "spec read: cannot read .ai/specs/r-nr/spec.md"
+}
+
 test_spec_read_refuses_an_epic_roadmap_missing_on_the_ref() {
   fixture_repo
   mkdir -p .ai/specs/idea-x
@@ -6639,15 +6678,16 @@ test_spec_read_refuses_bad_arguments_as_usage() {
   _sr_json r-u spec extra
   assert_eq 1 "$RC"
   assert_contains "$OUT" '"code":"usage"'
+  assert_contains "$OUT" 'usage: jig spec read <id> spec|roadmap [--json]'
   _sr_json ../x spec
   assert_eq 1 "$RC"
   assert_contains "$OUT" '"error":{"code":"usage","message":"spec read: invalid spec id: ../x"}'
   _sr_json -x spec
   assert_eq 1 "$RC"
-  assert_contains "$OUT" '"code":"usage"'
+  assert_contains "$OUT" '"error":{"code":"usage","message":"spec read: unexpected argument: -x (usage: jig spec read <id> spec|roadmap [--json])"}'
   _sr_json r-u -x
   assert_eq 1 "$RC"
-  assert_contains "$OUT" '"code":"usage"'
+  assert_contains "$OUT" '"error":{"code":"usage","message":"spec read: unexpected argument: -x (usage: jig spec read <id> spec|roadmap [--json])"}'
   run jig spec read r-u notes
   assert_eq 1 "$RC"
   assert_contains "$OUT" "unknown document: notes"
@@ -6660,11 +6700,13 @@ test_spec_read_does_not_change_the_revision() {
   printf -- '- [ ] one\n' > .ai/specs/r-v/roadmap.md
   _sl_json
   local before
-  before=$(jig spec list --json | sed -n 's/^{"schema":1,"revision":\([0-9]*\),.*/\1/p')
+  run jig spec list --json
+  before=$(printf '%s\n' "$OUT" | sed -n 's/^{"schema":1,"revision":\([0-9]*\),.*/\1/p')
   _sr_json r-v spec
   _sr_json r-v roadmap
   _sr_json r-v nope
   jig spec read r-v spec >/dev/null
-  assert_eq "$before" "$(jig spec list --json | sed -n 's/^{"schema":1,"revision":\([0-9]*\),.*/\1/p')"
+  run jig spec list --json
+  assert_eq "$before" "$(printf '%s\n' "$OUT" | sed -n 's/^{"schema":1,"revision":\([0-9]*\),.*/\1/p')"
   assert_eq "$before" "$REV"
 }

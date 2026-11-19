@@ -5,7 +5,10 @@
 # is answered from $PWD/nightly.txt (`<id> <head sha> <url>`, what the script's
 # --jq filter prints), any other call from $PWD/runs.txt (`<id> <event>
 # <status> <conclusion> <url>`, newest first); a missing file makes the call
-# fail. Every call is logged to $PWD/gh.log. Fixture histories live under the
+# fail. A `gh issue list` call is answered from $PWD/issues.txt (the number
+# of the open red-main issue, what the script's --jq filter prints; empty, the
+# default, when none is open) and fails when $PWD/issues.fail exists. Every
+# call is logged to $PWD/gh.log. Fixture histories live under the
 # test's tmp dir; the script runs there with HEAD at the tip of main. Helpers
 # are prefixed nt_.
 
@@ -48,12 +51,22 @@ nt_nightly() {
   printf '%s\n' "$1" > "$PWD/nightly.txt"
 }
 
+# nt_red_main <number> — a red-main issue is open.
+nt_red_main() {
+  printf '%s\n' "$1" > "$PWD/issues.txt"
+}
+
 nt_gh() {
   mkdir -p "$PWD/stub-bin"
+  : > "$PWD/issues.txt"
   cat > "$PWD/stub-bin/gh" <<STUB
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$PWD/gh.log"
 case "\$*" in
+  *issue\ list*)
+    [ ! -f "$PWD/issues.fail" ] || exit 1
+    [ ! -f "$PWD/issues.txt" ] || cat "$PWD/issues.txt"
+    ;;
   *event=schedule*)
     [ -f "$PWD/nightly.txt" ] || exit 1
     cat "$PWD/nightly.txt"
@@ -94,6 +107,10 @@ test_ci_nightly_tested_same_tree_and_green_main_is_tested() {
   assert_file_contains "$PWD/gh.log" "branch=main"
   assert_file_contains "$PWD/gh.log" "event=schedule"
   assert_file_contains "$PWD/gh.log" "status=success"
+  assert_file_contains "$PWD/gh.log" "issue list"
+  assert_file_contains "$PWD/gh.log" "--label red-main"
+  assert_file_contains "$PWD/gh.log" "--state open"
+  assert_file_contains "$PWD/gh.log" "-R example/jig"
 }
 
 # A cancelled run, a manual dispatch and one still running say nothing about
@@ -124,6 +141,24 @@ test_ci_nightly_tested_red_main_tests_everything() {
   run nt_check "$repo"
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" "test (the newest finished run on main ended as 'failure'"
+}
+
+# A red nightly, a revert to a tree an earlier nightly tested, a green push
+# that ran only selected tests: (a) and (b) hold, yet only a whole-suite run
+# closes red-main, so the nightly runs everything while the issue is open.
+test_ci_nightly_tested_open_red_main_tests_everything() {
+  local repo="$PWD/repo"
+  nt_history "$repo"
+  nt_gh
+  nt_red_main 7
+  nt_runs "40 push completed success $(nt_url 40)" "30 schedule completed failure $(nt_url 30)" \
+    "20 schedule completed success $(nt_url 20)"
+  nt_nightly "20 $(nt_sha "$repo" same) $(nt_url 20)"
+
+  run nt_check "$repo"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "test ("
+  assert_contains "$OUT" "#7"
 }
 
 test_ci_nightly_tested_a_moved_tree_tests_everything() {
@@ -172,6 +207,19 @@ test_ci_nightly_tested_runs_unreadable_tests_everything() {
   run nt_check "$repo"
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" "test (cannot read the runs of ci on main)"
+}
+
+test_ci_nightly_tested_red_main_query_failing_tests_everything() {
+  local repo="$PWD/repo"
+  nt_history "$repo"
+  nt_gh
+  : > "$PWD/issues.fail"
+  nt_runs "30 push completed success $(nt_url 30)"
+  nt_nightly "20 $(nt_sha "$repo" head) $(nt_url 20)"
+
+  run nt_check "$repo"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "test (main's state cannot be read (the red-main issue query failed))"
 }
 
 test_ci_nightly_tested_nightly_unreadable_tests_everything() {

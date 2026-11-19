@@ -673,16 +673,32 @@ spec_list() {
 # jig_spec_roadmap_ref (where the current roadmap is, as the status page reads it),
 # spec_phase_items (the counts of spec_phase_counts with their items) and
 # spec_release_check. Local refs only: no fetch, no forge.
+#
+# A title, a summary or an item is text a person committed and may hold bytes
+# that are not UTF-8 (conventions/json-output.md): the whole value is cleaned
+# once, as knowledge.sh's _km_json_print does, so the processes the cleaning
+# starts do not grow with the number of specs.
 _spec_list_json() {
-  local arg root id dir title summary missing line branch state here checked_out
-  local loc rc ref src content release epic phases progress waiting
-  local _SPEC_MERGED_MEMO _SPEC_MERGED
+  local arg out rc=0
   for arg in "$@"; do
     [ "$arg" = --json ] || jig_fail usage "spec list: unexpected argument: $arg"
   done
   jig_require_repo
   # shellcheck source=lib/owntree.sh
   . "$JIG_LIB/owntree.sh"
+  # The sentinel keeps the trailing newlines $(...) would strip.
+  out=$(_spec_list_json_specs && printf x) || rc=$?
+  [ "$rc" -eq 0 ] || return "$rc"
+  json_utf8_clean "${out%x}"
+  printf '%s' "$_JSON_CLEAN"
+}
+
+# _spec_list_json_specs — `{"specs":[...]}` as _spec_list_json prints it, before
+# the cleaning.
+_spec_list_json_specs() {
+  local root id dir title summary missing line branch state here checked_out
+  local loc rc ref src content release epic phases progress waiting
+  local _SPEC_MERGED_MEMO _SPEC_MERGED
   root=$(spec_dir)
   _spec_merged_memo
   here=$(git -C "$JIG_PROJECT" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
@@ -695,10 +711,6 @@ _spec_list_json() {
     if [ -f "$dir/spec.md" ]; then
       title=$(spec_title "$dir/spec.md")
       spec_summary_v summary "$dir/spec.md"
-      if [ -n "$summary" ]; then
-        json_utf8_clean "$summary"
-        summary=$_JSON_CLEAN
-      fi
     else
       missing='"spec.md"'
     fi
@@ -818,7 +830,7 @@ _spec_read() {
   else
     [ -f "$root/$id/$kind.md" ] || jig_fail not-found "spec read: $id has no $kind.md"
     if [ "$as_json" != 1 ]; then
-      cat "$root/$id/$kind.md"
+      cat "$root/$id/$kind.md" || jig_die "spec read: cannot read $rel"
       return 0
     fi
     content=$(cat "$root/$id/$kind.md" && printf x) || jig_die "spec read: cannot read $rel"
@@ -836,7 +848,7 @@ _spec_read() {
   # the whole line invalid JSON: they are dropped, and `lossy` says so, as
   # `knowledge read` does (conventions/json-output.md).
   json_utf8_clean "$content"
-  json_quote "$_JSON_CLEAN"
+  json_quote_text "$_JSON_CLEAN"
   printf '%s"content":%s,"lossy":%s}\n' "$out" "$_JSON" "$_JSON_LOSSY"
 }
 
