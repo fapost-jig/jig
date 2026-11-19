@@ -66,6 +66,13 @@ test_ci_outputs_a_reuse_line_without_a_marker_is_not_whole() {
   co_expect "selected (1 test)" "reuse ($CO_URL tested tree T)" "" true selected false true
 }
 
+# An all push reused from a run that is not marked whole is still not whole:
+# the reuse marker decides, not the push's own suite.
+test_ci_outputs_a_full_push_reusing_a_run_not_marked_whole_is_not_whole() {
+  co_expect "full (x)" "reuse ($CO_URL tested tree T on every platform; suite: selected)" "" true all false true
+  co_expect "full (x)" "reuse ($CO_URL tested tree T)" "" true all false true
+}
+
 # A light scope is never reused, whatever the line says.
 test_ci_outputs_a_light_run_is_never_reused() {
   co_expect "light (docs only)" "reuse ($CO_URL tested tree T on every platform; suite: all)" "" false none false false

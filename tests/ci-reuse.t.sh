@@ -788,6 +788,7 @@ test_ci_reuse_a_stale_branch_whose_main_did_not_move_is_reused_exactly() {
   run cr_check "$repo" "$base" selected "$PWD/filters"
   assert_eq 0 "$RC" "$OUT"
   assert_not_contains "$OUT" "narrow "
+  assert_not_contains "$OUT" "reuse ("
 }
 
 # Exact reuse is the stronger claim: a run that tested this very tree wins

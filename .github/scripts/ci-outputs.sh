@@ -54,7 +54,7 @@
 #        - selected: the suite is `selected`, the shares run the selection the
 #          caller measured, reuse is false;
 #        - anything else: the whole suite runs, reuse is false.
-#   4. The suite `all` is whole.
+#   4. The suite `all` is whole, unless the run is a reuse: rule 2 decides then.
 set -eu
 
 CO_KNOWLEDGE_TEST="knowledge::test_real_repository_knowledge_passes_with_no_failures"
@@ -85,7 +85,7 @@ main() {
         ;;
     esac
   fi
-  [ "$suite" != all ] || whole=true
+  [ "$suite" != all ] || [ "$reu" = true ] || whole=true
 
   if [ "$suite" = none ]; then echo "full=false"; else echo "full=true"; fi
   echo "suite=$suite"

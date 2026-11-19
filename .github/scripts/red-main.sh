@@ -90,9 +90,10 @@ _rm_failed_tests() {
 }
 
 # _rm_since_green — the commits main took since the last green nightly run,
-# which always runs the whole suite: the change that broke main is among
-# them. One line per first-parent commit, at most twenty; nothing when the
-# API or the history cannot answer.
+# which either ran the whole suite or was light on a tree an earlier nightly
+# run had tested whole (ci-nightly-tested.sh): either way the change that
+# broke main is among them. One line per first-parent commit, at most
+# twenty; nothing when the API or the history cannot answer.
 _rm_since_green() {
   local green
   green=$(gh api -X GET "repos/{owner}/{repo}/actions/workflows/ci.yml/runs" \
