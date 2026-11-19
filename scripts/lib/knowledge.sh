@@ -3043,12 +3043,6 @@ _km_utf8_clean() {
   _KM_LOSSY=$_JSON_LOSSY
 }
 
-# _km_drop_above_unicode <s> — _json_drop_above_unicode (json.sh) into _KM_CLEAN.
-_km_drop_above_unicode() {
-  _json_drop_above_unicode "$1"
-  _KM_CLEAN=$_JSON_CLEAN
-}
-
 # _km_json_print <json> — the producer's one value, free of bytes that are not
 # UTF-8 (the structure is ASCII; only a value's text can hold them).
 _km_json_print() {
@@ -3097,32 +3091,6 @@ _km_json_list() {
 $1
 EOF
   _JSON="[$out]"
-}
-
-# _km_json_quote_text <s> — _JSON <- <s> as a JSON string, for a text that may
-# be large: json_quote is quadratic in the length on bash 3.2 (a 83 KB diff
-# took minutes), so the escaping is one awk pass over the lines instead. A
-# backslash, a quote and every control byte are escaped as json_quote does;
-# <s> is a diff, so it is lines ending in a newline and is checked UTF-8 already.
-_km_json_quote_text() {
-  _JSON=$(printf '%s' "$1" | LC_ALL=C awk '
-    BEGIN {
-      cls = "[\\\\\"" sprintf("%c", 1) "-" sprintf("%c", 31) "]"
-      for (i = 1; i < 32; i++) esc[sprintf("%c", i)] = sprintf("\\u%04x", i)
-      esc["\n"] = "\\n"; esc["\r"] = "\\r"; esc["\t"] = "\\t"
-      esc["\\"] = "\\\\"; esc["\""] = "\\\""
-      ORS = ""; print "\""
-    }
-    {
-      line = $0; out = ""
-      while (match(line, cls)) {
-        out = out substr(line, 1, RSTART - 1) esc[substr(line, RSTART, 1)]
-        line = substr(line, RSTART + 1)
-      }
-      print out line "\\n"
-    }
-    END { print "\"" }
-  ')
 }
 
 # _km_waiting_field <tip> <path> <key> — a frontmatter value of the document as it is
@@ -3318,7 +3286,7 @@ _km_sources_diff_json() {
   [ "$_KM_LOSSY" = false ] || lossy=true
   json_quote "$state"; out="$out,\"state\":$_JSON"
   json_str_or_null "$KM_DIFF_HASH"; out="$out,\"approved_hash\":$_JSON"
-  if [ -n "$text" ]; then _km_json_quote_text "$text"; else _JSON=null; fi
+  if [ -n "$text" ]; then json_quote_text "$text"; else _JSON=null; fi
   out="$out,\"diff\":$_JSON,\"lossy\":$lossy}"
   _km_json_print "$out"
 }
@@ -3352,21 +3320,13 @@ km_stages() {
 # _km_json_text <file> — _JSON <- the file's whole text as a JSON string, _KM_LOSSY
 # <- true when bytes that are not UTF-8 were dropped from it. The text is read with
 # a sentinel, so the trailing newlines $(...) would strip stay, and is escaped by
-# _km_json_quote_text's one pass, which ends every line it sees with a newline:
-# a file that does not end in one gets it back off.
+# json_quote_text (json.sh), which takes a long text line by line.
 _km_json_text() {
   local text
   text=$(cat "$1" && printf x) || jig_die "knowledge read: cannot read $1"
   text=${text%x}
   _km_utf8_clean "$text"
-  text=$_KM_CLEAN
-  if [ -n "$text" ] && [ "${text%$'\n'}" = "$text" ]; then
-    _km_json_quote_text "$text
-"
-    _JSON="${_JSON%\\n\"}\""
-  else
-    _km_json_quote_text "$text"
-  fi
+  json_quote_text "$_KM_CLEAN"
 }
 
 # _km_read_json <id> — the data of `knowledge read <id> --json`: the document's

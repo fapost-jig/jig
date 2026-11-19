@@ -731,3 +731,121 @@ _quiet() {
 SH
   assert_eq "_save" "$(_json_unrecorded_writers planted.sh)"
 }
+
+# json_utf8_clean, without iconv: every byte outside ASCII goes instead, lossy but
+# valid. The shell's `command` is shadowed so that iconv is not found.
+test_utf8_clean_without_iconv_keeps_ascii_and_drops_the_rest() {
+  local out
+  out=$(bash -c '
+    set -eu
+    . "$1/scripts/lib/json.sh"
+    command() { if [ "$1" = -v ] && [ "$2" = iconv ]; then return 1; fi; builtin command "$@"; }
+    json_utf8_clean "$(printf "a\tb \303\251 \377 z")"
+    printf "%s|%s" "$_JSON_LOSSY" "$_JSON_CLEAN"
+    json_utf8_clean "plain
+two"
+    printf "|%s|%s" "$_JSON_LOSSY" "$_JSON_CLEAN"
+  ' _ "$JIG_HOME")
+  assert_eq "$(printf 'true|a\tb ?? ? z|false|plain\ntwo')" "$out"
+}
+
+# A character from U+100000 to U+10FFFF is valid and stays, and so does every other
+# letter of the text: only a lead byte above that range is dropped, as one
+# character, never the whole text's non-ASCII letters, nor a carriage return, nor
+# the bytes after a lead cut short at the end.
+test_utf8_clean_keeps_the_top_plane_and_drops_only_what_is_above_it() {
+  local out
+  out=$(bash -c '
+    set -eu
+    . "$1/scripts/lib/json.sh"
+    json_utf8_clean "$(printf "\320\237\321\200\320\270 \364\217\277\275 ok")"
+    printf "%s|%s" "$_JSON_LOSSY" "$_JSON_CLEAN"
+    json_utf8_clean "$(printf "\320\237 \364\220\200\200 z\r\nend")"
+    printf "|%s|%s" "$_JSON_LOSSY" "$_JSON_CLEAN"
+    json_utf8_clean $'"'"'line\364\n'"'"'
+    printf "|%s|%s|" "$_JSON_LOSSY" "$_JSON_CLEAN"
+  ' _ "$JIG_HOME")
+  command -v iconv >/dev/null 2>&1 || skip "no iconv: every byte outside ASCII becomes ?"
+  assert_eq "$(printf 'false|\320\237\321\200\320\270 \364\217\277\275 ok|true|\320\237  z\r\nend|true|line\n|')" "$out"
+}
+
+test_drop_above_unicode_takes_a_long_text_with_many_pairs_in_one_pass() {
+  local out
+  # The inputs are made with printf -v, not $(...): a CR before the newline
+  # $(...) strips must reach the function, and the output ends in a byte that
+  # is not a newline for the same reason. CRs sit before, after and between
+  # the pairs, and at the very end.
+  out=$(bash -c '
+    set -eu
+    . "$1/scripts/lib/json.sh"
+    printf -v unit "lorem ipsum *dolor\r\n sit amet, consectetur adipiscing elit \364\220"
+    big=$unit; n=1
+    while [ "$n" -lt 4096 ]; do big=$big$big; n=$((n * 2)); done
+    printf -v cr "\r"
+    printf -v head "\364\220a\364\217\277\275 \r\364\240\r\364\364\240\r\n"
+    _json_drop_above_unicode "$head$big$cr"
+    LC_ALL=C
+    printf "%s|%s" "${#big}" "${#_JSON_CLEAN}"
+    case $_JSON_CLEAN in *"elit $cr") printf "|ends-cr" ;; esac
+    printf -v small "\r\364\220\r a\364\364\240\r\n\364\217\r\364\r"
+    _json_drop_above_unicode "$small"
+    printf "|%sE" "$_JSON_CLEAN"
+  ' _ "$JIG_HOME")
+  assert_eq "$(printf '249856|241676|ends-cr|\r\r a\364\r\n\364\217\r\364\rE')" "$out"
+}
+
+# json_quote_text stands in for json_quote on long texts (conventions/json-output.md);
+# what it sets must be what json_quote sets, whatever the text ends in or holds: every
+# control byte, DEL, a quote, a backslash, text outside ASCII, carriage returns, and any
+# count of newlines at either end, none included. The inputs are made with printf -v,
+# which keeps the trailing newlines $(...) would strip.
+test_json_quote_text_sets_what_json_quote_sets() {
+  local out
+  out=$(bash -c '
+    set -eu
+    . "$1/scripts/lib/json.sh"
+    printf -v ctl "a\001\002\003\004\005\006\007\010\t\n\013\014\r\016\017\020\021\022\023\024\025\026\027\030\031\032\033\034\035\036\037 \177 \" \\\\ \320\237 \360\237\230\200 z"
+    printf -v ctl_nl "%s\n" "$ctl"
+    printf -v crlf "a\r\nb\r\n"
+    printf -v quotes "say \"hi\"\n\\\\ back\\\\slash\n"
+    printf -v many_nl "a\n\n\n"
+    printf -v no_nl "a\nb"
+    printf -v only_nl "\n"
+    printf -v lead_nl "\na"
+    printf -v lone_cr "a\rb"
+    n=0
+    for s in "$ctl" "$ctl_nl" "$crlf" "$quotes" "$many_nl" "$no_nl" "" "$only_nl" "$lead_nl" "$lone_cr"; do
+      n=$((n + 1))
+      json_quote "$s"; want=$_JSON
+      json_quote_text "$s"; got=$_JSON
+      [ "$want" = "$got" ] || { printf "case %s\njson_quote:      %s\njson_quote_text: %s\n" "$n" "$want" "$got"; exit 1; }
+    done
+    json_quote_text "$ctl_nl"
+    printf "%s" "$_JSON"
+  ' _ "$JIG_HOME") || fail "the two escapers differ: $out"
+  assert_contains "$out" '\u0001\u0002'
+  assert_contains "$out" '\u001f'
+  assert_contains "$out" '\u0008\t\n\u000b\u000c\r'
+}
+
+# A long text takes the lines it has, not the square of its length: 3000 lines answer at
+# once, whole. Not compared with json_quote, which is the slow one here.
+test_json_quote_text_takes_a_long_text_whole() {
+  local out
+  out=$(bash -c '
+    set -eu
+    . "$1/scripts/lib/json.sh"
+    big= i=0
+    while [ "$i" -lt 3000 ]; do
+      big="$big$(printf "line %d with \"quotes\" and \\\\ backslashes\ttab" "$i")
+"
+      i=$((i + 1))
+    done
+    json_quote_text "$big"
+    printf "%s" "$_JSON"
+  ' _ "$JIG_HOME")
+  case $out in
+    '"line 0 with '*'line 2999 with \"quotes\" and \\ backslashes\ttab\n"') ;;
+    *) fail "a long text came back cut or unquoted: ${out%"${out#????????????????}"}...${out#"${out%????????????????????????????????????????}"}" ;;
+  esac
+}

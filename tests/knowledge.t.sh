@@ -4610,26 +4610,9 @@ test_sources_diff_json_gives_a_stub_not_accepted_its_status() {
   assert_contains "$OUT" '+line two\n","lossy":false}'
 }
 
-# Where there is no iconv, every byte outside ASCII goes instead: lossy, but
-# valid. The shell's `command` is shadowed so that iconv is not found.
-test_utf8_clean_without_iconv_keeps_ascii_and_drops_the_rest() {
-  local out
-  out=$(bash -c '
-    set -eu
-    . "$1/scripts/lib/json.sh"
-    . "$1/scripts/lib/knowledge.sh"
-    command() { if [ "$1" = -v ] && [ "$2" = iconv ]; then return 1; fi; builtin command "$@"; }
-    _km_utf8_clean "$(printf "a\tb \303\251 \377 z")"
-    printf "%s|%s" "$_KM_LOSSY" "$_KM_CLEAN"
-    _km_utf8_clean "plain
-two"
-    printf "|%s|%s" "$_KM_LOSSY" "$_KM_CLEAN"
-  ' _ "$JIG_HOME")
-  assert_eq "$(printf 'true|a\tb ?? ? z|false|plain\ntwo')" "$out"
-}
-
 # json_quote is quadratic on bash 3.2: a diff of tens of kilobytes took minutes
-# through it. The diff is escaped in one pass, so a large one answers at once.
+# through it. The command escapes the diff with json_quote_text, line by line, so a
+# large one answers at once.
 test_sources_diff_json_answers_a_large_diff_in_one_pass() {
   _kmj_accepted_stub
   local i=0
@@ -4655,53 +4638,6 @@ test_sources_diff_json_drops_a_character_above_the_unicode_range() {
   assert_contains "$OUT" '"lossy":true}'
 }
 
-# A character from U+100000 to U+10FFFF is valid and stays, and so does every other
-# letter of the answer: only a lead byte above that range is dropped, as one
-# character, never the whole answer's non-ASCII text, nor a carriage return, nor
-# the bytes after a lead cut short at the end.
-test_utf8_clean_keeps_the_top_plane_and_drops_only_what_is_above_it() {
-  local out
-  out=$(bash -c '
-    set -eu
-    . "$1/scripts/lib/json.sh"
-    . "$1/scripts/lib/knowledge.sh"
-    _km_utf8_clean "$(printf "\320\237\321\200\320\270 \364\217\277\275 ok")"
-    printf "%s|%s" "$_KM_LOSSY" "$_KM_CLEAN"
-    _km_utf8_clean "$(printf "\320\237 \364\220\200\200 z\r\nend")"
-    printf "|%s|%s" "$_KM_LOSSY" "$_KM_CLEAN"
-    _km_utf8_clean $'"'"'line\364\n'"'"'
-    printf "|%s|%s|" "$_KM_LOSSY" "$_KM_CLEAN"
-  ' _ "$JIG_HOME")
-  command -v iconv >/dev/null 2>&1 || skip "no iconv: every byte outside ASCII becomes ?"
-  assert_eq "$(printf 'false|\320\237\321\200\320\270 \364\217\277\275 ok|true|\320\237  z\r\nend|true|line\n|')" "$out"
-}
-
-test_drop_above_unicode_takes_a_long_text_with_many_pairs_in_one_pass() {
-  local out
-  # The inputs are made with printf -v, not $(...): a CR before the newline
-  # $(...) strips must reach the function, and the output ends in a byte that
-  # is not a newline for the same reason. CRs sit before, after and between
-  # the pairs, and at the very end.
-  out=$(bash -c '
-    set -eu
-    . "$1/scripts/lib/json.sh"
-    . "$1/scripts/lib/knowledge.sh"
-    printf -v unit "lorem ipsum *dolor\r\n sit amet, consectetur adipiscing elit \364\220"
-    big=$unit; n=1
-    while [ "$n" -lt 4096 ]; do big=$big$big; n=$((n * 2)); done
-    printf -v cr "\r"
-    printf -v head "\364\220a\364\217\277\275 \r\364\240\r\364\364\240\r\n"
-    _km_drop_above_unicode "$head$big$cr"
-    LC_ALL=C
-    printf "%s|%s" "${#big}" "${#_KM_CLEAN}"
-    case $_KM_CLEAN in *"elit $cr") printf "|ends-cr" ;; esac
-    printf -v small "\r\364\220\r a\364\364\240\r\n\364\217\r\364\r"
-    _km_drop_above_unicode "$small"
-    printf "|%sE" "$_KM_CLEAN"
-  ' _ "$JIG_HOME")
-  assert_eq "$(printf '249856|241676|ends-cr|\r\r a\364\r\n\364\217\r\364\rE')" "$out"
-}
-
 test_proposed_json_keeps_other_letters_beside_a_top_plane_character() {
   command -v iconv >/dev/null 2>&1 || skip "no iconv: every byte outside ASCII becomes ?"
   km_setup
@@ -4716,29 +4652,6 @@ test_proposed_json_keeps_other_letters_beside_a_top_plane_character() {
   assert_contains "$OUT" "$(printf '"summary":"top \364\217\277\275 plane"')"
   assert_contains "$OUT" "$(printf '"summary":"\320\237\321\200\320\270\320\262\320\265\321\202"')"
   assert_not_contains "$OUT" '"lossy":true'
-}
-
-# _km_json_quote_text stands in for json_quote on long texts (conventions/
-# json-output.md); what it prints must be what json_quote prints, for every control
-# byte, DEL, a quote, a backslash and text outside ASCII. Its one pass ends every
-# line with a newline, so the text compared ends in one.
-test_json_quote_text_prints_what_json_quote_prints() {
-  local out
-  out=$(bash -c '
-    set -eu
-    . "$1/scripts/lib/json.sh"
-    . "$1/scripts/lib/knowledge.sh"
-    s="$(printf "a\001\002\003\004\005\006\007\010\t\n\013\014\r\016\017\020\021\022\023\024\025\026\027\030\031\032\033\034\035\036\037 \177 \" \\\\ \320\237 \360\237\230\200 z")"
-    s="$s
-"
-    json_quote "$s"; want=$_JSON
-    _km_json_quote_text "$s"; got=$_JSON
-    [ "$want" = "$got" ] || { printf "json_quote:          %s\n_km_json_quote_text: %s\n" "$want" "$got"; exit 1; }
-    printf "%s" "$got"
-  ' _ "$JIG_HOME") || fail "the two escapers differ: $out"
-  assert_contains "$out" '\u0001\u0002'
-  assert_contains "$out" '\u001f'
-  assert_contains "$out" '\u0008\t\n\u000b\u000c\r'
 }
 
 # --- knowledge read --json (schemas/json.md) ---------------------------------------

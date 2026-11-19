@@ -47,10 +47,12 @@ MUST:     look for --json among all its arguments before anything else runs, and
           its condition — it may withhold more than the guard refuses, never offer more;
           keep the text form's bytes; pin the whole shape of its data in its own test
           file and in schemas/json.md
-MAY:      escape a long free text outside json_quote when json_quote's pass over it is too
-          slow (it is quadratic in the length on bash 3.2: an 83 KB diff took minutes), as
-          knowledge.sh's _km_json_quote_text does with one awk pass; the result must be
-          what json_quote would print
+MAY:      escape a long free text — a whole document, a diff — with json_quote_text instead
+          of json_quote: json_quote is quadratic in the length on bash 3.2 (an 83 KB diff took
+          minutes, a 37 KB spec 3.4 s), json_quote_text runs it one line at a time (0.3 s
+          for the 37 KB spec) and prints the same bytes; it reads with the shell, which
+          keeps a CR that awk drops under Git Bash. A list cleans its whole value once
+          (json_utf8_clean), not once per record: the processes must not grow with them
 MUST:     hand JSON only bytes that are valid UTF-8 where the text comes from a file a person
           committed (json_quote passes other bytes through, and one makes the line invalid):
           json.sh's json_utf8_clean drops them (iconv -c, else every non-ASCII byte becomes ?,

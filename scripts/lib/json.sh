@@ -70,6 +70,33 @@ json_quote() {
   _JSON="\"$s\""
 }
 
+# json_quote_text <s> — _JSON <- what json_quote <s> sets, for a text that may be
+# long: a whole document or a diff. json_quote's substitutions cost the length of
+# the string once per match on bash 3.2, so over a whole text they grow with the
+# square of its size (an 83 KB diff took minutes, a 37 KB spec 3 s). Here they run
+# on one line at a time, so the cost grows with the number of lines, and with the
+# square of the longest line only. The lines are read by the shell, which keeps a
+# carriage return (awk under Git Bash drops it, conventions/shell.md), and no
+# process is started. Each escaped line is kept in an array and the array joined
+# once: appending to one string would copy all of it again per line.
+json_quote_text() {
+  local line i=0 IFS
+  local -a acc
+  # The here-document ends the text with one newline more, so every line read
+  # was followed by one; the last `\n` is taken off again after the join.
+  while IFS= read -r line; do
+    json_quote "$line"
+    _JSON=${_JSON#\"}
+    acc[i]="${_JSON%\"}\\n"
+    i=$((i + 1))
+  done <<EOF
+$1
+EOF
+  IFS=
+  _JSON="${acc[*]}"
+  _JSON="\"${_JSON%\\n}\""
+}
+
 json_str_or_null() {
   if [ -z "$1" ]; then _JSON=null; else json_quote "$1"; fi
 }
