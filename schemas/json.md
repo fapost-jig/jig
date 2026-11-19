@@ -105,7 +105,7 @@ need to tell it apart (`already-filed`, out of `already-exists`); the release no
 | `already-archived` | `jig task archive` was asked for a task that is archived already: somebody archived it first. Nothing was written |
 | `not-archived` | `jig task unarchive` was asked for a task that is not archived: somebody unarchived it first. Nothing was written |
 | `wrong-status` | the task's status does not let the command run: `jig task archive` of a `consolidated` task (its work is in git and its workspace is purged, not kept), `jig task abandon` of an `archived` one (`jig task unarchive` first), `jig spec drop` of a task that is neither `abandoned` nor archived from `abandoned`. Nothing was written |
-| `already-closed` | `jig spec drop` found every item that names the task checked already: somebody closed it first. Nothing was written |
+| `already-closed` | `jig spec drop` found every item that names the task checked already, or `jig spec item check` was asked for an item that is checked already: somebody closed it first. Nothing was written |
 | `ship-running` | a `jig task ship` of the task is waiting for CI and lands the pull request itself (`shipping` in `jig task list --json`). Nothing was written |
 | `git-level` | a command without `--by human` at an `agent.git` (`agent.git_staging` for a task whose pull request goes into the staging branch) below what it needs: `jig task promote --json` and `jig task request-review` below `pr`, `jig task merge-pr` below `merge`. The action is the person's, not the agent's |
 | `failed` | any other refusal: one that names no code of its own, a fault of the environment (a checkout that cannot be read, a failed command), or a producer that printed nothing |
@@ -335,7 +335,7 @@ An item — the counts above are the sum of its fields, read in the same pass:
 | `id` | string | the item's handle: `i-` and 12 hex digits, a digest of its text without a leading task id or `fog:` and with whitespace collapsed; `-2`, `-3` for a repeat of the same text, in roadmap order. It holds through a move, a check and a filing. Rewording the item changes it, and a write naming the old one is refused. Compare it, do not parse it |
 | `text` | string | the line after its checkbox, indented continuation lines joined with a space; tabs become spaces and trailing whitespace is dropped |
 | `checked` | boolean | `[x]` or `[X]` |
-| `done` | boolean | what the item counted as: `checked`, or its `task` is known in this checkout to have merged — `consolidated`, or logged `remote=merged` by the newest housekeeping run (schemas/spec.md) |
+| `done` | boolean | what the item counted as: `checked`, or its `task` is known in this checkout to have merged — `consolidated`, logged `remote=merged` by the newest housekeeping run, or purged as merged by any run whose task has no workspace now (schemas/spec.md) |
 | `task` | string or null | the backticked task id the text starts with, followed by a dash — the pattern `filed` counts; `null` otherwise. Read from checked items too |
 | `fog` | boolean | the text starts with `fog:` |
 
@@ -378,7 +378,7 @@ here nor fetched; `not-a-repository` as everywhere.
 
 ## `jig spec item` writes
 
-`jig spec item add|move|file <spec> … --json` change a roadmap on a branch of its own, in Jig's own
+`jig spec item add|move|file|check <spec> … --json` change a roadmap on a branch of its own, in Jig's own
 tree (adr-20261104-a-write-goes-in-jigs-own-tree): nobody's checkout moves. `--revision <n>` as the
 queue writes take it, and the same `stale-revision`. Without it the write checks against the revision
 it reads once its tree stands, before it reads the roadmap there, so a Jig write landing while it
@@ -390,6 +390,7 @@ jig spec item add  <spec> --phase <n> --text <t> [--after <item> | --top | --bot
 jig spec item move <spec> <item> [--phase <n>] [--after <item> | --top | --bottom]
 jig spec item file <spec> <item> --task <task-id>
 jig spec item file <spec> <item> --new <task-id> [--goal <text>]
+jig spec item check <spec> <item> | --merged
 ```
 
 `add` goes to the bottom of its phase unless told otherwise. `move` needs `--phase` or a place.
@@ -401,7 +402,6 @@ written, and a refusal files nothing, so a program carries the revision of the r
 (`jig task new` raises the revision; filed first, it would make the write `stale-revision`). The task is filed
 once the commit stands, as the `Spec:` line is: a failure then is a `note`, with the commands to run, not a
 refusal. `--task` and `--new` are exclusive, and `--goal` goes with `--new`.
-
 ```json
 {"spec": "idea-x", "item": {"id": "i-7d2bc8dc7707", "text": "Export a page", "checked": false, "task": null, "fog": false, "phase": 2}, "write": <write>}
 ```
@@ -411,12 +411,22 @@ refusal. `--task` and `--new` are exclusive, and `--goal` goes with `--new`.
 | `spec` | string | the spec |
 | `item` | object | the item as the roadmap on the branch now has it: `id`, `text`, `checked`, `task`, `fog` as in `jig spec list --json`, and `phase`, `null` for a section that is not a phase |
 | `write` | object | where the edit went, [below](#jig-writes---json) |
+| `items` | array | `check` only, in place of `item`: every item it checked, each shaped as `item` |
+
+`check` turns `[ ]` into `[x]` on the item's first line: for the item named, or, with `--merged`, for
+every unchecked item whose task is known to have merged (the rule behind `done` below); exactly one of
+the two is given. Its answer has `items`, the array of every item it checked, in roadmap order, in place
+of `item`:
+
+```json
+{"spec": "idea-x", "items": [{"id": "i-7d2bc8dc7707", "text": "`t-1` — Export a page", "checked": true, "task": "t-1", "fog": false, "phase": 2}], "write": <write>}
+```
 
 Refusals: `usage`; `not-found` for a spec neither on its branch nor on the base, an item or phase the
 roadmap on the branch does not have, or a task that does not exist; `already-exists` for an item with
 this text, or a `--new` task id another task holds; `already-filed` for an item that names a task
 already, whichever id was given; `not-linkable` for a task `file` cannot link: finished,
-started, linked to another spec, or an item already checked, or a checkout that does not keep the clone's task workspaces for `--new`; `epic-missing` for an open epic neither
+started, linked to another spec, or an item already checked, or a checkout that does not keep the clone's task workspaces for `--new`; `already-closed` for a `check` of an item that is checked already; `not-found` also for `check --merged` when no unchecked item names a task known to have merged; `epic-missing` for an open epic neither
 here nor on origin; and the refusals of every write, below.
 
 ## `jig knowledge decide|accept|reject|reviewed` writes

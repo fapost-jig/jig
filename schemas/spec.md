@@ -56,16 +56,25 @@ A line that opens with a backticked command rather than a task id, like
 An item has no id in the file: `jig spec list --json` derives its handle from its text
 (schemas/json.md), and `jig spec item` changes the file by the lines this grammar gives it.
 
-`jig spec list` prints `roadmap <done>/<total> done, <filed> filed, fog <fog>`. `jig spec list
+`jig spec list` prints `roadmap <done>/<total> done, <filed> filed, fog <fog>`, and `, <n> merged but
+unchecked` after it when <n> unchecked items counted as done because their task merged: the count is
+right, the checkmark is still owed. `jig status` names the same gap as `roadmap behind: <spec> — <n>
+merged but unchecked (jig spec item check <spec> --merged)`. `jig spec list
 --json` gives the same counts by section with their items (schemas/json.md), from the same pass
 over the roadmap, and the status page shows them by phase.
 
 Done is where the work is, not only where the checkbox is: an unchecked item whose task is known to
 have merged counts as done. Merged is read offline and by one rule (`spec_merged_task_ids`), the one
-`spec plan` reads below: the task is `consolidated` in this checkout's workspace, or the newest
-housekeeping run logged it `remote=merged`. Both are local and gitignored, so a clone without the
-task's workspace and without a housekeeping run counts only the checkboxes; no branch or forge is
-asked. In a phase run this is what lets the status page, which reads an open epic from its remote,
+`spec plan` reads below: the task is `consolidated` in this checkout's workspace, the newest
+housekeeping run logged it `remote=merged`, or any run of the log purged it as merged
+(`action=purge … remote=merged`) and no workspace of that name exists now. The third source matters
+because housekeeping removes a merged task's workspace at once, so after one more run the first two
+have forgotten it, while the log keeps every purge line; a workspace that exists again is a live task
+that reused the name, and the old purge says nothing of it. A name reused for a task filed only in
+another clone has no workspace here, so the old purge reads as its merge: ids are not meant to be
+reused. The log is the main checkout's, read from a task worktree too. All are local and gitignored, so a clone
+without the task's workspace and without a housekeeping log counts only the checkboxes; no branch or
+forge is asked. In a phase run this is what lets the status page, which reads an open epic from its remote,
 show a merged wave before the coordinator's checkmarks reach that remote
 (adr-20260922-a-phase-run-is-coordinated).
 
@@ -90,8 +99,8 @@ listed under their phase and never start.
 
 The rule is strict: wave N opens only when every item of every wave numbered below it has
 merged — whichever phase that item is in. Merged is read offline: the item is checked, or its task
-merged by the rule the counts read above — `consolidated`, or logged `remote=merged` by the newest
-housekeeping run.
+merged by the rule the counts read above — `consolidated`, logged `remote=merged` by the newest
+housekeeping run, or purged as merged by any run.
 
 ## Conventions the script does not check
 
@@ -128,10 +137,25 @@ task alone and names it. No field in `state` carries the link.
 | every item naming it is checked | `already done`, exit 0, file unchanged |
 | no item names it | error: the roadmap and the task disagree |
 | spec or its `roadmap.md` missing, two specs linked | error |
+| the task has no workspace here, and an unchecked item of a roadmap in this checkout names it | error naming the spec and `jig spec item check <spec> <handle>`: housekeeping removed the workspace after the merge, and the item is checked through a pull request. The working tree is not written |
+| the task has no workspace here, and no item names it | error: unknown task |
 
 An item names the task when its text starts with the backticked id and a dash — the "filed"
 grammar above — compared as a string. Run when the knowledge decision is recorded, before the
 commit (ADR-0035).
+
+## `jig spec item check <spec> <item> | --merged`
+
+Checks roadmap items (`[ ]` to `[x]`, the bullet, indent and handle as they were) in Jig's own
+tree, as `jig spec item add|move|file` write: a commit on `spec/<spec>` and a pull request into the
+default branch or an open epic (adr-20261104-a-write-goes-in-jigs-own-tree); no checkout moves.
+With a handle it checks that item. With `--merged` it checks every unchecked item whose task is
+known to have merged — the rule the counts read above, read from this checkout before the write
+begins. Exactly one of the two. An item that is checked already is `already-closed`; `--merged` with
+nothing to check, and an unknown handle, are `not-found`; at `agent.git: none` nothing is written
+(`git-not-allowed`). The commit message is `Check roadmap items of <spec>` (`Check a roadmap item
+of <spec>` for one) and the text of each item. This is how a merged task's item is checked after
+housekeeping has removed the workspace `jig spec done` needs.
 
 ## `jig spec drop <task-id>`
 

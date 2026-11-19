@@ -322,6 +322,14 @@ $rel"
   if [ "$specs" -gt 0 ]; then
     printf 'specs: %s (jig spec list)\n' "$specs"
     spec_epic_status
+    # An item the roadmap still shows unchecked although its task merged: the
+    # counts already treat it as done (spec_phase_counts), so only this line
+    # says the checkmark is owed.
+    local sid sn
+    while IFS=$'\t' read -r sid sn; do
+      [ -n "$sid" ] || continue
+      printf 'roadmap behind: %s — %s merged but unchecked (jig spec item check %s --merged)\n' "$sid" "$sn" "$sid"
+    done < <(spec_merged_unchecked_rows)
   else
     printf 'specs: none\n'
   fi
@@ -903,6 +911,7 @@ _status_terminal() {
         _STT_KNOW+=("drafts"$'\t'"${t% (jig spec draft list)}"$'\t'"jig spec draft list")
         ;;
       "epic: "*", branch missing") _status_need warn "$l" ;;
+      "roadmap behind: "*) _status_need warn "$l" ;;
       "epic: "*) _STT_KNOW+=("epic"$'\t'"${l#epic: }"$'\t') ;;
       "task "*)
         ntasks=$((ntasks + 1))

@@ -15,7 +15,7 @@ paths:
   - scripts/lib/config.sh
   - scripts/lib/common.sh
 summary: Why a write from outside a session is committed on spec/<id> or knowledge/decisions in a one-off tree under the git directory, what holds a concurrent write off, why a checkout on that branch is refused, and why agent.git none refuses and a write never merges
-reviewed_at: 2026-11-15
+reviewed_at: 2026-11-19
 ---
 # A write from outside a session is committed on a branch of its own, in a tree of Jig's own, and never moves a checkout
 
@@ -130,3 +130,13 @@ noticing a change nobody saw; and each paid its own fetch, tree, push and questi
 > stay a write's: the upgrade ships at the level `upgrade.merge` gives, commits at `none`, and merges
 > after it has removed the tree and given the lock back, so no CI wait holds the lock. It picks its
 > branch name against `ls-remote` as a write does (adr-20261117-an-upgrade-is-built-in-jigs-own-tree-and-merges-itself).
+
+## Amendment (2026-11-19): checking roadmap items is a write (roadmap-merged-unchecked)
+
+`jig spec item check <spec> <item> | --merged` joins `add`, `move` and `file`: it turns `[ ]` into
+`[x]` on `spec/<id>` in this tree, with the same lock, revision, level and refusals. A merged task's
+item left unchecked reaches the base through a pull request like any other edit; `jig spec done` cannot
+do it once housekeeping has purged the task's workspace, and its policy of purging a merged task at once
+is untouched. Which tasks merged is read from this checkout before the write begins, from the workspaces
+and the housekeeping log, whose purge lines keep the fact after the workspace is gone; the tree holds
+neither. `--merged` with nothing to check is `not-found`, an item already checked is `already-closed`.
