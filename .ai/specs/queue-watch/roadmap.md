@@ -9,7 +9,7 @@ Goal: `jig queue next` never names a task a watcher could not start now. Done wh
 stopped or drafted run, a stub `task.md`, or a version bump is not advised, and a queue held by a
 stop answers "blocked by <id>", not "empty".
 
-- [ ] `next-skips-what-cannot-be-taken` — Next skips what cannot be taken: `queue next` (and `--json`) leaves out stopped, drafted and `not merged` runs, stub tasks and version-raising tasks, and tells "blocked by a stop" from "empty" (after: `start-follows-the-queue` — it changes the same `next` decision in `queue.sh`)
+- [x] `next-skips-what-cannot-be-taken` — Next skips what cannot be taken: `queue next` (and `--json`) leaves out stopped, drafted and `not merged` runs, stub tasks and version-raising tasks, and tells "blocked by a stop" from "empty" (after: `start-follows-the-queue` — it changes the same `next` decision in `queue.sh`)
 
 ## Phase 2 — The watcher
 
