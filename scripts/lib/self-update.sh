@@ -55,7 +55,7 @@ _self_update_branch() {
   # — a remote asking for credentials must fail the pull, not hang it
   # (fetch-never-waits-for-a-prompt).
   rc=0
-  GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="$(jig_git_batch_ssh)" \
+  GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="$(jig_git_batch_ssh "$source")" \
     git -C "$source" pull --ff-only || rc=$?
   if [ "$rc" -ne 0 ]; then
     printf 'jig: error: self-update: git pull --ff-only failed\n' >&2
@@ -111,7 +111,7 @@ _self_update_detached() {
   # See _self_update_branch: `cmd || rc=$?`, never `if ! cmd; then rc=$?`.
   # Same GIT_TERMINAL_PROMPT=0 / GIT_SSH_COMMAND reasoning as there.
   rc=0
-  GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="$(jig_git_batch_ssh)" \
+  GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="$(jig_git_batch_ssh "$source")" \
     git -C "$source" fetch --tags origin || rc=$?
   if [ "$rc" -ne 0 ]; then
     printf 'jig: error: self-update: git fetch --tags origin failed\n' >&2

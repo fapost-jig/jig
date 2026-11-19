@@ -413,7 +413,10 @@ To ask GitHub something about the project yourself as that account, put `jig` in
   credential helper for that host and has `git` ask `gh` for that account's token. Nothing is
   stored in your helper or in git's configuration. If your helper held another GitHub user's
   credentials, the push now goes as the `gh` account instead; a `GH_TOKEN` in the environment, or
-  an SSH `origin`, leaves `git` as it was. Over SSH your key decides the account.
+  an SSH `origin`, leaves `git` as it was. Over SSH your key decides the account, and Jig's own
+  `git` calls use the SSH command plain `git` would — `GIT_SSH_COMMAND`, the clone's
+  `core.sshCommand` or `GIT_SSH` — adding only `-o BatchMode=yes` for OpenSSH, so a login that
+  would ask fails instead of waiting.
 - When several accounts may push, the active one is not among them and none is named, a ship
   stops before its push and says how to name one; nothing is sent. Over HTTPS that holds at every
   `agent.git` level; over SSH only at `pr` and `merge`, where the pull request needs an account —
