@@ -6444,21 +6444,40 @@ _ss_invalid_byte_case() {
   assert_contains "$OUT" '"summary":"café  tail"'
 }
 
-# The title is cleaned with the rest of the list: a byte that is not UTF-8 in the
-# `# ` heading is dropped, and the envelope stays valid. Under the C locale, where
-# the heading's regex still matches such a byte; in a UTF-8 locale it does not, and
-# the title reads as null.
-test_spec_list_json_title_with_an_invalid_byte_is_valid_utf8() {
-  command -v iconv >/dev/null 2>&1 || skip "no iconv: every byte outside ASCII becomes ?"
+# _st_invalid_byte_case <locale> — the title is cleaned with the rest of the list:
+# a byte that is not UTF-8 in the `# ` heading is dropped, the title is still found,
+# and the envelope stays valid, under the given locale (set through env).
+_st_invalid_byte_case() {
+  local loc="$1"
   fixture_repo
   mkdir -p .ai/specs/t-bad
   printf '# Caf\303\251 \377 title\n\nBody.\n' > .ai/specs/t-bad/spec.md
   : > .ai/specs/t-bad/roadmap.md
-  run env LC_ALL=C "$JIG_BIN" spec list --json
-  assert_eq 0 "$RC" "$OUT"
+  run env LC_ALL="$loc" "$JIG_BIN" spec list --json
+  assert_eq 0 "$RC" "spec list --json failed under $loc: $OUT"
   printf '%s\n' "$OUT" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1 \
-    || fail "envelope is not valid UTF-8"
+    || fail "envelope is not valid UTF-8 under $loc"
   assert_contains "$OUT" '"id":"t-bad","title":"Café  title"'
+}
+
+test_spec_list_json_title_with_an_invalid_byte_is_valid_utf8_in_the_c_locale() {
+  command -v iconv >/dev/null 2>&1 || skip "no iconv: every byte outside ASCII becomes ?"
+  _st_invalid_byte_case C
+}
+
+test_spec_list_json_title_with_an_invalid_byte_is_valid_utf8_in_a_utf8_locale() {
+  local loc=""
+  command -v iconv >/dev/null 2>&1 || skip "no iconv: every byte outside ASCII becomes ?"
+  if locale -a 2>/dev/null | grep -qx 'en_US.UTF-8'; then
+    loc=en_US.UTF-8
+  elif locale -a 2>/dev/null | grep -qx 'C.UTF-8'; then
+    loc=C.UTF-8
+  fi
+  if [ -z "$loc" ]; then
+    skip "no UTF-8 locale installed"
+    return 0
+  fi
+  _st_invalid_byte_case "$loc"
 }
 
 test_spec_list_json_summary_with_an_invalid_byte_is_valid_utf8_in_the_c_locale() {

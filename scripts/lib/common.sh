@@ -4957,11 +4957,19 @@ jig_spec_title_v() {
   local __jst_line
   printf -v "$1" '%s' ""
   [ -r "$2" ] && [ -f "$2" ] || return 0
+  # A glob, not a regex: under a UTF-8 locale `=~` matches nothing on a line
+  # holding a byte that is not UTF-8, while bash's glob falls back to bytes.
   while IFS= read -r __jst_line || [ -n "$__jst_line" ]; do
-    if [[ $__jst_line =~ ^#[[:space:]]+(.*)$ ]]; then
-      printf -v "$1" '%s' "${BASH_REMATCH[1]}"
-      return 0
-    fi
+    case $__jst_line in
+      '#'[[:space:]]*)
+        __jst_line=${__jst_line#?}
+        while case $__jst_line in [[:space:]]*) true ;; *) false ;; esac; do
+          __jst_line=${__jst_line#?}
+        done
+        printf -v "$1" '%s' "$__jst_line"
+        return 0
+        ;;
+    esac
   done < "$2"
 }
 
