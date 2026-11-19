@@ -3753,8 +3753,8 @@ _task_autopilot_at_limit() {
 }
 
 # _task_autopilot_stage_before_gate <stage> — exit 0 when <stage>, the last
-# stage a run reached (field 3 of _task_autopilot_facts: `-` or empty when it
-# has reached none since its last start or resume), is one before the human
+# stage a run reached (_task_autopilot_stop_stage_v: empty when it has
+# reached none since it started, a resume included), is one before the human
 # gate of a T3/T4 route (_task_route: discover, specify, alternatives, design)
 # or the gate itself. A run that stops there stopped at the gate; one that
 # stops after it (implement, review, verify, ...) stopped about something
@@ -3767,6 +3767,40 @@ _task_autopilot_stage_before_gate() {
     "" | - | discover | specify | alternatives | design | human-gate | gate) return 0 ;;
   esac
   return 1
+}
+
+# _task_autopilot_stop_stage_v <var> <id> — the last stage the task's current
+# run marked, into <var>; empty when it marked none. Only `start` resets it:
+# a resumed run continues from the stage it stopped in, so a run that marked
+# implement, stopped, was resumed and stopped again without marking a stage
+# stopped after implement, not at the gate. (Field 3 of the facts line is
+# not this: `resume` resets it there, for what the run has done since.) Read
+# only for a stopped run, by the gate's answer and the status page's card.
+# The journal is parsed as _task_autopilot_facts_v parses it.
+_task_autopilot_stop_stage_v() {
+  local __tass_file __tass_line __tass_event __tass_text __tass_stage="" __tass_t=$'\t'
+  task_dir_v __tass_file "$2"
+  __tass_file="$__tass_file/autopilot"
+  if [ -f "$__tass_file" ]; then
+    while IFS= read -r __tass_line || [ -n "$__tass_line" ]; do
+      __tass_event="" __tass_text=""
+      case "$__tass_line" in
+        *"$__tass_t"*)
+          __tass_line=${__tass_line#*"$__tass_t"}
+          __tass_event=${__tass_line%%"$__tass_t"*}
+          case "$__tass_line" in
+            *"$__tass_t"*)
+              __tass_line=${__tass_line#*"$__tass_t"}
+              __tass_text=${__tass_line%%"$__tass_t"*} ;;
+          esac ;;
+      esac
+      case "$__tass_event" in
+        start) __tass_stage="" ;;
+        stage) __tass_stage=$__tass_text ;;
+      esac
+    done < "$__tass_file"
+  fi
+  printf -v "$1" '%s' "$__tass_stage"
 }
 
 # _task_autopilot_limit_roads <id> — what is left for a stopped unattended run
@@ -5598,7 +5632,8 @@ $path
 # gate also answers that stop (_task_gate_answer_the_run), so the run resumes.
 # A stop at the gate is a stop before any stage after it
 # (_task_autopilot_stage_before_gate): a run that stopped in review keeps its
-# own stop, whatever the gate says.
+# own stop, whatever the gate says. The stage is the last one the run marked
+# since it started, a resume included.
 #
 # The three keys are one new state file under one revision claim, checked as
 # `task pause`'s write is: against the caller's `--revision`, or the one read
@@ -5686,7 +5721,7 @@ _task_gate_body() {
     fi
     jig_die "$_TASK_GATE_MSG"
   fi
-  local before run mode facts last_stage
+  local before run mode last_stage
   _task_gate_state_v before "$id"
   # An approved design is in work: an answer to it is said in the session, and
   # the agent changes the design (the gate is then `changed`).
@@ -5721,10 +5756,7 @@ _task_gate_body() {
   task_state_var run "$id" autopilot
   if [ "$run" = stopped ] && [ "$by" = human ]; then
     _task_autopilot_mode_v mode "$id"
-    _task_autopilot_facts_v facts "$id"
-    last_stage=${facts#*$'\t'}
-    last_stage=${last_stage#*$'\t'}
-    last_stage=${last_stage%%$'\t'*}
+    _task_autopilot_stop_stage_v last_stage "$id"
     if _task_autopilot_stage_before_gate "$last_stage"; then
       case "$before:$mode" in
         waiting:attended | changed:attended | answered:attended)
