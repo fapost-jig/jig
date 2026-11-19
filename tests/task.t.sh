@@ -4124,6 +4124,11 @@ test_task_artifact_read_prints_the_document_as_it_is() {
   _ta_json artifact read scoped handoff --json
   assert_eq 0 "$RC" "$ERR"
   assert_contains "$OUT" '"content":"esc \u001b[1m bold\u0001\naaaa'
+  # A carriage return is kept, and a document without a final newline gains none.
+  printf 'one\r\ntwo\r\n\n  last' > "$root/design.md"
+  _ta_json artifact read scoped design --json
+  assert_eq 0 "$RC" "$ERR"
+  assert_contains "$OUT" '"content":"one\r\ntwo\r\n\n  last"}}'
   # An empty document reads as empty.
   : > "$root/review.md"
   _ta_json artifact read scoped review --json
