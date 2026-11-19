@@ -96,10 +96,12 @@ jobs:
   # (adr-20261118-main-tests-what-changed-since-a-full-pull-request-run).
   #
   # The nightly run tests the whole suite unless that was already done: when
-  # the newest finished run on main succeeded and the newest successful
-  # nightly run tested the very tree main has, the night is light — the
-  # knowledge check only (.github/scripts/ci-nightly-tested.sh, which has
-  # tests). A manual dispatch is always full.
+  # the newest finished run on main succeeded, the newest successful nightly
+  # run tested the very tree main has, and no `red-main` issue is open (only
+  # a green whole-suite run closes it, so while it is open the nightly runs
+  # everything), the night is light — the knowledge check only
+  # (.github/scripts/ci-nightly-tested.sh, which has tests). A manual
+  # dispatch is always full.
   scope:
     runs-on: ubuntu-latest
     permissions:
