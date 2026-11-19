@@ -2277,6 +2277,46 @@ jig_fresh_base_ref() {
   fi
 }
 
+# _jig_ssh_first_word <command> — the first word of an SSH command line as git
+# reads it: leading blanks skipped, then quotes grouping (not kept), a backslash
+# outside single quotes escaping the next character, a blank outside quotes
+# ending the word.
+_jig_ssh_first_word() {
+  local s="$1" i=0 n c q="" w=""
+  n=${#s}
+  while [ "$i" -lt "$n" ]; do
+    c=${s:i:1}
+    case "$c" in ' ' | $'\t' | $'\n') i=$((i + 1)) ;; *) break ;; esac
+  done
+  while [ "$i" -lt "$n" ]; do
+    c=${s:i:1}
+    i=$((i + 1))
+    if [ -n "$q" ]; then
+      if [ "$c" = "$q" ]; then
+        q=""
+      elif [ "$c" = "\\" ] && [ "$q" = '"' ] && [ "$i" -lt "$n" ]; then
+        w="$w${s:i:1}"
+        i=$((i + 1))
+      else
+        w="$w$c"
+      fi
+      continue
+    fi
+    case "$c" in
+      ' ' | $'\t' | $'\n') break ;;
+      "'" | '"') q=$c ;;
+      \\)
+        if [ "$i" -lt "$n" ]; then
+          w="$w${s:i:1}"
+          i=$((i + 1))
+        fi
+        ;;
+      *) w="$w$c" ;;
+    esac
+  done
+  printf '%s' "$w"
+}
+
 # jig_git_batch_ssh <repo> — the value for GIT_SSH_COMMAND that adds `-o
 # BatchMode=yes` on top of the SSH command git itself would run for <repo>, so
 # an `ssh://` or `git@` remote fails a password/passphrase prompt instead of
@@ -2301,7 +2341,10 @@ jig_fresh_base_ref() {
 # which no-prompt option the program takes: plink and putty get `-batch`
 # (unless the command already carries it), tortoiseplink none, since git adds
 # `-batch` for it itself, and simple none, as it takes no options at all;
-# ssh, auto and anything unrecognised get `-o BatchMode=yes`.
+# ssh, auto and anything unrecognised get `-o BatchMode=yes`. The first word of
+# a command is read as git splits it (split_cmdline): quotes group and are not
+# part of the word, a backslash outside single quotes takes the next character
+# literally, a blank outside quotes ends it.
 #
 # Not a timeout. Neither this nor GIT_TERMINAL_PROMPT=0 bounds a call that
 # hangs for a different reason — a stalled TCP connection, a slow forge.
@@ -2311,7 +2354,13 @@ jig_fresh_base_ref() {
 # call through jig_net below.
 jig_git_batch_ssh() {
   local repo="${1:-}" base="" variant="" prog="" gitssh
-  [ -n "$repo" ] || jig_die "jig_git_batch_ssh: the repository argument is required"
+  if [ -z "$repo" ]; then
+    # `GIT_SSH_COMMAND="$(jig_git_batch_ssh)" git ...` carries on after the
+    # error with an empty command, i.e. plain ssh that may ask: `false`
+    # refuses every connection, so such a call fails instead of waiting.
+    printf 'false\n'
+    jig_die "jig_git_batch_ssh: the repository argument is required"
+  fi
   if [ -n "${GIT_SSH_COMMAND:-}" ]; then
     base=$GIT_SSH_COMMAND
   else
@@ -2319,7 +2368,7 @@ jig_git_batch_ssh() {
   fi
   if [ -z "$base" ]; then
     if [ -n "${GIT_SSH:-}" ]; then
-      gitssh=$(printf '%s' "$GIT_SSH" | sed "s/'/'\\\\''/g")
+      _jig_replace_all_v gitssh "$GIT_SSH" "'" "'\\''"
       base="'$gitssh'"
       prog=$GIT_SSH
     else
@@ -2331,14 +2380,9 @@ jig_git_batch_ssh() {
     variant=$(git -C "$repo" config --get ssh.variant 2>/dev/null || true)
   fi
   if [ -z "$variant" ] || [ "$variant" = auto ]; then
-    # The first word; a quoted one (a quoted program in a command) runs to
-    # its closing quote, spaces included. GIT_SSH's path was kept above.
+    # GIT_SSH's path was kept above; a command's program is its first word.
     if [ -z "$prog" ]; then
-      case "$base" in
-        \'*) prog=${base#\'}; prog=${prog%%\'*} ;;
-        \"*) prog=${base#\"}; prog=${prog%%\"*} ;;
-        *) prog=${base%% *} ;;
-      esac
+      prog=$(_jig_ssh_first_word "$base")
     fi
     prog=${prog##*/}
     prog=${prog##*\\}

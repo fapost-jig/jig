@@ -1038,9 +1038,24 @@ test_git_batch_ssh_a_program_that_rejects_dash_o_gets_none() {
   git config core.sshCommand '/opt/x/plink.exe -batch'
   _ssh_batch
   assert_eq "/opt/x/plink.exe -batch" "$OUT"
+  git config core.sshCommand "'C:\\PuTTY\\TortoisePlink.EXE' -batch"
+  _ssh_batch
+  assert_eq "'C:\\PuTTY\\TortoisePlink.EXE' -batch" "$OUT"
+  # Unquoted, git's own split eats the backslashes: the program it runs is
+  # `C:PuTTYTortoisePlink.EXE`, which is not a variant it knows, so ssh's.
   git config core.sshCommand 'C:\PuTTY\TortoisePlink.EXE -batch'
   _ssh_batch
-  assert_eq 'C:\PuTTY\TortoisePlink.EXE -batch' "$OUT"
+  assert_eq 'C:\PuTTY\TortoisePlink.EXE -batch -o BatchMode=yes' "$OUT"
+  # An escaped space, a leading blank and a quote in the middle of a word.
+  git config core.sshCommand '/path/Program\ Files/PuTTY/plink -batch'
+  _ssh_batch
+  assert_eq '/path/Program\ Files/PuTTY/plink -batch' "$OUT"
+  git config core.sshCommand '  /opt/x/plink -i k'
+  _ssh_batch
+  assert_eq '  /opt/x/plink -i k -batch' "$OUT"
+  git config core.sshCommand '"/opt/Pu TTY"/plink.exe'
+  _ssh_batch
+  assert_eq '"/opt/Pu TTY"/plink.exe -batch' "$OUT"
   git config core.sshCommand "'/opt/x/plink' -batch"
   _ssh_batch
   assert_eq "'/opt/x/plink' -batch" "$OUT"
@@ -1104,6 +1119,34 @@ test_git_batch_ssh_without_a_repository_fails() {
   _gh_net 'jig_git_batch_ssh'
   assert_eq 1 "$RC" "$OUT"
   assert_contains "$OUT" "repository argument is required"
+  # A command that refuses every connection goes to stdout, for the prefix form.
+  _gh_net 'jig_git_batch_ssh 2>/dev/null'
+  assert_eq "false" "$OUT"
+}
+
+test_git_batch_ssh_without_a_repository_a_prefixed_git_call_fails_not_waits() {
+  _ssh_repo
+  _ssh_fake fakessh
+  git config core.sshCommand "$PWD/../fakessh"
+  # shellcheck disable=SC2016 # expanded by the script _gh_net writes
+  _gh_net 'GIT_SSH_COMMAND="$(jig_git_batch_ssh 2>/dev/null)" git ls-remote origin'
+  assert_eq 128 "$RC" "$OUT"
+  assert_eq "" "$(cat ../fakessh.log)"
+}
+
+test_git_ls_remote_tags_runs_the_ssh_command_of_the_repository_it_is_given() {
+  _ssh_repo
+  _ssh_fake projssh
+  _ssh_fake treessh
+  git config core.sshCommand "$PWD/../projssh"
+  mkdir ../jigtree
+  git -C ../jigtree init -q
+  git -C ../jigtree remote add origin ssh://git@example.invalid/jig.git
+  git -C ../jigtree config core.sshCommand "$PWD/../treessh"
+  _gh_net "jig_ls_remote_tags '$PWD/../jigtree' 5 || true"
+  assert_contains "$(cat ../treessh.log)" "-o BatchMode=yes"
+  assert_contains "$(cat ../treessh.log)" "git@example.invalid"
+  assert_eq "" "$(cat ../projssh.log)" "the project's ssh command ran for another repository"
 }
 
 test_git_origin_over_ssh_runs_the_clones_core_sshcommand_in_batch_mode() {
@@ -1174,6 +1217,48 @@ GIT_TERMINAL_PROMPT=0 git -C "$d" fetch origin
   then git -c credential.helper= ls-remote origin
 G
   assert_eq "6" "$(_git_bare_calls guard | grep -c . || true)" "the guard misses a bare call: $(_git_bare_calls guard)"
+}
+
+# _batch_ssh_bare_calls <scripts-dir> — the lines that call jig_git_batch_ssh
+# without its <repo>, as `<file>:<line>:<text>`, in every `*.sh` and `jig` under
+# the directory, none exempt. Not flagged: comments, the definition, and the
+# die message that names the function.
+_batch_ssh_bare_calls() {
+  local f
+  for f in $(find "$1" -type f \( -name '*.sh' -o -name jig \) | sort); do
+    awk -v file="$f" '
+      /^[[:space:]]*#/ { next }
+      /^jig_git_batch_ssh\(\)/ { next }
+      /jig_git_batch_ssh: the repository/ { next }
+      /jig_git_batch_ssh("|[[:space:]]*($|[;|&)`]))/ {
+        printf "%s:%d:%s\n", file, NR, $0
+      }' "$f"
+  done
+}
+
+test_git_batch_ssh_the_guard_tells_a_call_without_a_repository_from_one_with() {
+  mkdir -p bguard/lib
+  cat > bguard/lib/x.sh <<'G'
+# GIT_SSH_COMMAND="$(jig_git_batch_ssh)" in a comment
+jig_git_batch_ssh() {
+  [ -n "$1" ] || jig_die "jig_git_batch_ssh: the repository argument is required"
+GIT_SSH_COMMAND="$(jig_git_batch_ssh "$root")" git fetch
+GIT_SSH_COMMAND=$(jig_git_batch_ssh "$JIG_PROJECT")
+G
+  assert_eq "" "$(_batch_ssh_bare_calls bguard)" "the guard flags what is not a bare call"
+  cat > bguard/lib/y.sh <<'G'
+GIT_SSH_COMMAND="$(jig_git_batch_ssh)" git fetch
+GIT_SSH_COMMAND="$(jig_git_batch_ssh )" git fetch
+x=$(jig_git_batch_ssh | cat)
+G
+  assert_eq "3" "$(_batch_ssh_bare_calls bguard | grep -c . || true)" "the guard misses a call: $(_batch_ssh_bare_calls bguard)"
+}
+
+test_git_batch_ssh_every_call_in_the_scripts_names_its_repository() {
+  local found
+  found=$(_batch_ssh_bare_calls "$JIG_HOME/scripts")
+  assert_eq "" "$found" "jig_git_batch_ssh is called without its repository:
+$found"
 }
 
 test_git_origin_no_script_reaches_origin_with_git_without_jig_git_origin() {
