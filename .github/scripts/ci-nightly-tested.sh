@@ -13,7 +13,7 @@
 #
 # Prints one line:
 #
-#   - tested (<run url> ...): the nightly run is light. Both hold:
+#   - tested (<run url> ...): the nightly run is light. All hold:
 #       (a) the newest completed run of `ci` on main, from a push or the
 #           nightly schedule, concluded `success`: main is green now. A run
 #           that was cancelled or skipped says nothing about main and is
@@ -23,6 +23,12 @@
 #           whole suite or was light for the same reason as this one, so the
 #           tree was tested whole at the start of the chain. A tree that
 #           moved and came back (a revert) is the same tree and counts;
+#       (c) no `red-main` issue is open. A green push run may have run only
+#           the selected tests, or been light, so (a) says nothing about
+#           what broke main; the issue is closed only by a green run of the
+#           whole suite (.github/scripts/red-main.sh), so while it is open
+#           the nightly must run everything. The `scope` job already has
+#           `issues: read`;
 #   - test (<why>): anything else. The whole suite runs as it always did.
 #
 # Unmeasurable is never a reason to skip: a GitHub API that does not answer, a
@@ -76,6 +82,16 @@ $listing
 EOF
   [ -n "$main_url" ] || _nt_line test "no finished run of ci on main to say it is green"
   [ "$main_conclusion" = success ] || _nt_line test "the newest finished run on main ended as '$main_conclusion': $main_url"
+
+  # (c) A red main is closed only by a whole-suite run: while the issue is
+  # open the nightly runs everything. Unreadable is never a reason to skip.
+  local red
+  if red=$(gh issue list -R "$slug" --label red-main --state open --limit 1 \
+    --json number --jq '.[0].number // empty' 2>/dev/null); then
+    [ -z "$red" ] || _nt_line test "main is red (#$red): only a run of the whole suite closes it"
+  else
+    _nt_line test "main's state cannot be read (the red-main issue query failed)"
+  fi
 
   sched=$(gh api -X GET "repos/$slug/actions/workflows/ci.yml/runs" \
     -f branch=main -f event=schedule -f status=success -f per_page=1 \
