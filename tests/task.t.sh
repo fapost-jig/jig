@@ -18477,6 +18477,42 @@ test_task_gate_decision_does_not_answer_a_stop_after_a_stage_past_the_gate() {
   done
 }
 
+test_task_gate_decision_does_not_answer_a_stop_after_a_resume_past_the_gate() {
+  local decision
+  for decision in approved answered; do
+    _ga_task
+    jig task autopilot T-1 start >/dev/null
+    jig task autopilot T-1 stage implement >/dev/null
+    jig task autopilot T-1 stop --reason "first stop" >/dev/null
+    run jig task autopilot T-1 resume --answer x
+    assert_eq 0 "$RC" "$OUT"
+    jig task autopilot T-1 stop --reason "second stop, no new stage" >/dev/null
+    if [ "$decision" = answered ]; then
+      run jig task gate T-1 answered --answer "x"
+    else
+      run jig task gate T-1 approved
+    fi
+    assert_eq 0 "$RC" "$OUT"
+    ! grep -q '^autopilot_answered' .ai/workspace/tasks/T-1/state || fail "a stop after a resume past the gate was answered by a gate $decision"
+    ! grep -q "$(printf '\tanswer\tgate ')" .ai/workspace/tasks/T-1/autopilot || fail "a stop after a resume past the gate got a gate answer line from $decision"
+    rm -rf .ai/workspace/tasks/T-1
+  done
+}
+
+test_task_gate_decision_answers_a_stop_after_a_resume_in_the_design_stage() {
+  _ga_task
+  jig task autopilot T-1 start >/dev/null
+  jig task autopilot T-1 stage design >/dev/null
+  jig task autopilot T-1 stop --reason "first stop" >/dev/null
+  run jig task autopilot T-1 resume --answer x
+  assert_eq 0 "$RC" "$OUT"
+  jig task autopilot T-1 stop --reason "design waits at the gate" >/dev/null
+  run jig task gate T-1 approved
+  assert_eq 0 "$RC" "$OUT"
+  assert_file_contains .ai/workspace/tasks/T-1/state "autopilot_answered: "
+  assert_file_contains .ai/workspace/tasks/T-1/autopilot "$(printf '\tanswer\tgate approved')"
+}
+
 test_task_gate_decision_answers_a_stop_after_the_design_stage() {
   _ga_task
   jig task autopilot T-1 start >/dev/null

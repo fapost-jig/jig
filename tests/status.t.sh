@@ -5338,6 +5338,36 @@ test_status_json_an_attended_stop_after_the_gate_keeps_its_own_card() {
   assert_not_contains "$OUT" "gate-waiting"
 }
 
+test_status_json_an_attended_stop_after_a_resume_past_the_gate_keeps_its_own_card() {
+  fixture_jig_repo
+  _status_gate_task g-1
+  jig task autopilot g-1 start >/dev/null
+  jig task autopilot g-1 stage implement >/dev/null
+  jig task autopilot g-1 stop --reason "first stop" >/dev/null
+  run jig task autopilot g-1 resume --answer x
+  assert_eq 0 "$RC" "$OUT"
+  jig task autopilot g-1 stop --reason "second stop, no new stage" >/dev/null
+  run jig status --json
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" '"kind":"autopilot-stopped"'
+  assert_not_contains "$OUT" "gate-waiting"
+}
+
+test_status_json_an_attended_stop_after_a_resume_in_the_design_stage_is_the_gate_item() {
+  fixture_jig_repo
+  _status_gate_task g-1
+  jig task autopilot g-1 start >/dev/null
+  jig task autopilot g-1 stage design >/dev/null
+  jig task autopilot g-1 stop --reason "first stop" >/dev/null
+  run jig task autopilot g-1 resume --answer x
+  assert_eq 0 "$RC" "$OUT"
+  jig task autopilot g-1 stop --reason "second stop, no new stage" >/dev/null
+  run jig status --json
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" '"kind":"gate-waiting"'
+  assert_not_contains "$OUT" "autopilot-stopped"
+}
+
 test_status_json_an_attended_stop_in_the_design_stage_is_the_gate_item_after_a_change() {
   fixture_jig_repo
   _status_gate_task g-1

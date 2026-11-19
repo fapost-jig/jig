@@ -2533,9 +2533,11 @@ UPR
       # questions (jig task gate), so the one card is the gate's, with the time
       # the run stopped (adr-20261119-a-gate-takes-an-answer). Only a stop at
       # the gate: a run whose last stage is past it (review, after the design
-      # moved, say) stopped about something else and keeps its own card.
-      last_stage=$(printf '%s\n' "$_ST_APFACTS" | cut -f 3)
+      # moved, say) stopped about something else and keeps its own card. The
+      # stage is the last one the run marked since it started, a resume
+      # included, read from the journal only for an attended run.
       if [ "$(_task_autopilot_mode "$_ST_ID")" != unattended ] \
+        && _task_autopilot_stop_stage_v last_stage "$_ST_ID" \
         && _task_autopilot_stage_before_gate "$last_stage"; then
         case "$_ST_GATE" in
           waiting)
