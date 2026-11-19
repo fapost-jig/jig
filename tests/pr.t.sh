@@ -212,6 +212,21 @@ test_pr_fetch_reads_from_githubs_base_when_the_base_took_part_of_the_pull_reques
   assert_eq 0 "$RC" "$OUT"
 }
 
+# The fetch is a network call: it must carry the clone's own SSH command (a
+# clone that picks its key through core.sshCommand keeps it), plus BatchMode so
+# a login that would ask fails instead (fetch-never-waits-for-a-prompt).
+test_pr_fetch_runs_ssh_as_the_clone_says_in_batch_mode() {
+  local log="$PWD/git-calls.log"
+  _pr_repo
+  git config core.sshCommand "ssh -i /keys/clone"
+  unset GIT_SSH_COMMAND GIT_SSH GIT_SSH_VARIANT
+  PATH="$(stub_git_env_log_dir "$log"):$PATH"
+  export PATH
+  run jig pr fetch "$_pr_url"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$(grep 'ARGS=.* fetch ' "$log" | grep -F 'refs/pull/7/head')" "SSH_COMMAND=ssh -i /keys/clone -o BatchMode=yes"
+}
+
 test_pr_fetch_prints_no_own_change_when_the_base_holds_none_of_the_pull_request() {
   _pr_repo
   run jig pr fetch "$_pr_url"

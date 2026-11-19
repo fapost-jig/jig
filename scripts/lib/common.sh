@@ -2277,14 +2277,31 @@ jig_fresh_base_ref() {
   fi
 }
 
-# jig_git_batch_ssh — the value for GIT_SSH_COMMAND that adds `-o
-# BatchMode=yes` on top of whatever SSH command the environment already
-# names (plain `ssh` when nothing does), so an `ssh://` or `git@` remote
-# fails a password/passphrase prompt instead of waiting for it. Paired with
-# `GIT_TERMINAL_PROMPT=0`, which does the same for git's own credential
-# helper (HTTPS remotes): together they cover every interactive-credential
-# path git has, on every network call that must never sit waiting for input
-# nobody will type (this task).
+# jig_git_batch_ssh <repo> — the value for GIT_SSH_COMMAND that adds `-o
+# BatchMode=yes` on top of the SSH command git itself would run for <repo>, so
+# an `ssh://` or `git@` remote fails a password/passphrase prompt instead of
+# waiting for it. Paired with `GIT_TERMINAL_PROMPT=0`, which does the same for
+# git's own credential helper (HTTPS remotes): together they cover every
+# interactive-credential path git has, on every network call that must never
+# sit waiting for input nobody will type (this task).
+#
+# The base command is chosen in git's own order (connect.c), because
+# GIT_SSH_COMMAND set by a caller beats `core.sshCommand` and GIT_SSH: the first
+# that is non-empty wins — $GIT_SSH_COMMAND as is; `core.sshCommand` of <repo>;
+# $GIT_SSH, single-quoted for sh (git runs GIT_SSH without a shell but
+# GIT_SSH_COMMAND with one); plain `ssh`. <repo> is required: a clone that
+# picks its key through `core.sshCommand` must keep it under Jig, and a
+# worktree reads its clone's config, so the repository the call runs against
+# decides, not this tree.
+#
+# `-o BatchMode=yes` is OpenSSH's. The variant — $GIT_SSH_VARIANT, else
+# `ssh.variant` of <repo>, matched case-sensitively as git does, else guessed
+# from the program's name, case-insensitively (plink[.exe],
+# tortoiseplink[.exe]; for GIT_SSH the name of its path before quoting) — says
+# which no-prompt option the program takes: plink and putty get `-batch`
+# (unless the command already carries it), tortoiseplink none, since git adds
+# `-batch` for it itself, and simple none, as it takes no options at all;
+# ssh, auto and anything unrecognised get `-o BatchMode=yes`.
 #
 # Not a timeout. Neither this nor GIT_TERMINAL_PROMPT=0 bounds a call that
 # hangs for a different reason — a stalled TCP connection, a slow forge.
@@ -2293,7 +2310,55 @@ jig_fresh_base_ref() {
 # none is added here; a caller that must not wait past a budget runs the
 # call through jig_net below.
 jig_git_batch_ssh() {
-  printf '%s -o BatchMode=yes\n' "${GIT_SSH_COMMAND:-ssh}"
+  local repo="${1:-}" base="" variant="" prog="" gitssh
+  [ -n "$repo" ] || jig_die "jig_git_batch_ssh: the repository argument is required"
+  if [ -n "${GIT_SSH_COMMAND:-}" ]; then
+    base=$GIT_SSH_COMMAND
+  else
+    base=$(git -C "$repo" config --get core.sshCommand 2>/dev/null || true)
+  fi
+  if [ -z "$base" ]; then
+    if [ -n "${GIT_SSH:-}" ]; then
+      gitssh=$(printf '%s' "$GIT_SSH" | sed "s/'/'\\\\''/g")
+      base="'$gitssh'"
+      prog=$GIT_SSH
+    else
+      base=ssh
+    fi
+  fi
+  variant=${GIT_SSH_VARIANT:-}
+  if [ -z "$variant" ]; then
+    variant=$(git -C "$repo" config --get ssh.variant 2>/dev/null || true)
+  fi
+  if [ -z "$variant" ] || [ "$variant" = auto ]; then
+    # The first word; a quoted one (a quoted program in a command) runs to
+    # its closing quote, spaces included. GIT_SSH's path was kept above.
+    if [ -z "$prog" ]; then
+      case "$base" in
+        \'*) prog=${base#\'}; prog=${prog%%\'*} ;;
+        \"*) prog=${base#\"}; prog=${prog%%\"*} ;;
+        *) prog=${base%% *} ;;
+      esac
+    fi
+    prog=${prog##*/}
+    prog=${prog##*\\}
+    prog=$(printf '%s' "$prog" | tr '[:upper:]' '[:lower:]')
+    case "$prog" in
+      plink | plink.exe) variant=plink ;;
+      tortoiseplink | tortoiseplink.exe) variant=tortoiseplink ;;
+      *) variant=ssh ;;
+    esac
+  fi
+  case "$variant" in
+    plink | putty)
+      case " $base " in
+        *" -batch "*) printf '%s\n' "$base" ;;
+        *) printf '%s -batch\n' "$base" ;;
+      esac
+      ;;
+    tortoiseplink | simple) printf '%s\n' "$base" ;;
+    *) printf '%s -o BatchMode=yes\n' "$base" ;;
+  esac
 }
 
 # _JIG_NET_DEADLINE — the epoch second after which no call through jig_net may
@@ -2407,7 +2472,7 @@ jig_ls_remote_tags() {
   max_ticks=$((seconds * 5))
   out=$(mktemp "${TMPDIR:-/tmp}/jig-lsremote.XXXXXX") || return 1
   jig_cleanup_add "$out"
-  GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="$(jig_git_batch_ssh)" \
+  GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="$(jig_git_batch_ssh "$root")" \
     git -C "$root" ls-remote --tags origin >"$out" 2>/dev/null &
   pid=$!
   while kill -0 "$pid" 2>/dev/null; do
@@ -3160,14 +3225,14 @@ Nothing was pushed; the commit is on this machine, and running this again goes o
 jig_git_origin() {
   _jig_git_cred "$(_jig_git_origin_url "$1")"
   if [ -n "${_JIG_GH_IN_NET:-}" ]; then
-    GIT_SSH_COMMAND=$(jig_git_batch_ssh)
+    GIT_SSH_COMMAND=$(jig_git_batch_ssh "$JIG_PROJECT")
     GIT_TERMINAL_PROMPT=0
     export GIT_SSH_COMMAND GIT_TERMINAL_PROMPT
     # Not into git's hooks: a jig they run is not under this jig_net.
     unset _JIG_GH_IN_NET
     exec git ${_JIG_GIT_CRED[@]+"${_JIG_GIT_CRED[@]}"} -C "$JIG_PROJECT" "$@"
   fi
-  GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="$(jig_git_batch_ssh)" \
+  GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="$(jig_git_batch_ssh "$JIG_PROJECT")" \
     git ${_JIG_GIT_CRED[@]+"${_JIG_GIT_CRED[@]}"} -C "$JIG_PROJECT" "$@"
 }
 

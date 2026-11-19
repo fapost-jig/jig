@@ -970,6 +970,162 @@ jig_ship_push "task ship" main || true'
   assert_contains "$(grep ' push -u origin main' git.argv)" "--user bob"
 }
 
+# --- the SSH command git would run, plus BatchMode (jig_git_batch_ssh) ---------------
+
+# _ssh_repo — _gh_repo over an ssh:// origin, with none of the variables that
+# choose git's SSH program set.
+_ssh_repo() {
+  _gh_repo ssh://git@example.invalid/x.git
+  unset GIT_SSH_COMMAND GIT_SSH GIT_SSH_VARIANT
+}
+
+# _ssh_batch — what jig_git_batch_ssh hands back for the clone, in $OUT.
+_ssh_batch() {
+  # shellcheck disable=SC2016 # the body expands in the shell it runs in
+  _gh_net 'jig_git_batch_ssh "$JIG_PROJECT"'
+  assert_eq 0 "$RC" "$OUT"
+}
+
+# _ssh_fake <name> — an ssh stand-in in the test directory: it appends its
+# arguments, one line a call, to <name>.log and fails like a refused login.
+_ssh_fake() {
+  printf '#!/bin/sh\necho "$*" >> "%s/%s.log"\nexit 128\n' "$PWD/.." "$1" > "$PWD/../$1"
+  chmod +x "$PWD/../$1"
+  : > "$PWD/../$1.log"
+}
+
+test_git_batch_ssh_with_nothing_chosen_is_plain_ssh_in_batch_mode() {
+  _ssh_repo
+  _ssh_batch
+  assert_eq "ssh -o BatchMode=yes" "$OUT"
+}
+
+test_git_batch_ssh_the_environment_command_beats_the_clones_core_sshcommand() {
+  _ssh_repo
+  git config core.sshCommand "ssh -i /keys/clone"
+  GIT_SSH_COMMAND="ssh -i /keys/env"
+  export GIT_SSH_COMMAND
+  _ssh_batch
+  assert_eq "ssh -i /keys/env -o BatchMode=yes" "$OUT"
+}
+
+test_git_batch_ssh_the_clones_core_sshcommand_stands_when_the_environment_has_none() {
+  _ssh_repo
+  git config core.sshCommand "ssh -i /keys/clone"
+  _ssh_batch
+  assert_eq "ssh -i /keys/clone -o BatchMode=yes" "$OUT"
+  # An empty variable is no variable, as it is to git.
+  GIT_SSH_COMMAND=""
+  export GIT_SSH_COMMAND
+  _ssh_batch
+  assert_eq "ssh -i /keys/clone -o BatchMode=yes" "$OUT"
+}
+
+test_git_batch_ssh_git_ssh_is_quoted_for_the_shell_that_will_run_it() {
+  _ssh_repo
+  GIT_SSH="/opt/my keys/it's ssh"
+  export GIT_SSH
+  _ssh_batch
+  assert_eq "'/opt/my keys/it'\\''s ssh' -o BatchMode=yes" "$OUT"
+  # core.sshCommand comes before GIT_SSH, as in git.
+  git config core.sshCommand "ssh -i /keys/clone"
+  _ssh_batch
+  assert_eq "ssh -i /keys/clone -o BatchMode=yes" "$OUT"
+}
+
+test_git_batch_ssh_a_program_that_rejects_dash_o_gets_none() {
+  _ssh_repo
+  git config core.sshCommand '/opt/x/plink.exe -batch'
+  _ssh_batch
+  assert_eq "/opt/x/plink.exe -batch" "$OUT"
+  git config core.sshCommand 'C:\PuTTY\TortoisePlink.EXE -batch'
+  _ssh_batch
+  assert_eq 'C:\PuTTY\TortoisePlink.EXE -batch' "$OUT"
+  git config core.sshCommand "'/opt/x/plink' -batch"
+  _ssh_batch
+  assert_eq "'/opt/x/plink' -batch" "$OUT"
+  # A quoted program runs to its closing quote: a space in it is not its end.
+  git config core.sshCommand '"/opt/Pu TTY/plink.exe" -batch'
+  _ssh_batch
+  assert_eq '"/opt/Pu TTY/plink.exe" -batch' "$OUT"
+  git config --unset core.sshCommand
+  GIT_SSH="/opt/Pu TTY/plink.exe"
+  export GIT_SSH
+  _ssh_batch
+  assert_eq "'/opt/Pu TTY/plink.exe' -batch" "$OUT"
+  # The name comes from GIT_SSH itself, not from its quoted form.
+  GIT_SSH="/home/o'neil/bin/plink"
+  _ssh_batch
+  assert_eq "'/home/o'\\''neil/bin/plink' -batch" "$OUT"
+  # plink without -batch gets it: plink's own way not to ask.
+  unset GIT_SSH
+  git config core.sshCommand '/opt/x/plink -i key.ppk'
+  _ssh_batch
+  assert_eq "/opt/x/plink -i key.ppk -batch" "$OUT"
+}
+
+test_git_batch_ssh_the_variant_setting_decides_over_the_program_name() {
+  _ssh_repo
+  git config core.sshCommand "/opt/x/mysshwrapper -q"
+  git config ssh.variant simple
+  _ssh_batch
+  assert_eq "/opt/x/mysshwrapper -q" "$OUT"
+  GIT_SSH_VARIANT=plink
+  export GIT_SSH_VARIANT
+  _ssh_batch
+  assert_eq "/opt/x/mysshwrapper -q -batch" "$OUT"
+  # The environment's variant beats the config's, both ways.
+  GIT_SSH_VARIANT=ssh
+  _ssh_batch
+  assert_eq "/opt/x/mysshwrapper -q -o BatchMode=yes" "$OUT"
+  # An explicit ssh keeps the option even for a program named plink.
+  git config core.sshCommand "/opt/x/plink"
+  _ssh_batch
+  assert_eq "/opt/x/plink -o BatchMode=yes" "$OUT"
+  # A setting git does not know, in any case, is OpenSSH to git: so to Jig.
+  unset GIT_SSH_VARIANT
+  git config ssh.variant Plink
+  _ssh_batch
+  assert_eq "/opt/x/plink -o BatchMode=yes" "$OUT"
+}
+
+test_git_batch_ssh_a_worktree_reads_its_clones_core_sshcommand() {
+  local top="$PWD"
+  _ssh_repo
+  git config core.sshCommand "ssh -i /keys/clone"
+  git worktree add -q -b wt-ssh "$top/wt"
+  cd "$top/wt" || return 1
+  _ssh_batch
+  assert_eq "ssh -i /keys/clone -o BatchMode=yes" "$OUT"
+}
+
+test_git_batch_ssh_without_a_repository_fails() {
+  _ssh_repo
+  _gh_net 'jig_git_batch_ssh'
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "repository argument is required"
+}
+
+test_git_origin_over_ssh_runs_the_clones_core_sshcommand_in_batch_mode() {
+  _ssh_repo
+  _ssh_fake fakessh
+  git config core.sshCommand "$PWD/../fakessh marker-from-config"
+  _gh_net 'jig_git_origin ls-remote --heads origin || true'
+  assert_contains "$(cat ../fakessh.log)" "marker-from-config"
+  assert_contains "$(cat ../fakessh.log)" "-o BatchMode=yes"
+  assert_contains "$(cat ../fakessh.log)" "git@example.invalid"
+}
+
+test_git_origin_over_ssh_runs_git_ssh_when_nothing_else_is_set() {
+  _ssh_repo
+  _ssh_fake fakessh
+  GIT_SSH="$PWD/../fakessh"
+  export GIT_SSH
+  _gh_net 'jig_git_origin ls-remote --heads origin || true'
+  assert_contains "$(cat ../fakessh.log)" "-o BatchMode=yes"
+  assert_contains "$(cat ../fakessh.log)" "git@example.invalid"
+}
+
 # --- no network git about origin without jig_git_origin ----------------------------
 
 # _git_bare_calls <scripts-dir> — the lines that run `git [-C <dir>] fetch|push|

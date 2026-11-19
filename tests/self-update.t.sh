@@ -376,6 +376,29 @@ test_self_update_detached_fetch_never_waits_for_a_prompt() {
   esac
 }
 
+# The pull and the fetch run against Jig's own source tree, so it is that tree's
+# SSH command they carry, not the project's (nor a global one): the project and
+# the source name different keys here.
+test_self_update_ssh_command_is_the_source_trees_not_the_projects() {
+  su_build_source "$HOME/work"
+  su_build_upstream "$HOME/work" "$HOME/upstream.git"
+  su_clone_global_branch "$HOME/upstream.git"
+  su_commit_release "$HOME/work" 0.2.0
+  su_push "$HOME/work"
+  unset GIT_SSH_COMMAND GIT_SSH GIT_SSH_VARIANT
+  git config --global core.sshCommand "ssh -i /keys/project"
+  git -C "$(su_share)" config core.sshCommand "ssh -i /keys/source"
+
+  local log="$HOME/git-calls.log"
+  run su_jig_git_logged "$log" self-update
+  assert_eq 0 "$RC" "self-update should succeed: $OUT"
+  local pull_line
+  pull_line=$(grep 'ARGS=.*pull --ff-only' "$log") \
+    || fail "no logged git pull --ff-only call: $(cat "$log")"
+  assert_contains "$pull_line" "SSH_COMMAND=ssh -i /keys/source -o BatchMode=yes"
+  assert_not_contains "$pull_line" "/keys/project"
+}
+
 # --- AC-01a: branch channel, and detached-but-not-a-release refusal --------
 
 test_self_update_branch_with_upstream_fast_forwards() {
