@@ -430,17 +430,25 @@ spec_summary_v() {
 # spec_phase_counts, so the whole and its phases cannot disagree. When an
 # unchecked item counted as done because its task merged, the line says so at
 # its end (", N merged but unchecked"): the count is right, and the checkmark
-# is still owed (`jig spec item check`).
+# is still owed (`jig spec item check`). The tail counts only what that command
+# would still check (_spec_there_v), the rule `jig status` reads too.
 spec_progress() {
-  spec_phase_counts "$1" items | _spec_progress_sum
+  local rows there id
+  id=${1%/roadmap.md}
+  id=${id##*/}
+  rows=$(spec_phase_counts "$1" items)
+  _spec_there_v there "$id" "$1" "$rows"
+  { [ -z "$there" ] || printf '%s\n' "$there"; printf '%s\n' "$rows"; } | _spec_progress_sum
 }
 
 # _spec_progress_sum — the `spec_phase_counts <file> items` output on stdin, as
-# spec_progress prints it. Item rows only feed the unchecked-and-done count;
-# the section lines carry the sums.
+# spec_progress prints it, after any `there<TAB><task-id>` lines (_spec_there_v).
+# Item rows only feed the unchecked-and-done count, and an item whose task is
+# checked there is not behind; the section lines carry the sums.
 _spec_progress_sum() {
   awk -F '\t' '
-    $1 == "item" { if ($2 == 0 && $3 == 1) behind++; next }
+    $1 == "there" { there[$2] = 1; next }
+    $1 == "item" { if ($2 == 0 && $3 == 1 && !(substr($4, 2) in there)) behind++; next }
     $1 == "section" { next }
     { done += $3; total += $4; filed += $5; fog += $6 }
     END {
@@ -451,36 +459,97 @@ _spec_progress_sum() {
   '
 }
 
+# _spec_there_v <var> <spec-id> <roadmap.md> <rows> — <var> gets one
+# `there<TAB><task-id>` line for each checked item that names a task, in the
+# roadmap where `jig spec item check` would start its write. Asked only when
+# <rows> (the `spec_phase_counts <roadmap> items` output) holds an item that is
+# unchecked and counted as done: this checkout's copy may lag the base, a worktree
+# cut before a task of the spec merged or a main nobody pulled, and a checkmark
+# owed here may be made there already. The write starts from the tip of spec/<id>
+# while an earlier one still waits there, else from the base branch as of the last
+# fetch (no fetch here). Empty when there is nothing to ask: no such item, no ref,
+# no copy of the roadmap in it, or an open epic, whose roadmap is read from the
+# epic (jig_spec_roadmap_ref_v) or is the checkout's own with checkmarks no pull
+# request carried yet. A walk resolves the base ref and the records directory once
+# (_spec_merged_memo); a lone call resolves them here.
+_spec_there_v() {
+  local __v="$1" id="$2" roadmap="$3" rows="$4" line ref base dir c d rest out=""
+  printf -v "$__v" '%s' ""
+  case $'\n'"$rows" in *$'\nitem\t0\t1\t'*) ;; *) return 0 ;; esac
+  jig_spec_epic_v line "$roadmap" 2>/dev/null || line=""
+  if [ -n "$line" ] && [ "${line##* }" != finished ]; then return 0; fi
+  if [ "${_SPEC_MERGED_MEMO:-}" = 1 ]; then
+    base=${_SPEC_BASE_REF:-}
+    dir=${_SPEC_REC_DIR:-}
+  else
+    cfg_v base git.base_branch main
+    jig_base_ref_v base "$base"
+    # shellcheck source=lib/owntree.sh
+    . "$JIG_LIB/owntree.sh"
+    dir=$(ot_records_dir)
+  fi
+  ref=$base
+  # A record file first: ot_waiting finds the records directory by forking.
+  if [ -n "$dir" ] && [ -f "$dir/spec-$id" ]; then
+    if ot_waiting "spec:$id"; then ref=$OT_W_TIP; fi
+  fi
+  [ -n "$ref" ] || return 0
+  while IFS=$'\t' read -r c d rest; do
+    [ "$c" = item ] && [ "$d" = 1 ] || continue
+    # rest is `<done>`, `=<task-id>`, then the fields no one here reads.
+    rest=${rest#*$'\t'}
+    rest=${rest%%$'\t'*}
+    [ "$rest" != = ] || continue
+    out="${out:+$out$'\n'}there"$'\t'"${rest#=}"
+  done < <(jig_git_show_path "$ref" "$JIG_AI_DIR/specs/$id/roadmap.md" 2>/dev/null | spec_phase_counts - items)
+  printf -v "$__v" '%s' "$out"
+}
+
 # spec_merged_unchecked_rows — `<spec-id>\t<n>` for every spec with n > 0
 # unchecked items whose task is known to have merged, for `jig status`. A
-# roadmap is read where it is current, as spec_phase_rows does.
+# roadmap is read where it is current, as spec_phase_rows does, and an item
+# already checked where the write of `spec item check` starts is not counted
+# (_spec_there_v), so this and spec_progress's tail cannot disagree. One awk
+# counts every spec's rows after the walk: no process chain per spec.
 spec_merged_unchecked_rows() {
-  local root id roadmap loc ref source n _SPEC_MERGED_MEMO _SPEC_MERGED
+  local root id roadmap loc ref source rows there
+  local _SPEC_MERGED_MEMO _SPEC_MERGED _SPEC_MERGED_SET _SPEC_BASE_REF _SPEC_REC_DIR
   root=$(spec_dir)
   _spec_merged_memo
+  # No merged task, nothing can be behind.
+  [ -n "$_SPEC_MERGED" ] || return 0
   while IFS= read -r id; do
     [ -n "$id" ] || continue
     roadmap="$root/$id/roadmap.md"
     [ -f "$roadmap" ] || continue
     jig_spec_roadmap_ref_v loc "$id" || continue
+    printf 'spec\t%s\n' "$id"
     if [ -n "$loc" ]; then
       IFS=$'\t' read -r ref source <<EOF
 $loc
 EOF
-      n=$(jig_git_show_path "$ref" "$JIG_AI_DIR/specs/$id/roadmap.md" 2>/dev/null \
-        | spec_phase_counts - items | _spec_unchecked_done_count) || n=0
+      jig_git_show_path "$ref" "$JIG_AI_DIR/specs/$id/roadmap.md" 2>/dev/null \
+        | spec_phase_counts - items || true
     else
-      n=$(spec_phase_counts "$roadmap" items | _spec_unchecked_done_count)
+      rows=$(spec_phase_counts "$roadmap" items)
+      _spec_there_v there "$id" "$roadmap" "$rows"
+      [ -z "$there" ] || printf '%s\n' "$there"
+      printf '%s\n' "$rows"
     fi
-    [ "${n:-0}" -gt 0 ] || continue
-    printf '%s\t%s\n' "$id" "$n"
-  done < <(spec_ids)
+  done < <(spec_ids) | _spec_unchecked_done_rows
 }
 
-# _spec_unchecked_done_count — the item rows on stdin, the number of unchecked
-# ones that counted as done.
-_spec_unchecked_done_count() {
-  awk -F '\t' '$1 == "item" && $2 == 0 && $3 == 1 { n++ } END { print n + 0 }'
+# _spec_unchecked_done_rows — spec_merged_unchecked_rows's stream on stdin: a
+# `spec<TAB><id>` line opens each spec, its `there<TAB><task-id>` lines and item
+# rows follow. `<id><TAB><n>` for each spec with n > 0 unchecked items that counted
+# as done and whose task is not checked there.
+_spec_unchecked_done_rows() {
+  awk -F '\t' '
+    $1 == "spec" { cur = $2; order[++k] = cur; next }
+    $1 == "there" { there[cur SUBSEP $2] = 1; next }
+    $1 == "item" && $2 == 0 && $3 == 1 && !((cur SUBSEP substr($4, 2)) in there) { n[cur]++ }
+    END { for (i = 1; i <= k; i++) if (n[order[i]] > 0) printf "%s\t%d\n", order[i], n[order[i]] }
+  '
 }
 
 # spec_phase_counts <roadmap.md|-> — the roadmap counted by section, one
@@ -516,7 +585,11 @@ _spec_unchecked_done_count() {
 spec_phase_counts() {
   local items=0 merged
   [ "${2:-}" != items ] || items=1
-  merged=" $(spec_merged_task_ids | cut -f1 | tr '\n' ' ') "
+  if [ "${_SPEC_MERGED_MEMO:-}" = 1 ]; then
+    merged=$_SPEC_MERGED_SET
+  else
+    merged=" $(spec_merged_task_ids | cut -f1 | tr '\n' ' ') "
+  fi
   # The set reaches awk through the environment: a `-v` value has its escapes
   # expanded.
   JIG_SP_MERGED="$merged" awk -v items="$items" '
@@ -658,7 +731,7 @@ _spec_item_ids() {
 # whether the ref is the remote's as of the last fetch; with no ref at all it
 # has no rows, and spec_list_rows already says `branch missing`.
 spec_phase_rows() {
-  local root id roadmap loc ref source _SPEC_MERGED_MEMO _SPEC_MERGED
+  local root id roadmap loc ref source _SPEC_MERGED_MEMO _SPEC_MERGED _SPEC_MERGED_SET _SPEC_BASE_REF _SPEC_REC_DIR
   root=$(spec_dir)
   _spec_merged_memo
   while IFS= read -r id; do
@@ -746,7 +819,7 @@ _spec_list_json() {
 _spec_list_json_specs() {
   local root id dir title summary missing line branch state here checked_out
   local loc rc ref src content release epic phases progress waiting
-  local _SPEC_MERGED_MEMO _SPEC_MERGED
+  local _SPEC_MERGED_MEMO _SPEC_MERGED _SPEC_MERGED_SET _SPEC_BASE_REF _SPEC_REC_DIR
   root=$(spec_dir)
   _spec_merged_memo
   here=$(git -C "$JIG_PROJECT" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
@@ -964,7 +1037,7 @@ _spec_json_phases() {
 # renders it (ARCHITECTURE.md, Scripts layout: a reporting command consumes a
 # peer's answer, never recomputes it).
 spec_list_rows() {
-  local root id title state missing _SPEC_MERGED_MEMO _SPEC_MERGED
+  local root id title state missing _SPEC_MERGED_MEMO _SPEC_MERGED _SPEC_MERGED_SET _SPEC_BASE_REF _SPEC_REC_DIR
   root=$(spec_dir)
   _spec_merged_memo
   while IFS= read -r id; do
@@ -1446,15 +1519,34 @@ spec_merged_task_ids() {
 }
 
 # _spec_merged_memo — read spec_merged_task_ids once for a walk over every
-# spec. The walk declares `local _SPEC_MERGED_MEMO _SPEC_MERGED` and calls this
+# spec. The walk declares `local _SPEC_MERGED_MEMO _SPEC_MERGED _SPEC_MERGED_SET
+# _SPEC_BASE_REF _SPEC_REC_DIR` and calls this
 # before its loop; bash scopes locals dynamically, so every spec_phase_counts
 # under it, subshells included, answers from that one read, and the memo ends
 # with the walk -- a later reader in the same process reads again. Asked per
 # spec, the read cost 20 specs a pass over every task's state and the whole
 # housekeeping log each: 6.8 s where 0.37.0 took 0.76.
 _spec_merged_memo() {
+  local tid rest
   _SPEC_MERGED=$(_spec_merged_task_ids_read)
+  _SPEC_MERGED_SET=" "
+  _SPEC_BASE_REF=""
+  _SPEC_REC_DIR=""
   _SPEC_MERGED_MEMO=1
+  [ -n "$_SPEC_MERGED" ] || return 0
+  while IFS=$'\t' read -r tid rest; do
+    _SPEC_MERGED_SET="$_SPEC_MERGED_SET$tid "
+  done <<MERGED_EOF
+$_SPEC_MERGED
+MERGED_EOF
+  # Only a walk that has a merged task can find a checkmark owed: the base ref
+  # and the records directory (a fork or two) are read once for it, for
+  # _spec_there_v, not once per spec.
+  cfg_v tid git.base_branch main
+  jig_base_ref_v _SPEC_BASE_REF "$tid"
+  # shellcheck source=lib/owntree.sh
+  . "$JIG_LIB/owntree.sh"
+  _SPEC_REC_DIR=$(ot_records_dir)
 }
 
 _spec_merged_task_ids_read() {
@@ -4051,7 +4143,17 @@ _spec_item_build_check() {
       fi
       i=$((i + 1))
     done
-    [ "$n" -gt 0 ] || jig_fail not-found "spec item check: no unchecked item of the roadmap of $id names a task known to have merged"
+    if [ "$n" -eq 0 ]; then
+      text="spec item check: no unchecked item of the roadmap of $id names a task known to have merged"
+      # A first run already checked them: spec/<id> holds the checks until its
+      # pull request lands, and a second write starts from there.
+      if ot_waiting "spec:$id"; then
+        subject=""
+        [ -z "$OT_R_PR" ] || subject=" ($OT_R_PR)"
+        text="$text; $OT_R_BRANCH still waits to reach $OT_R_BASE$subject: checks made there land with it"
+      fi
+      jig_fail not-found "$text"
+    fi
     firsts="$firsts "
   fi
   JIG_SI_FIRSTS="$firsts" awk '

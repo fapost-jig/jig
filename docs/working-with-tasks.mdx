@@ -612,7 +612,10 @@ It answers four questions, in this order:
    its checkmark reaches that branch, and housekeeping's purge of a merged task's workspace does not
    change that. The gap is named: `jig spec list` adds *N merged but unchecked* to the progress, and
    `jig status` prints `roadmap behind: <spec>` among what needs you. `jig spec item check <spec> --merged`
-   checks those items through a pull request, as every roadmap edit goes.
+   checks those items through a pull request, as every roadmap edit goes. The gap is named only for
+   items not yet checked on the base branch as your copy last saw it (or on `spec/<id>`, once that
+   command has made its checks and its pull request waits), so an out-of-date checkout does not
+   advise what has nothing left to check.
 4. **Details.** The counts at a glance, and the complete `jig status` text, folded away at the bottom.
 
 **Why some data is marked stale.** Whether a pull request is open or merged comes from housekeeping,
