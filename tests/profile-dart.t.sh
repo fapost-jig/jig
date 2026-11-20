@@ -538,18 +538,18 @@ test_profile_dart_check_table_missing_fails_loudly() {
   unset JIG_VERIFY_CHECKS
   run bash "$JIG_HOME/profiles/dart/verify.sh"
   assert_eq 1 "$RC" "$OUT"
-  assert_contains "$OUT" "dart: static (dart analyze): fail (profile.yaml names no check 'static'; jig upgrade restores it)"
-  assert_contains "$OUT" "dart: style (dart format): fail (profile.yaml names no check 'style'; jig upgrade restores it)"
-  assert_contains "$OUT" "dart: tests (dart test): fail (profile.yaml names no check 'tests'; jig upgrade restores it)"
+  assert_contains "$OUT" "dart: static (dart analyze): fail (profile.yaml names no check 'static'; carry your edits onto the stock profile's new profile.yaml)"
+  assert_contains "$OUT" "dart: style (dart format): fail (profile.yaml names no check 'style'; carry your edits onto the stock profile's new profile.yaml)"
+  assert_contains "$OUT" "dart: tests (dart test): fail (profile.yaml names no check 'tests'; carry your edits onto the stock profile's new profile.yaml)"
   assert_no_file dart-analyze.args
   assert_no_file dart-format.args
   assert_no_file dart-test.args
 
   JIG_VERIFY_EXPLAIN=1 run bash "$JIG_HOME/profiles/dart/verify.sh"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "PLAN dart: static (dart analyze): skip (profile.yaml names no check 'static'; jig upgrade restores it)"
-  assert_contains "$OUT" "PLAN dart: style (dart format): skip (profile.yaml names no check 'style'; jig upgrade restores it)"
-  assert_contains "$OUT" "PLAN dart: tests (dart test): skip (profile.yaml names no check 'tests'; jig upgrade restores it)"
+  assert_contains "$OUT" "PLAN dart: static (dart analyze): skip (profile.yaml names no check 'static'; carry your edits onto the stock profile's new profile.yaml)"
+  assert_contains "$OUT" "PLAN dart: style (dart format): skip (profile.yaml names no check 'style'; carry your edits onto the stock profile's new profile.yaml)"
+  assert_contains "$OUT" "PLAN dart: tests (dart test): skip (profile.yaml names no check 'tests'; carry your edits onto the stock profile's new profile.yaml)"
 }
 
 # Every role the profile lists in `checks:` can be taken over by another

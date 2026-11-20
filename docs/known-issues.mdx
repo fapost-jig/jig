@@ -23,20 +23,6 @@ them, see [What's next](/roadmap).
 
 {/* Each entry names the Jig task that closes it. The entry is removed by that task's own pull request, the one that merges the fix. Rule: .ai/knowledge/conventions/documentation.md */}
 
-{/* Closed by task verify-kept-profile-hint: removed once the message tells you to carry your edits instead of naming jig upgrade. */}
-### A kept, edited stock profile says `jig upgrade` restores it
-
-**What you see.** From 0.48.0 every stock profile reads its checks from a table in `profile.yaml`.
-When you had edited a stock `profile.yaml`, `jig upgrade` keeps your file, and `jig verify` fails
-each of that profile's checks with `profile.yaml names no check '<role>'; jig upgrade restores it`
-(or `has no checks.<role>.narrowed; jig upgrade restores it`). Running `jig upgrade` again keeps your
-file again, so the check keeps failing.
-
-**What it costs.** An upgrade run for nothing, and verification failing until you act.
-
-**What to do instead.** Carry your edits onto the stock profile's new `profile.yaml` yourself
-([From 0.47.0 to 0.48.0](/upgrading#from-0470-to-0480)).
-
 {/* Closed by task staging-drift-report-findings: removed once a squash promotion is told from drift. */}
 ### A task promoted by a squash merge reads as staging work nobody owns
 

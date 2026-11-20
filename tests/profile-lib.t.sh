@@ -764,7 +764,7 @@ test_profile_lib_jp_check_cmd_a_role_the_table_lacks_fails_loudly() {
   unset JIG_VERIFY_EXPLAIN
   _lib_checks "other listed -"
   _lib_run 'jp_begin demo; jp_check_cmd tests "phpunit" full phpunit && echo RAN || echo "RC=$?"'
-  assert_contains "$OUT" "demo: phpunit: fail (profile.yaml names no check 'tests'; jig upgrade restores it)"
+  assert_contains "$OUT" "demo: phpunit: fail (profile.yaml names no check 'tests'; carry your edits onto the stock profile's new profile.yaml)"
   assert_contains "$OUT" "RC=1"
   assert_not_contains "$OUT" "skip (scope:"
 }
@@ -784,7 +784,7 @@ test_profile_lib_jp_check_cmd_narrowed_without_a_narrowed_field_fails_loudly() {
   unset JIG_VERIFY_EXPLAIN
   _lib_checks "tests listed -" "tests full -x"
   _lib_run 'jp_begin demo; jp_check_cmd tests "phpunit" narrowed phpunit -- a || echo "RC=$?"'
-  assert_contains "$OUT" "demo: phpunit: fail (profile.yaml has no checks.tests.narrowed; jig upgrade restores it)"
+  assert_contains "$OUT" "demo: phpunit: fail (profile.yaml has no checks.tests.narrowed; carry your edits onto the stock profile's new profile.yaml)"
   assert_contains "$OUT" "RC=1"
   assert_not_contains "$OUT" "skip (scope:"
 }

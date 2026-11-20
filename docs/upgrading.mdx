@@ -622,9 +622,9 @@ spec template. The installers changed only the address they install from.
 - **A stock profile file you edited.** `jig upgrade` keeps a file you edited (`keep-modified` in its
   report), and it keeps it again on every later run. A kept stock `profile.yaml` has no check table,
   while the new `verify.sh` beside it reads one, so each of its checks fails, as in
-  `shell: lint (shellcheck): fail (profile.yaml names no check 'lint'; jig upgrade restores it)`.
-  Despite the hint, `jig upgrade` does not restore it ([known issues](/known-issues)). In a Laravel
-  project a kept `php/profile.yaml` stops the whole run before any check, with
+  `shell: lint (shellcheck): fail (profile.yaml names no check 'lint'; carry your edits onto the
+  stock profile's new profile.yaml)`; 0.48.0 itself ended that line with `jig upgrade restores it`,
+  which it does not. In a Laravel project a kept `php/profile.yaml` stops the whole run before any check, with
   `FAIL laravel: profile.yaml:9: php declares no check table; an override of php:tests would not be read`,
   and a kept `laravel/profile.yaml` fails as `profile.yaml has no extends, but the stock laravel now
   extends php …`. In every case, carry your edits onto the stock profile's new `profile.yaml`. An edited `laravel/verify.sh` is kept

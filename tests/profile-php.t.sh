@@ -882,15 +882,15 @@ test_profile_php_check_table_missing_fails_loudly() {
   unset JIG_VERIFY_CHECKS
   run bash "$_PHP_VERIFY"
   assert_eq 1 "$RC" "$OUT"
-  assert_contains "$OUT" "php: tests (phpunit): fail (profile.yaml names no check 'tests'; jig upgrade restores it)"
-  assert_contains "$OUT" "php: static (phpstan): fail (profile.yaml names no check 'static'; jig upgrade restores it)"
+  assert_contains "$OUT" "php: tests (phpunit): fail (profile.yaml names no check 'tests'; carry your edits onto the stock profile's new profile.yaml)"
+  assert_contains "$OUT" "php: static (phpstan): fail (profile.yaml names no check 'static'; carry your edits onto the stock profile's new profile.yaml)"
   assert_no_file phpunit.log
   assert_no_file phpstan.log
 
   JIG_VERIFY_EXPLAIN=1 run bash "$_PHP_VERIFY"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "PLAN php: tests (phpunit): skip (profile.yaml names no check 'tests'; jig upgrade restores it)"
-  assert_contains "$OUT" "PLAN php: static (phpstan): skip (profile.yaml names no check 'static'; jig upgrade restores it)"
+  assert_contains "$OUT" "PLAN php: tests (phpunit): skip (profile.yaml names no check 'tests'; carry your edits onto the stock profile's new profile.yaml)"
+  assert_contains "$OUT" "PLAN php: static (phpstan): skip (profile.yaml names no check 'static'; carry your edits onto the stock profile's new profile.yaml)"
 }
 
 # Every role the profile lists in `checks:` can be taken over by another

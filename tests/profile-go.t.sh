@@ -545,14 +545,14 @@ test_profile_go_check_table_missing_fails_loudly() {
   unset JIG_VERIFY_CHECKS
   run bash "$JIG_HOME/profiles/go/verify.sh"
   assert_eq 1 "$RC" "$OUT"
-  assert_contains "$OUT" "go: static (go vet): fail (profile.yaml names no check 'static'; jig upgrade restores it)"
-  assert_contains "$OUT" "go: tests (go test): fail (profile.yaml names no check 'tests'; jig upgrade restores it)"
+  assert_contains "$OUT" "go: static (go vet): fail (profile.yaml names no check 'static'; carry your edits onto the stock profile's new profile.yaml)"
+  assert_contains "$OUT" "go: tests (go test): fail (profile.yaml names no check 'tests'; carry your edits onto the stock profile's new profile.yaml)"
   assert_eq "" "$(_go_calls || true)" "no vet or test ran"
 
   JIG_VERIFY_EXPLAIN=1 run bash "$JIG_HOME/profiles/go/verify.sh"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "PLAN go: static (go vet): skip (profile.yaml names no check 'static'; jig upgrade restores it)"
-  assert_contains "$OUT" "PLAN go: tests (go test): skip (profile.yaml names no check 'tests'; jig upgrade restores it)"
+  assert_contains "$OUT" "PLAN go: static (go vet): skip (profile.yaml names no check 'static'; carry your edits onto the stock profile's new profile.yaml)"
+  assert_contains "$OUT" "PLAN go: tests (go test): skip (profile.yaml names no check 'tests'; carry your edits onto the stock profile's new profile.yaml)"
 }
 
 # Every role the profile lists in `checks:` can be taken over by another

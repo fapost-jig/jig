@@ -687,15 +687,15 @@ test_profile_jvm_check_table_missing_fails_loudly() {
   unset JIG_VERIFY_CHECKS
   run bash "$_JVM_VERIFY"
   assert_eq 1 "$RC" "$OUT"
-  assert_contains "$OUT" "jvm: tests (gradle check): fail (profile.yaml names no check 'tests'; jig upgrade restores it)"
-  assert_contains "$OUT" "jvm: tests (mvn test): fail (profile.yaml names no check 'tests'; jig upgrade restores it)"
+  assert_contains "$OUT" "jvm: tests (gradle check): fail (profile.yaml names no check 'tests'; carry your edits onto the stock profile's new profile.yaml)"
+  assert_contains "$OUT" "jvm: tests (mvn test): fail (profile.yaml names no check 'tests'; carry your edits onto the stock profile's new profile.yaml)"
   assert_no_file gradle.log
   assert_no_file mvn.log
 
   JIG_VERIFY_EXPLAIN=1 run bash "$_JVM_VERIFY"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "PLAN jvm: tests (gradle check): skip (profile.yaml names no check 'tests'; jig upgrade restores it)"
-  assert_contains "$OUT" "PLAN jvm: tests (mvn test): skip (profile.yaml names no check 'tests'; jig upgrade restores it)"
+  assert_contains "$OUT" "PLAN jvm: tests (gradle check): skip (profile.yaml names no check 'tests'; carry your edits onto the stock profile's new profile.yaml)"
+  assert_contains "$OUT" "PLAN jvm: tests (mvn test): skip (profile.yaml names no check 'tests'; carry your edits onto the stock profile's new profile.yaml)"
 }
 
 # The role the profile lists in `checks:` can be taken over by another profile

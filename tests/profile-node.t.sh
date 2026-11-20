@@ -880,16 +880,16 @@ test_profile_node_check_table_missing_fails_loudly() {
   unset JIG_VERIFY_CHECKS
   run bash "$JIG_HOME/profiles/node/verify.sh"
   assert_eq 1 "$RC" "$OUT"
-  assert_contains "$OUT" "node: tests (npm test): fail (profile.yaml names no check 'tests'; jig upgrade restores it)"
-  assert_contains "$OUT" "node: lint (npm run lint): fail (profile.yaml names no check 'lint'; jig upgrade restores it)"
-  assert_contains "$OUT" "node: typecheck (npm run typecheck): fail (profile.yaml names no check 'typecheck'; jig upgrade restores it)"
+  assert_contains "$OUT" "node: tests (npm test): fail (profile.yaml names no check 'tests'; carry your edits onto the stock profile's new profile.yaml)"
+  assert_contains "$OUT" "node: lint (npm run lint): fail (profile.yaml names no check 'lint'; carry your edits onto the stock profile's new profile.yaml)"
+  assert_contains "$OUT" "node: typecheck (npm run typecheck): fail (profile.yaml names no check 'typecheck'; carry your edits onto the stock profile's new profile.yaml)"
   assert_no_file npm-invoked.log
 
   JIG_VERIFY_EXPLAIN=1 run bash "$JIG_HOME/profiles/node/verify.sh"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "PLAN node: tests (npm test): skip (profile.yaml names no check 'tests'; jig upgrade restores it)"
-  assert_contains "$OUT" "PLAN node: lint (npm run lint): skip (profile.yaml names no check 'lint'; jig upgrade restores it)"
-  assert_contains "$OUT" "PLAN node: typecheck (npm run typecheck): skip (profile.yaml names no check 'typecheck'; jig upgrade restores it)"
+  assert_contains "$OUT" "PLAN node: tests (npm test): skip (profile.yaml names no check 'tests'; carry your edits onto the stock profile's new profile.yaml)"
+  assert_contains "$OUT" "PLAN node: lint (npm run lint): skip (profile.yaml names no check 'lint'; carry your edits onto the stock profile's new profile.yaml)"
+  assert_contains "$OUT" "PLAN node: typecheck (npm run typecheck): skip (profile.yaml names no check 'typecheck'; carry your edits onto the stock profile's new profile.yaml)"
 }
 
 # Every role the profile lists in `checks:` can be taken over by another
