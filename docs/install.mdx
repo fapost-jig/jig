@@ -413,7 +413,9 @@ jig upgrade              # in a project: update its copy of Jig
 
 `self-update` refuses a checkout with uncommitted changes and changes no project. Jig moved from
 `fapost-lab/jig` to `fapost-jig/jig`; an install still fetching from the old address gets its
-`origin` repointed by `self-update`, which says so in one line. In a project with
+`origin` repointed by `self-update`, which says so in one line. That is 0.48.0's code: the update
+that brings 0.48.0 still runs the older one and fetches through GitHub's redirect, so the repoint
+comes with the next `self-update`. In a project with
 an `origin`, `upgrade` pushes, opens and merges its own pull request by default, unless
 `upgrade.merge` is `human` ([Upgrading](/upgrading#where-the-upgrade-works-and-who-merges-it)).
 `upgrade` downloads no Jig: it copies from the Jig on your machine, updates only files Jig installed

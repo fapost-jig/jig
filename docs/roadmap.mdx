@@ -54,12 +54,6 @@ run the full matrix once, on the train's way into the main branch, with a task t
 version above the train's level kept off it. Optional, and off under the staging flow until an
 epic's way through staging is settled.
 
-**A profile changes one check of another in a few lines.** From 0.41.0 a profile can take over a
-check of another by its name (`covers:`), so a Laravel project runs its test suite once. Next, every
-stock profile names its checks, and a profile builds on another and changes only what differs,
-instead of copying it. A profile under `.ai/profiles/` that no active profile reaches is no longer
-silent: `jig doctor` and `jig status` name it.
-
 ## After that: new capabilities
 
 **Planning that lives in Jig.** Jig can be read by a program (0.29.0), planned with (0.31.0) and
@@ -145,5 +139,8 @@ whether an agent's ship is about to merge it, and `jig version --json` says, out
 which Jig is installed and whether a newer one is out. From 0.47.0 `jig upgrade` merges its own pull
 request, so one call can last as long as CI does; `jig upgrade --json` says where it worked
 (`git.path`) and why it did not merge (`git.not_merged`), and a branch behind its base is
-`upgrade-on-base` in `jig status --json`. Its plans
+`upgrade-on-base` in `jig status --json`. From 0.48.0 a page can answer a design at its gate as well
+as approve it (`answer-gate`, with the design's questions in the task's `gate`), read a spec's
+documents with `jig spec read` and its summary in `jig spec list --json`, and check the roadmap items
+of merged tasks with `jig spec item check`. Its plans
 live in its own repository, and its documentation at [jig-ui.fapost.in](https://jig-ui.fapost.in).

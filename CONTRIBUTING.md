@@ -267,7 +267,7 @@ once more. It is word overlap, not a model: no key, no network, the same answer 
 ## Releases
 
 The pull request that raises the version also writes the release's entry in
-[`docs/changelog.mdx`](docs/changelog.mdx) — a `## <version> — <date>` section that says what
+[`docs/changelog.mdx`](docs/changelog.mdx) — a `## <version>` section that says what
 matters about each user-visible change — a new capability, a fix, a change someone has to act on —
 and only that: a line or two is the guide against bloat, not a limit, and the detail stays on the
 page the entry links. It is the only moment anyone knows what the version contains, so CI asks for
