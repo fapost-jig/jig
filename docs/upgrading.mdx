@@ -630,7 +630,8 @@ spec template. The installers changed only the address they install from.
   extends php …`. In every case, carry your edits onto the stock profile's new `profile.yaml`. An edited `laravel/verify.sh` is kept
   too (`keep-orphaned-modified`), though the stock `laravel` no longer has one. Move what it changed
   into `checks.tests.*` lines of a profile ([Verification profiles](/configuration#verification-profiles)),
-  then delete it.
+  then delete it. Until you delete it, the suite runs twice: as `laravel: artisan test` from the kept
+  script, and as `php: tests` through the artisan override.
 - **A script or CI step that reads `jig verify`'s lines.** Each check is now named by its role, with
   the tool beside it: `php: tests (phpunit)` where 0.47.0 said `php: phpunit`, and a Laravel
   project's tests are php's line, no longer `laravel: artisan test`.
