@@ -515,19 +515,22 @@ jig_revision_read'
 # from the main checkout, and the worktree keeps no counter of its own.
 test_json_revision_is_shared_by_every_worktree_of_the_clone() {
   fixture_repo
-  git worktree add -q -b side ../wt
+  # Beside the test's own directory, under its name: ../wt is shared by every
+  # test of the run, and another test's worktree there makes this one fail.
+  local wt="$JIG_TEST_TMP.wt"
+  git worktree add -q -b side "$wt" || fail "could not add a worktree"
   _json_rev_script r.sh '
 jig_revision_bump
 jig_revision_read'
-  cp r.sh ../wt/r.sh
+  cp r.sh "$wt/r.sh"
   local main side
-  (cd ../wt && bash r.sh > ../wt.out 2> ../wt.err) || fail "worktree run failed: $(cat ../wt.err)"
-  side=$(cat ../wt.out)
+  (cd "$wt" && bash r.sh > "$wt.out" 2> "$wt.err") || fail "worktree run failed: $(cat "$wt.err")"
+  side=$(cat "$wt.out")
   _json_run_script r.sh
   assert_eq 0 "$RC" "$ERR"
   main=$OUT
   assert_eq "$((side + 1))" "$main"
-  assert_no_file ../wt/.ai/runtime/revision
+  assert_no_file "$wt/.ai/runtime/revision"
 }
 
 # Not writable (a sandboxed worktree may not write the main checkout): the

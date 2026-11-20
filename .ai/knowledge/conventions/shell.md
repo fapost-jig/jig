@@ -112,6 +112,21 @@ cmd_example() {
   taken as ready by a marker inside it. `_no_tools_bin` did the latter: `git` is third on
   its list, so a test running alongside the builder saw `git` before `sed` and failed its
   `jig verify` — 2 to 4 failures in every `verify::` run at 32 workers until it was fixed.
+- **What a test makes outside its own directory goes beside it, under its name**
+  (`"$JIG_TEST_TMP.wt"`, removed with the test), or below a directory it made first
+  (`mkdir repo; cd repo`), never at `../<name>`: `..` is the run's results directory, shared by
+  every test running at once. The json and spec worktree tests both used `../wt`; when one
+  held it, the other's `git worktree add` failed unseen (errexit is off inside the runner's
+  `( … ) || rc=$?`) and its writes went into the other test's clone — an off-by-one revision
+  on main, now and then. A setup step whose failure would be silent ends in `|| fail`.
+- **A string that only looks like a path is passed to a native program with
+  `MSYS2_ARG_CONV_EXCL='*'`.** Git Bash rewrites an argument of `git.exe` that starts with `/`
+  into a Windows path: `git config core.sshCommand '/opt/x/plink.exe -batch'` stored
+  `C:/Program Files/Git/opt/x/plink.exe -batch`, which git splits at the space. A real path the
+  native program must open is left to the conversion.
+- **A time budget in a test covers Jig's own work before the program it bounds starts.** A
+  1-second `_JIG_NET_CALL` ran out on `windows-latest` before git even started once
+  `jig_git_origin` worked out the SSH command first: size it for Windows' slow process start.
 - **A test that needs something a filesystem may not give checks for it, and skips with the
   reason** — `skip_unless_symlinks`, `skip_unless_readonly_dirs`, `skip_unless_unreadable_files`,
   `skip_unless_control_char_names` in `tests/lib/assert.sh`, never a test of the OS name. `skip`

@@ -863,7 +863,7 @@ for a in "\$@"; do
 done
 case " \$* " in
   *" ls-remote "*)
-    if [ -f "\$d/git.sleep" ]; then echo \$\$ > "\$d/git.pid"; sleep 4; : > "\$d/git.late"; fi
+    if [ -f "\$d/git.sleep" ]; then echo \$\$ > "\$d/git.pid"; sleep 5; : > "\$d/git.late"; fi
     # Keep the global options alone: append them, then drop the originals.
     total=\$#
     i=0
@@ -913,11 +913,15 @@ test_git_origin_under_a_deadline_a_silent_git_is_cut_off_itself() {
   _git_stub
   : > git.sleep
   # shellcheck disable=SC2016 # the body expands in the shell it runs in
-  _gh_net '_JIG_NET_CALL=1
+  # Three seconds, not one: Jig's own preparation before git (the account, the
+  # SSH command) runs inside the budget, and on Windows' slow process start one
+  # second ran out before git did. The wait after the cut is the stub's whole
+  # sleep, so a git that survived would have written its marker.
+  _gh_net '_JIG_NET_CALL=3
 _JIG_NET_DEADLINE=$(($(date +%s) + 600))
 jig_net jig_git_origin ls-remote --heads origin || echo "rc=$?"'
   assert_contains "$OUT" "rc=124"
-  assert_contains "$OUT" "git: no answer within 1s; cut off"
+  assert_contains "$OUT" "git: no answer within 3s; cut off"
   assert_file git.pid "the stub git never ran"
   pid=$(cat git.pid)
   i=0
@@ -926,7 +930,7 @@ jig_net jig_git_origin ls-remote --heads origin || echo "rc=$?"'
     kill "$pid" 2>/dev/null || true
     fail "git (pid $pid) outlived the cut-off"
   fi
-  sleep 4
+  sleep 5
   assert_no_file git.late "git went on after it was cut off"
 }
 
@@ -979,6 +983,14 @@ _ssh_repo() {
   unset GIT_SSH_COMMAND GIT_SSH GIT_SSH_VARIANT
 }
 
+# _ssh_config <key> <value> — `git config <key> <value>` with the value as
+# written: under Git Bash, MSYS rewrites an argument to the native git that
+# starts with `/` into a Windows path (`/opt/x/plink` became
+# `C:/Program Files/Git/opt/x/plink`), and the test would read another command.
+_ssh_config() {
+  MSYS2_ARG_CONV_EXCL='*' git config "$1" "$2"
+}
+
 # _ssh_batch — what jig_git_batch_ssh hands back for the clone, in $OUT.
 _ssh_batch() {
   # shellcheck disable=SC2016 # the body expands in the shell it runs in
@@ -1002,7 +1014,7 @@ test_git_batch_ssh_with_nothing_chosen_is_plain_ssh_in_batch_mode() {
 
 test_git_batch_ssh_the_environment_command_beats_the_clones_core_sshcommand() {
   _ssh_repo
-  git config core.sshCommand "ssh -i /keys/clone"
+  _ssh_config core.sshCommand "ssh -i /keys/clone"
   GIT_SSH_COMMAND="ssh -i /keys/env"
   export GIT_SSH_COMMAND
   _ssh_batch
@@ -1011,7 +1023,7 @@ test_git_batch_ssh_the_environment_command_beats_the_clones_core_sshcommand() {
 
 test_git_batch_ssh_the_clones_core_sshcommand_stands_when_the_environment_has_none() {
   _ssh_repo
-  git config core.sshCommand "ssh -i /keys/clone"
+  _ssh_config core.sshCommand "ssh -i /keys/clone"
   _ssh_batch
   assert_eq "ssh -i /keys/clone -o BatchMode=yes" "$OUT"
   # An empty variable is no variable, as it is to git.
@@ -1028,39 +1040,43 @@ test_git_batch_ssh_git_ssh_is_quoted_for_the_shell_that_will_run_it() {
   _ssh_batch
   assert_eq "'/opt/my keys/it'\\''s ssh' -o BatchMode=yes" "$OUT"
   # core.sshCommand comes before GIT_SSH, as in git.
-  git config core.sshCommand "ssh -i /keys/clone"
+  _ssh_config core.sshCommand "ssh -i /keys/clone"
   _ssh_batch
   assert_eq "ssh -i /keys/clone -o BatchMode=yes" "$OUT"
 }
 
 test_git_batch_ssh_a_program_that_rejects_dash_o_gets_none() {
   _ssh_repo
-  git config core.sshCommand '/opt/x/plink.exe -batch'
+  _ssh_config core.sshCommand '/opt/x/plink.exe -batch'
   _ssh_batch
   assert_eq "/opt/x/plink.exe -batch" "$OUT"
-  git config core.sshCommand "'C:\\PuTTY\\TortoisePlink.EXE' -batch"
+  # A Windows path as a Git for Windows user writes it: the name is still plink's.
+  _ssh_config core.sshCommand 'C:/PuTTY/plink.exe -i key.ppk'
+  _ssh_batch
+  assert_eq 'C:/PuTTY/plink.exe -i key.ppk -batch' "$OUT"
+  _ssh_config core.sshCommand "'C:\\PuTTY\\TortoisePlink.EXE' -batch"
   _ssh_batch
   assert_eq "'C:\\PuTTY\\TortoisePlink.EXE' -batch" "$OUT"
   # Unquoted, git's own split eats the backslashes: the program it runs is
   # `C:PuTTYTortoisePlink.EXE`, which is not a variant it knows, so ssh's.
-  git config core.sshCommand 'C:\PuTTY\TortoisePlink.EXE -batch'
+  _ssh_config core.sshCommand 'C:\PuTTY\TortoisePlink.EXE -batch'
   _ssh_batch
   assert_eq 'C:\PuTTY\TortoisePlink.EXE -batch -o BatchMode=yes' "$OUT"
   # An escaped space, a leading blank and a quote in the middle of a word.
-  git config core.sshCommand '/path/Program\ Files/PuTTY/plink -batch'
+  _ssh_config core.sshCommand '/path/Program\ Files/PuTTY/plink -batch'
   _ssh_batch
   assert_eq '/path/Program\ Files/PuTTY/plink -batch' "$OUT"
-  git config core.sshCommand '  /opt/x/plink -i k'
+  _ssh_config core.sshCommand '  /opt/x/plink -i k'
   _ssh_batch
   assert_eq '  /opt/x/plink -i k -batch' "$OUT"
-  git config core.sshCommand '"/opt/Pu TTY"/plink.exe'
+  _ssh_config core.sshCommand '"/opt/Pu TTY"/plink.exe'
   _ssh_batch
   assert_eq '"/opt/Pu TTY"/plink.exe -batch' "$OUT"
-  git config core.sshCommand "'/opt/x/plink' -batch"
+  _ssh_config core.sshCommand "'/opt/x/plink' -batch"
   _ssh_batch
   assert_eq "'/opt/x/plink' -batch" "$OUT"
   # A quoted program runs to its closing quote: a space in it is not its end.
-  git config core.sshCommand '"/opt/Pu TTY/plink.exe" -batch'
+  _ssh_config core.sshCommand '"/opt/Pu TTY/plink.exe" -batch'
   _ssh_batch
   assert_eq '"/opt/Pu TTY/plink.exe" -batch' "$OUT"
   git config --unset core.sshCommand
@@ -1074,15 +1090,15 @@ test_git_batch_ssh_a_program_that_rejects_dash_o_gets_none() {
   assert_eq "'/home/o'\\''neil/bin/plink' -batch" "$OUT"
   # plink without -batch gets it: plink's own way not to ask.
   unset GIT_SSH
-  git config core.sshCommand '/opt/x/plink -i key.ppk'
+  _ssh_config core.sshCommand '/opt/x/plink -i key.ppk'
   _ssh_batch
   assert_eq "/opt/x/plink -i key.ppk -batch" "$OUT"
 }
 
 test_git_batch_ssh_the_variant_setting_decides_over_the_program_name() {
   _ssh_repo
-  git config core.sshCommand "/opt/x/mysshwrapper -q"
-  git config ssh.variant simple
+  _ssh_config core.sshCommand "/opt/x/mysshwrapper -q"
+  _ssh_config ssh.variant simple
   _ssh_batch
   assert_eq "/opt/x/mysshwrapper -q" "$OUT"
   GIT_SSH_VARIANT=plink
@@ -1094,12 +1110,12 @@ test_git_batch_ssh_the_variant_setting_decides_over_the_program_name() {
   _ssh_batch
   assert_eq "/opt/x/mysshwrapper -q -o BatchMode=yes" "$OUT"
   # An explicit ssh keeps the option even for a program named plink.
-  git config core.sshCommand "/opt/x/plink"
+  _ssh_config core.sshCommand "/opt/x/plink"
   _ssh_batch
   assert_eq "/opt/x/plink -o BatchMode=yes" "$OUT"
   # A setting git does not know, in any case, is OpenSSH to git: so to Jig.
   unset GIT_SSH_VARIANT
-  git config ssh.variant Plink
+  _ssh_config ssh.variant Plink
   _ssh_batch
   assert_eq "/opt/x/plink -o BatchMode=yes" "$OUT"
 }
@@ -1107,7 +1123,7 @@ test_git_batch_ssh_the_variant_setting_decides_over_the_program_name() {
 test_git_batch_ssh_a_worktree_reads_its_clones_core_sshcommand() {
   local top="$PWD"
   _ssh_repo
-  git config core.sshCommand "ssh -i /keys/clone"
+  _ssh_config core.sshCommand "ssh -i /keys/clone"
   git worktree add -q -b wt-ssh "$top/wt"
   cd "$top/wt" || return 1
   _ssh_batch
