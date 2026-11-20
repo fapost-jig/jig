@@ -3094,8 +3094,11 @@ test_spec_list_reads_purged_merged_tasks_from_a_worktree() {
   fixture_jig_repo
   _purged_roadmap_spec
   git add -A .ai/specs && git commit -qm 'spec'
-  git worktree add -q ../wt -b wt
-  cd ../wt || return 1
+  # Beside the test's own directory, under its name: ../wt is shared by every
+  # test of the run, and another test's worktree there makes this one fail.
+  local wt="$JIG_TEST_TMP.wt"
+  git worktree add -q "$wt" -b wt || fail "could not add a worktree"
+  cd "$wt" || return 1
   run jig spec list
   assert_eq 0 "$RC" "$OUT"
   # t-3's live workspace is the main checkout's alone here, so its old purge counts too.
