@@ -692,16 +692,16 @@ test_profile_ruby_check_table_missing_fails_loudly() {
   RB_PROFILE_DIR=no-table-profile
   rb_verify
   assert_eq 1 "$RC" "$OUT"
-  assert_contains "$OUT" "ruby: lint (rubocop): fail (profile.yaml names no check 'lint'; jig upgrade restores it)"
-  assert_contains "$OUT" "ruby: tests (rspec): fail (profile.yaml names no check 'tests'; jig upgrade restores it)"
+  assert_contains "$OUT" "ruby: lint (rubocop): fail (profile.yaml names no check 'lint'; carry your edits onto the stock profile's new profile.yaml)"
+  assert_contains "$OUT" "ruby: tests (rspec): fail (profile.yaml names no check 'tests'; carry your edits onto the stock profile's new profile.yaml)"
   assert_no_file rubocop.args
   assert_no_file rspec.args
 
   printf 'class Foo\nend\n' > app/models/foo.rb
   rb_explain "app/models/foo.rb"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "PLAN ruby: lint (rubocop): skip (profile.yaml names no check 'lint'; jig upgrade restores it)"
-  assert_contains "$OUT" "PLAN ruby: tests (rspec): skip (profile.yaml names no check 'tests'; jig upgrade restores it)"
+  assert_contains "$OUT" "PLAN ruby: lint (rubocop): skip (profile.yaml names no check 'lint'; carry your edits onto the stock profile's new profile.yaml)"
+  assert_contains "$OUT" "PLAN ruby: tests (rspec): skip (profile.yaml names no check 'tests'; carry your edits onto the stock profile's new profile.yaml)"
 }
 
 # Every role the profile lists in `checks:` can be taken over by another

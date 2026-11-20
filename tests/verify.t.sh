@@ -3739,7 +3739,7 @@ test_verify_a_profile_with_only_a_checks_list_gets_no_table() {
   run jig verify
   assert_eq 1 "$RC" "$OUT"
   assert_contains "$OUT" "checks-file=<unset>"
-  assert_contains "$OUT" "tbl: echoer: fail (profile.yaml names no check 'tests'; jig upgrade restores it)"
+  assert_contains "$OUT" "tbl: echoer: fail (profile.yaml names no check 'tests'; carry your edits onto the stock profile's new profile.yaml)"
 }
 
 test_verify_a_profile_without_a_table_never_sees_a_callers_checks_file() {
@@ -4435,8 +4435,8 @@ test_verify_shell_check_table_missing_fails_loudly() {
   unset JIG_VERIFY_CHECKS
   run bash "$JIG_HOME/profiles/shell/verify.sh"
   assert_eq 1 "$RC" "$OUT"
-  assert_contains "$OUT" "shell: lint (shellcheck): fail (profile.yaml names no check 'lint'; jig upgrade restores it)"
-  assert_contains "$OUT" "shell: tests (tests/run.sh): fail (profile.yaml names no check 'tests'; jig upgrade restores it)"
+  assert_contains "$OUT" "shell: lint (shellcheck): fail (profile.yaml names no check 'lint'; carry your edits onto the stock profile's new profile.yaml)"
+  assert_contains "$OUT" "shell: tests (tests/run.sh): fail (profile.yaml names no check 'tests'; carry your edits onto the stock profile's new profile.yaml)"
   assert_no_file sc.log
   assert_no_file runsh.log
 }

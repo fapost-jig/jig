@@ -608,16 +608,16 @@ test_profile_rust_check_table_missing_fails_loudly() {
   unset JIG_VERIFY_CHECKS
   run bash "$JIG_HOME/profiles/rust/verify.sh"
   assert_eq 1 "$RC" "$OUT"
-  assert_contains "$OUT" "rust: style (cargo fmt): fail (profile.yaml names no check 'style'; jig upgrade restores it)"
-  assert_contains "$OUT" "rust: lint (cargo clippy): fail (profile.yaml names no check 'lint'; jig upgrade restores it)"
-  assert_contains "$OUT" "rust: tests (cargo test): fail (profile.yaml names no check 'tests'; jig upgrade restores it)"
+  assert_contains "$OUT" "rust: style (cargo fmt): fail (profile.yaml names no check 'style'; carry your edits onto the stock profile's new profile.yaml)"
+  assert_contains "$OUT" "rust: lint (cargo clippy): fail (profile.yaml names no check 'lint'; carry your edits onto the stock profile's new profile.yaml)"
+  assert_contains "$OUT" "rust: tests (cargo test): fail (profile.yaml names no check 'tests'; carry your edits onto the stock profile's new profile.yaml)"
   assert_eq "" "$(_rust_calls || true)" "no fmt, clippy or test ran"
 
   JIG_VERIFY_EXPLAIN=1 run bash "$JIG_HOME/profiles/rust/verify.sh"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "PLAN rust: style (cargo fmt): skip (profile.yaml names no check 'style'; jig upgrade restores it)"
-  assert_contains "$OUT" "PLAN rust: lint (cargo clippy): skip (profile.yaml names no check 'lint'; jig upgrade restores it)"
-  assert_contains "$OUT" "PLAN rust: tests (cargo test): skip (profile.yaml names no check 'tests'; jig upgrade restores it)"
+  assert_contains "$OUT" "PLAN rust: style (cargo fmt): skip (profile.yaml names no check 'style'; carry your edits onto the stock profile's new profile.yaml)"
+  assert_contains "$OUT" "PLAN rust: lint (cargo clippy): skip (profile.yaml names no check 'lint'; carry your edits onto the stock profile's new profile.yaml)"
+  assert_contains "$OUT" "PLAN rust: tests (cargo test): skip (profile.yaml names no check 'tests'; carry your edits onto the stock profile's new profile.yaml)"
 }
 
 # Every role the profile lists in `checks:` can be taken over by another

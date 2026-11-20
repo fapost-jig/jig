@@ -358,14 +358,14 @@ test_profile_swift_check_table_missing_fails_loudly() {
   unset JIG_VERIFY_CHECKS
   run bash "$JIG_HOME/profiles/swift/verify.sh"
   assert_eq 1 "$RC" "$OUT"
-  assert_contains "$OUT" "swift: build (swift build): fail (profile.yaml names no check 'build'; jig upgrade restores it)"
-  assert_contains "$OUT" "swift: tests (swift test): fail (profile.yaml names no check 'tests'; jig upgrade restores it)"
+  assert_contains "$OUT" "swift: build (swift build): fail (profile.yaml names no check 'build'; carry your edits onto the stock profile's new profile.yaml)"
+  assert_contains "$OUT" "swift: tests (swift test): fail (profile.yaml names no check 'tests'; carry your edits onto the stock profile's new profile.yaml)"
   assert_eq "" "$(_swift_calls || true)" "no build or test ran"
 
   JIG_VERIFY_EXPLAIN=1 run bash "$JIG_HOME/profiles/swift/verify.sh"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "PLAN swift: build (swift build): skip (profile.yaml names no check 'build'; jig upgrade restores it)"
-  assert_contains "$OUT" "PLAN swift: tests (swift test): skip (profile.yaml names no check 'tests'; jig upgrade restores it)"
+  assert_contains "$OUT" "PLAN swift: build (swift build): skip (profile.yaml names no check 'build'; carry your edits onto the stock profile's new profile.yaml)"
+  assert_contains "$OUT" "PLAN swift: tests (swift test): skip (profile.yaml names no check 'tests'; carry your edits onto the stock profile's new profile.yaml)"
 }
 
 # Every role the profile lists in `checks:` can be taken over by another

@@ -526,14 +526,14 @@ test_profile_dotnet_check_table_missing_fails_loudly() {
   unset JIG_VERIFY_CHECKS
   run bash "$_DOTNET_VERIFY"
   assert_eq 1 "$RC" "$OUT"
-  assert_contains "$OUT" "dotnet: style (dotnet format): fail (profile.yaml names no check 'style'; jig upgrade restores it)"
-  assert_contains "$OUT" "dotnet: tests (dotnet test): fail (profile.yaml names no check 'tests'; jig upgrade restores it)"
+  assert_contains "$OUT" "dotnet: style (dotnet format): fail (profile.yaml names no check 'style'; carry your edits onto the stock profile's new profile.yaml)"
+  assert_contains "$OUT" "dotnet: tests (dotnet test): fail (profile.yaml names no check 'tests'; carry your edits onto the stock profile's new profile.yaml)"
   assert_no_file dotnet.log
 
   JIG_VERIFY_EXPLAIN=1 run bash "$_DOTNET_VERIFY"
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "PLAN dotnet: style (dotnet format): skip (profile.yaml names no check 'style'; jig upgrade restores it)"
-  assert_contains "$OUT" "PLAN dotnet: tests (dotnet test): skip (profile.yaml names no check 'tests'; jig upgrade restores it)"
+  assert_contains "$OUT" "PLAN dotnet: style (dotnet format): skip (profile.yaml names no check 'style'; carry your edits onto the stock profile's new profile.yaml)"
+  assert_contains "$OUT" "PLAN dotnet: tests (dotnet test): skip (profile.yaml names no check 'tests'; carry your edits onto the stock profile's new profile.yaml)"
 }
 
 # Every role the profile lists in `checks:` can be taken over by another
