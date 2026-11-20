@@ -27,9 +27,9 @@ checks those items. Jig moved to the `fapost-jig` organisation on GitHub.
   [Verification profiles](/configuration#verification-profiles).
 - **Checks are named by role, and their lines changed.** Every stock profile declares its checks by
   role in `profile.yaml`, and a check's line shows the role with the tool chosen for it:
-  `php: tests (phpunit): pass` where 0.47.0 printed `php: phpunit: pass`. The commands and what a
-  narrowed run selects are unchanged. **A script or CI step that reads these lines needs the new
-  form.** A stock `profile.yaml` you edited and `jig upgrade` kept fails its checks until you carry
+  `php: tests (phpunit): pass` where 0.47.0 printed `php: phpunit: pass`. The commands are unchanged,
+  and so is what a narrowed run selects, except in plain PHP (see `laravel` below). **A script or
+  CI step that reads these lines needs the new form.** A stock `profile.yaml` you edited and `jig upgrade` kept fails its checks until you carry
   your edits onto the new file ([From 0.47.0 to 0.48.0](/upgrading#from-0470-to-0480)).
 - **`laravel` is a layer over `php`.** It has no `verify.sh` of its own any more: php runs the
   tests, through `php artisan test`, and the line says `php: tests (phpunit)`. A Laravel project runs
@@ -60,7 +60,8 @@ checks those items. Jig moved to the `fapost-jig` organisation on GitHub.
   of the spec has merged, `jig task start` says that its tasks will merge into the main branch.
 - **A spec's branch is brought up to date.** `jig spec resume` and `jig spec drop` bring a branch
   left from an earlier pull request up to date with the main branch before they edit it. A conflict,
-  a diverged branch or one checked out in another worktree is refused, and nothing is reset.
+  a branch diverged from origin's copy of itself, or one checked out in another worktree is refused,
+  and nothing is reset.
   `jig spec ship` refuses a branch that would conflict with the main branch before it pushes (with
   git 2.38 or later; an older git only warns).
 - **Jig's network git uses your SSH setup.** Jig's own fetches and pushes over SSH now use the
@@ -78,7 +79,9 @@ checks those items. Jig moved to the `fapost-jig` organisation on GitHub.
 - **Smaller fixes.** Approving a design from a page started inside an agent's session (Jig UI from
   Claude Code) is no longer refused as `stale-revision`. Checking whether the Jig checkout on your
   machine has changes no longer takes its git index lock. Housekeeping no longer stops on a long list of origin's
-  branches.
+  branches. Eleven more places that read a pipe with awk (in `config`, `land`, `task`, `knowledge`,
+  `upgrade` and others) no longer abort under `pipefail`. `jig knowledge read --json` no longer drops
+  a carriage return under Git Bash.
 - **For programs and Jig UI.** A task's `gate` in `jig task list --json`, and the `gate-waiting`
   and `gate-changed` items of `jig status --json`, carry the design's `questions` and the last
   `answer`; an attended run stopped at the gate is shown as that item, not as `autopilot-stopped`.
