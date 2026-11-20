@@ -81,7 +81,7 @@ test_changelog_check_entry_for_the_new_version_passes() {
   cc_new_repo "$repo" 0.2.0
   cc_write_changelog "$repo" "# Changelog
 
-## 0.2.0 — 2026-09-14
+## 0.2.0
 
 - The first release."
   cc_build_origin "$repo" "$bare"

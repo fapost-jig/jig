@@ -604,6 +604,53 @@ the change staged, and `jig upgrade` run again on it finishes the run.
 merged yourself, and for a base that did not move; run by an older copy of Jig in the project
 (0.47.0 or later), it is handed to the newer `jig` on your machine, as an upgrade is.
 
+## From 0.47.0 to 0.48.0
+
+**Before you run it.** Run `jig self-update` first. A real `jig upgrade` is carried out by 0.48.0
+even when the project's 0.47.0 `.ai/scripts/jig` starts it: that copy hands the whole run to the
+newer Jig on your machine. `.ai/scripts/jig upgrade --dry-run` is still 0.47.0's own and does not
+know that a profile can extend another; `jig upgrade --dry-run` with the global `jig` shows the
+0.48.0 plan.
+
+The upgrade brings new scripts, a new `profile.yaml` and `verify.sh` for every stock profile that
+runs checks, a `laravel` profile with no `verify.sh` (the old one is deleted), new text for the
+`jig-task`, `jig-autopilot`, `jig-consolidate` and `jig-idea` skills, and a `Summary:` line in the
+spec template. The installers changed only the address they install from.
+
+**What you may have to do.**
+
+- **A stock profile file you edited.** `jig upgrade` keeps a file you edited (`keep-modified` in its
+  report), and it keeps it again on every later run. A kept stock `profile.yaml` has no check table,
+  while the new `verify.sh` beside it reads one, so each of its checks fails, as in
+  `shell: lint (shellcheck): fail (profile.yaml names no check 'lint'; jig upgrade restores it)`.
+  Despite the hint, `jig upgrade` does not restore it ([known issues](/known-issues)). In a Laravel
+  project a kept `php/profile.yaml` stops the whole run before any check, with
+  `FAIL laravel: profile.yaml:9: php declares no check table; an override of php:tests would not be read`,
+  and a kept `laravel/profile.yaml` fails as `profile.yaml has no extends, but the stock laravel now
+  extends php …`. In every case, carry your edits onto the stock profile's new `profile.yaml`. An edited `laravel/verify.sh` is kept
+  too (`keep-orphaned-modified`), though the stock `laravel` no longer has one. Move what it changed
+  into `checks.tests.*` lines of a profile ([Verification profiles](/configuration#verification-profiles)),
+  then delete it.
+- **A script or CI step that reads `jig verify`'s lines.** Each check is now named by its role, with
+  the tool beside it: `php: tests (phpunit)` where 0.47.0 said `php: phpunit`, and a Laravel
+  project's tests are php's line, no longer `laravel: artisan test`.
+
+**What you will notice.**
+
+- A Laravel project runs the same checks, each once, and `jig verify` adds
+  `verify: laravel is a layer over php; its checks run in its bases` and
+  `verify: php:tests: command from laravel`. A profile of yours with `covers: [laravel:tests]`, and
+  `.ai/verify/laravel.map`, work as before.
+- In a plain PHP project, a change to a `.php` file under `routes/`, `config/`, `database/` or
+  `bootstrap/` leaves the whole test suite to CI.
+- `jig doctor` and `jig status` name a profile under `.ai/profiles/` that nothing runs.
+- `jig self-update` repoints an install still fetching from `fapost-lab/jig` to `fapost-jig/jig`.
+  The update that brings 0.48.0 still runs 0.47.0's code, so this happens on the next one.
+- A program that reads Jig's JSON: a task's `gate` carries `questions` and `answer`, there is a new
+  action `answer-gate`, `jig spec read` and `summary` in `jig spec list --json` are new, and
+  `jig upgrade --json` adds `git.fell_back`
+  ([Reading Jig as data](/reading-jig-as-data)).
+
 ## From 0.46.0 to 0.47.0
 
 **Before you run it.** This upgrade is already carried out by 0.47.0: the project's 0.46.0

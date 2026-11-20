@@ -8,7 +8,92 @@ Update the tool with `jig self-update`, then run `jig upgrade` in each project; 
 as far as your settings allow ([Install](/install#keep-jig-up-to-date)). Releases are tagged on
 [GitHub](https://github.com/fapost-jig/jig/tags).
 
-## 0.47.0 — 2026-11-17
+## 0.48.0
+
+Profiles now build on each other. A profile of your own can extend a stock one and change only the
+checks that differ, and the stock `laravel` profile is now a layer over `php`. Every check is named by
+its role, so its line in `jig verify` reads differently. A design at its gate can be answered as
+well as approved. A roadmap whose tasks merged but were never checked off is named, and one command
+checks those items. Jig moved to the `fapost-jig` organisation on GitHub.
+
+- **A profile builds on another.** With `extends: <name>` in its `profile.yaml`, a profile of
+  your own is a layer over another profile. List only the top layer in `profiles:`: `jig init` and
+  `jig upgrade` install its bases and keep them up to date. A layer changes a check of its base with
+  `checks.<role>.command|full|narrowed` lines, or removes it with `checks.<role>.drop: true`, and
+  `jig verify` names the layer before the base's lines (`verify: php:tests: command from laravel`),
+  and says on every run when a layer dropped every check of its base. A missing base, a cycle, a
+  mistake in a layer's lines, or a profile of your own with a stock profile's name refuses the run
+  before anything runs. See
+  [Verification profiles](/configuration#verification-profiles).
+- **Checks are named by role, and their lines changed.** Every stock profile declares its checks by
+  role in `profile.yaml`, and a check's line shows the role with the tool chosen for it:
+  `php: tests (phpunit): pass` where 0.47.0 printed `php: phpunit: pass`. The commands and what a
+  narrowed run selects are unchanged. **A script or CI step that reads these lines needs the new
+  form.** A stock `profile.yaml` you edited and `jig upgrade` kept fails its checks until you carry
+  your edits onto the new file ([From 0.47.0 to 0.48.0](/upgrading#from-0470-to-0480)).
+- **`laravel` is a layer over `php`.** It has no `verify.sh` of its own any more: php runs the
+  tests, through `php artisan test`, and the line says `php: tests (phpunit)`. A Laravel project runs
+  the same checks, each once. `covers: [laravel:tests]` and `.ai/verify/laravel.map` keep working.
+  `profiles: [laravel]` alone now also runs php's PHPStan, Pint and `composer validate`, and
+  `jig init` lists `laravel` without `php`. In a plain PHP project, a change to a `.php` file under
+  `routes/`, `config/`, `database/` or `bootstrap/` now leaves the whole test suite to CI, as it did
+  for Laravel.
+- **A profile that never runs is named.** A profile under `.ai/profiles/` that neither `profiles:`
+  nor an `extends` reaches is a warning in `jig doctor` and a `profiles unreached:` line in
+  `jig status`.
+- **A design can be answered at its gate.** A T3 or T4 design now ends with the questions the agent
+  needs you to decide, each with its options and the agent's pick; approving takes every pick.
+  `jig task gate <id> answered --answer <text>` sends the design back with your words instead, and
+  the agent reworks it and returns to the gate. When an attended autopilot run stopped at that gate,
+  approving or answering also answers the run, and it resumes on the next free slot. See
+  [Where it stops](/autopilot#where-it-stops).
+- **A roadmap behind its merged tasks is named.** When a task merged but its roadmap item was never
+  checked, `jig spec list` adds `N merged but unchecked` to the spec's progress and `jig status`
+  prints `roadmap behind: <spec>`. `jig spec item check <spec> <item>` or `--merged` checks the items
+  through a pull request, as any roadmap edit goes. Only items still unchecked on the base branch
+  count, so an out-of-date checkout does not advise a check with nothing left to do. See
+  [Seeing where things stand](/working-with-tasks#seeing-where-things-stand).
+- **A spec's documents can be read without opening `.ai/specs/`.** `jig spec read <id> spec|roadmap`
+  prints one as written. A new `spec.md` carries a `Summary:` line under its title.
+- **A spec's epic is always your choice.** `jig-idea` now asks every time whether a spec gets an
+  epic branch, with its recommendation. When a task of a spec without an epic starts before anything
+  of the spec has merged, `jig task start` says that its tasks will merge into the main branch.
+- **A spec's branch is brought up to date.** `jig spec resume` and `jig spec drop` bring a branch
+  left from an earlier pull request up to date with the main branch before they edit it. A conflict,
+  a diverged branch or one checked out in another worktree is refused, and nothing is reset.
+  `jig spec ship` refuses a branch that would conflict with the main branch before it pushes (with
+  git 2.38 or later; an older git only warns).
+- **Jig's network git uses your SSH setup.** Jig's own fetches and pushes over SSH now use the
+  command plain `git` would: `GIT_SSH_COMMAND`, the clone's `core.sshCommand`, or `GIT_SSH`. A clone
+  that picks its key in `core.sshCommand` no longer reaches GitHub as another account. A login that
+  would ask for input still fails instead of waiting.
+- **Jig moved to `fapost-jig/jig`.** The installers, `jig doctor`, the documentation and the docs
+  site name the new address. `jig self-update` repoints an install still fetching from
+  `fapost-lab/jig` and says so; the update that brings 0.48.0 still runs 0.47.0's code, so the
+  repoint comes with the update after it ([Install](/install#keep-jig-up-to-date)).
+- **Fixed: a pre-commit hook no longer stops the upgrade.** A hook that needs your project's
+  dependencies, and refused the commit in Jig's own tree in 0.47.0, now sends the upgrade on in your
+  checkout, where it goes by `agent.git`. See
+  [Where the upgrade works](/upgrading#where-the-upgrade-works-and-who-merges-it).
+- **Smaller fixes.** Approving a design from a page started inside an agent's session (Jig UI from
+  Claude Code) is no longer refused as `stale-revision`. Checking whether the Jig checkout on your
+  machine has changes no longer takes its git index lock. Housekeeping no longer stops on a long list of origin's
+  branches.
+- **For programs and Jig UI.** A task's `gate` in `jig task list --json`, and the `gate-waiting`
+  and `gate-changed` items of `jig status --json`, carry the design's `questions` and the last
+  `answer`; an attended run stopped at the gate is shown as that item, not as `autopilot-stopped`.
+  The new action `answer-gate` makes twenty-two actions on every task.
+  `jig spec read <id> spec|roadmap --json` gives a document, with `lossy` when bytes that are not UTF-8 were dropped. `jig spec list
+  --json` gives each spec's `summary`, and a title holding a byte that is not UTF-8 is no longer
+  `null`. `jig spec item check` answers as a roadmap write.
+  `jig upgrade --json` adds `git.fell_back`. `jig task artifact read --json` escapes line by line: a
+  52 KB document went from 6.1 s to 0.06 s of escaping under bash 3.2.57, as measured in its pull
+  request. See [Reading Jig as data](/reading-jig-as-data).
+- **What was proven where.** All of the above is proven by the test suite, which the release's CI
+  runs on Linux, macOS and Windows (Git Bash). The forges, SSH and git setups in those tests are
+  stand-ins: no live GitHub or GitLab, and no real SSH server.
+
+## 0.47.0
 
 `jig upgrade` now carries its own pull request to the merge. In a project with an `origin` it works
 in Jig's own tree instead of your checkout, so uncommitted changes and a task in progress no longer
@@ -60,7 +145,7 @@ the base.
   repository installs Jig in link mode, so its own upgrades never take the new path. A pre-commit
   hook that needs your dependencies now refuses the upgrade ([known issues](/known-issues)).
 
-## 0.46.0 — 2026-11-16
+## 0.46.0
 
 A project can now hold its tasks to its own rules at the finish: scripts it names run when a task is
 marked ready, consolidated or shipped, and a person can waive one for one task with a reason. A pull
@@ -147,7 +232,7 @@ place for the next task.
   it has run yet against a live GitHub or GitLab pull request, except that the reviewer fault it fixes
   was first seen on a real one. A session per task is described in the skill only, with no test.
 
-## 0.45.0 — 2026-11-13
+## 0.45.0
 
 A team that tests on a staging server can now have each task land on a staging branch, wait there
 while it is tested, and reach the main branch only when someone says "prepare for prod" — the task's
@@ -191,7 +276,7 @@ without touching your checkout.
   of a task nobody started, no longer marks it as another session's, so `jig queue next` still
   offers it to others.
 
-## 0.44.0 — 2026-11-12
+## 0.44.0
 
 A review of a colleague's pull request now reads like one: each finding carries its severity's
 colour and a number, and the summary lists them by severity. The review skill is installed for you,
@@ -224,7 +309,7 @@ and a refused pull request names the GitHub account that asked.
   `GH_TOKEN` or `GITHUB_TOKEN` in the environment, with the variable to remove. See
   [Two GitHub accounts](/agent-ships#two-github-accounts).
 
-## 0.43.0 — 2026-11-11
+## 0.43.0
 
 Jig's `git push` and fetch over HTTPS now go as the project's GitHub account, as its `gh` calls
 already did, so a machine with two accounts no longer pushes as the wrong one. Under
@@ -259,7 +344,7 @@ Two refusals that read as failures now say what they are waiting for.
   housekeeping run" for a task closed after that run; a task with a pull request closes only once
   it merged, so the item is gone.
 
-## 0.42.0 — 2026-11-10
+## 0.42.0
 
 Jig can now review a colleague's pull request on GitHub or GitLab and post the review only as you
 saw it. It works as the right GitHub account for each project, whichever one `gh` has active. An
@@ -306,7 +391,7 @@ fewer processes, which Windows feels most.
   `git.branch_template: {id}`, without a prefix, merged task branches are deleted again: a branch is
   Jig's when a task record names it.
 
-## 0.41.0 — 2026-11-08
+## 0.41.0
 
 Code that has not been released no longer reaches your project by accident. Until now a Jig
 installed from `main` showed the last release's number, and `jig upgrade` copied its unreleased
@@ -397,7 +482,7 @@ stop bringing back what you rejected.
   longer hidden from `jig writes`. `jig upgrade --land` no longer calls an upgrade that returns a
   project to a release landed while `origin` still records the unreleased build.
 
-## 0.40.0 — 2026-11-05
+## 0.40.0
 
 A program can now close a task, read and change your settings, read the knowledge waiting for a
 person, decide it, and change a roadmap, all without moving your checkout. The agent works from the queue: it sets priorities from one scale and is not advised a task
@@ -485,7 +570,7 @@ longer merges part of a change.
   Telegram token is never printed, only whether it is set. See
   [Your settings](/reading-jig-as-data#your-settings).
 
-## 0.39.0 — 2026-10-29
+## 0.39.0
 
 An upgrade that ends in a pull request is followed to the end, and a project upgrades on every
 machine, whoever installed it. Until now `jig status` forgot an upgrade's pull request as soon as
@@ -582,7 +667,7 @@ Jig was installed in on one person's machine stopped `jig upgrade` on everybody 
   Both find the workspace of a task in a worktree too, which only Jig knows how to reach. See
   [Reading Jig as data](/reading-jig-as-data).
 
-## 0.38.1 — 2026-10-29
+## 0.38.1
 
 - **`jig task list` and `jig status --json` read each task once.** Each field of a task's state used
   to cost a process of its own, so the listing slowed down with every task you filed; the output is
@@ -595,7 +680,7 @@ Jig was installed in on one person's machine stopped `jig upgrade` on everybody 
 - **`jig task set` names `triage_task` and `triage_of` as Jig's own.** It refused them before as an
   unknown key; it now says `key is not writable`, as it does for the other keys only Jig writes.
 
-## 0.38.0 — 2026-10-29
+## 0.38.0
 
 What one agent knew now reaches the next one: the goal of a task, a neighbouring repository's
 design, the small review findings nobody fixed, and why a task was given up. Until now each of them
@@ -642,7 +727,7 @@ while its tasks merged.
   `worktree.setup_timeout`, or still running when Jig is interrupted, now has the Windows process
   tree it started — `php` under `composer`, `docker` — ended before its group is signalled.
 
-## 0.37.0 — 2026-10-27
+## 0.37.0
 
 Work nobody finished is put away instead of deleted, and a task that another one solved can be merged
 into it. Until now housekeeping deleted an abandoned task's notes after `abandoned_ttl` and the trash
@@ -688,7 +773,7 @@ abandoned with its documents lost.
   `main` whose pull request already tested the same tree on every platform skips the suite and goes
   straight on to tagging. Nothing here changes what an installed Jig does.
 
-## 0.36.0 — 2026-10-27
+## 0.36.0
 
 A task worktree can be finished by your project's own command, and a folder of packages can be
 shared with just the task that edits them. Until now a worktree got a copy of this checkout's
@@ -718,7 +803,7 @@ links or on whatever your package checkouts held, never on your lock file.
   remote, however many branches it deletes, and a branch that moved after its merge is still kept
   ([#317](https://github.com/fapost-lab/jig/issues/317)).
 
-## 0.35.0 — 2026-10-26
+## 0.35.0
 
 A paused task can be resumed by a program. Jig UI can now take a task off pause from the clone's
 main checkout, against the revision it read, and read the answer as data.
@@ -738,7 +823,7 @@ main checkout, against the revision it read, and read the answer as data.
   the task's branch is checked out — here or its worktree — or from the branch's commits, not from
   whatever checkout you ran the command in.
 
-## 0.34.0 — 2026-10-26
+## 0.34.0
 
 Many projects, kept up to date. Jig now tells a program which projects run an older Jig than your
 machine, a program can run the upgrade and read what it did, and your agent upgrades a project when
@@ -767,7 +852,7 @@ you ask. A release made as a plain task now waits for you, unless an unattended 
   opened as a draft. See
   [`release.merge`](/configuration).
 
-## 0.33.0 — 2026-10-24
+## 0.33.0
 
 A repair release. On Ubuntu 25.10 and later Jig's locks and counters did not exclude anyone, and a
 folder of packages shared with task worktrees could not be seen from a container. Both are fixed,
@@ -800,7 +885,7 @@ and Jig now tells you when a folder should be shared.
   When you ask for work to run alongside yours, the `jig-task` skill opens its session in the same
   turn you asked. See [Several agents at once](/working-with-tasks#several-agents-at-once).
 
-## 0.32.0 — 2026-10-23
+## 0.32.0
 
 Jig now tells you which task to take next. The queue from 0.31.0 held priority, order and
 dependencies, but you or your agent still picked by hand, and a task waiting for another could be
@@ -827,7 +912,7 @@ read that one answer.
   the next one", it runs `jig queue next`, names the task and starts it; on `next: none` it tells
   you why and does not pick one itself.
 
-## 0.31.0 — 2026-10-21
+## 0.31.0
 
 Jig can now be planned with. A queue keeps the priority, order and dependencies of your tasks and
 epics, and you can ask a running task to pause without losing the agent's step. The queue lives in
@@ -886,7 +971,7 @@ next phase of [Jig UI](https://jig-ui.fapost.in) is built on, and it is useful w
   branch, stages only `.ai/specs/<id>/`, and opens the pull request as far as `agent.git` allows; it
   never merges. See [Agent ships](/agent-ships).
 
-## 0.30.0 — 2026-10-19
+## 0.30.0
 
 A repeat review after a small fix no longer reads the whole change again. Nothing that gates a task
 changed: an edit after the review still asks for a review before the task is finished.
@@ -907,7 +992,7 @@ changed: an edit after the review still asks for a review before the task is fin
   A P2 is still fixed unless your route is lean. A fix you ask for yourself after the review is an
   ordinary edit with a narrow repeat review.
 
-## 0.29.0 — 2026-10-16
+## 0.29.0
 
 Jig can now be read by a program. The commands that report state print JSON with `--json`, in one
 envelope that every command shares, without touching the network. The text form of every command
@@ -947,7 +1032,7 @@ CI, a bot or an agent. See [Reading Jig as data](/reading-jig-as-data).
   clean up there, removing that checkout's `.git` and `.ai`. It now checks every directory it makes
   and reports such a test as not completed. This concerns people who develop Jig itself.
 
-## 0.28.0 — 2026-10-15
+## 0.28.0
 
 Every review is now done by an agent that did not write the change, whether you work beside your
 agent or hand a task to autopilot. No command, setting or file layout changed.
@@ -968,7 +1053,7 @@ agent or hand a task to autopilot. No command, setting or file layout changed.
   [Autopilot: helpers on another model](/autopilot#helpers-on-another-model).
 - **A link to Jig UI's documentation** in the site's top bar and on [What's next](/roadmap).
 
-## 0.27.0 — 2026-10-14
+## 0.27.0
 
 A stage can go to a helper in Codex as well as in Claude Code, to the other runtime's CLI, and to a
 different executor for each task of a roadmap wave. Every new setting is unset by default, so a
@@ -1004,7 +1089,7 @@ project that sets none of them works as before.
 - **`jig-setup` asks about every personal setting.** It now asks about `release.merge`,
   `git.delete_merged_branches` and the `executor.*` keys, and names all four helper keys.
 
-## 0.26.0 — 2026-10-10
+## 0.26.0
 
 More waits reach your Telegram, a task can carry its tracker issue, and a pull request names the
 linked rules a task edited. The two new keys are off until you set them; phase-run stops and the
@@ -1025,7 +1110,7 @@ linked-sources block need no setting.
   request carry a **Changed linked sources — need your review** block, also printed by
   `jig knowledge changed --to-review` (a new flag); it stops nothing. See [The report](/autopilot#the-report).
 
-## 0.25.1 — 2026-10-10
+## 0.25.1
 
 - **A merged branch whose remote copy someone else removed is deleted too.** When the hosting site
   deletes a branch on merge and another tool — an editor's background `git fetch --prune` — then
@@ -1034,7 +1119,7 @@ linked-sources block need no setting.
   its last commit is the one the hosting site merged, or an earlier one; a branch with anything newer
   stays, as before.
 
-## 0.25.0 — 2026-10-09
+## 0.25.0
 
 Autopilot can tell you, in Telegram, when a run needs you or is done. Nothing changes until you set
 it up: with no token and chat id, no message is sent and no command behaves differently.
@@ -1059,7 +1144,7 @@ it up: with no token and chat id, no message is sent and no command behaves diff
 - **`jig task autopilot <id> end` takes an optional `--reason`,** which becomes the message's text;
   without it the message says the run ended, never that it merged.
 
-## 0.24.0 — 2026-10-08
+## 0.24.0
 
 Two things change what Jig does on your machine. Autopilot runs can ship at a Git level of their
 own, and a project that declares `verify.full_run: ci` no longer runs its full test set or lints
@@ -1111,7 +1196,7 @@ node, php, ruby, rust, dart, dotnet, jvm, swift and shell profiles. Not run agai
 GitLab repository. The installer did not change since 0.23.0, so the Windows release checklist does
 not apply to this release.
 
-## 0.23.0 — 2026-10-07
+## 0.23.0
 
 A branch Jig made no longer stays behind once its work has landed: Jig deletes it, here and on the
 remote, right after a merge it made itself and in housekeeping. **The first housekeeping run after
@@ -1163,7 +1248,7 @@ base, an open pull request, `origin` moved after the merge, `agent.git` below `p
 a real GitHub or GitLab repository. The installer did not change since 0.22.0, so the Windows release
 checklist does not apply to this release.
 
-## 0.22.0 — 2026-10-06
+## 0.22.0
 
 At a terminal, `jig doctor`, `jig upgrade`, `jig status`, the installer and `jig-setup` now say what
 needs you first and group the rest, `jig status` reads by section and groups tasks by spec, and an upgrade no longer refuses because of a session that only
@@ -1237,7 +1322,7 @@ PowerShell 5.1 console, that `ask` and the typed answer share one line there, an
 home-folder refusal reads as an instruction. The Windows release checklist was not walked on a real
 machine for this release.
 
-## 0.21.0 — 2026-10-05
+## 0.21.0
 
 A task can no longer be finished past a stage its class asks for, an epic finishes without a push to
 the epic branch, and your agent can hand writing and reviewing the code to a helper on a model you
@@ -1296,7 +1381,7 @@ choose.
 - **`jig-verify` no longer leaves a log in your working tree.** The skill used to tell the agent to
   redirect `jig verify` into `verify.log` in the project; the report now goes to the terminal.
 
-## 0.20.0 — 2026-10-03
+## 0.20.0
 
 A started task can be moved into a worktree of its own, a worktree can share a folder of packages
 with its checkout, a person can choose a lighter route, and an agent can plan a release.
@@ -1359,7 +1444,7 @@ with its checkout, a person can choose a lighter route, and an agent can plan a 
   `jig-task` forbids. `jig-review` and `jig-architecture-review` keep the list of changed paths in a shell
   variable instead of a workspace file.
 
-## 0.19.0 — 2026-10-02
+## 0.19.0
 
 `jig verify` now knows the common local PHP environments, runs every built-in profile where your
 project runs, and `jig doctor` says when this machine's runtime is not the one your project asks for.
@@ -1404,7 +1489,7 @@ project runs, and `jig doctor` says when this machine's runtime is not the one y
 - **Paths with a backslash no longer confuse container detection.** The container reader now passes
   project paths to `awk` in a way that keeps backslashes as they are.
 
-## 0.18.0 — 2026-10-02
+## 0.18.0
 
 `jig verify` learns to run a project's checks where the project runs, and Jig stops leaving its
 scratch files behind.
@@ -1451,14 +1536,14 @@ scratch files behind.
   `accept` and `reject` now refresh the `jig status --html` page they changed, so its proposal and
   changed-source counts are no longer stale until the next task command.
 
-## 0.17.1 — 2026-09-30
+## 0.17.1
 
 No change to how Jig behaves. One test of 0.17.0's `jig doctor` `latest release` line was wrong on
 Windows: it rejected any output containing "available", and Windows prints
 `directory links: junction (symlinks unavailable)`. The test now checks only the `latest release`
 line, and the release's test suite passes on Windows again.
 
-## 0.17.0 — 2026-09-30
+## 0.17.0
 
 `jig upgrade` becomes a change of its own, and the installer and Windows checkout gain the fixes
 0.16.1 was too small to carry.
@@ -1521,7 +1606,7 @@ line, and the release's test suite passes on Windows again.
   file — a Windows path like `C:\temp` no longer risks being mangled or splitting into a second,
   bogus state line.
 
-## 0.16.1 — 2026-09-28
+## 0.16.1
 
 Fixes to what 0.16.0 shipped: the Windows installer, `jig upgrade`, and how much a PHP project's
 checks run.
@@ -1553,7 +1638,7 @@ checks run.
   `scope: package.json changes the asset build, which browser tests load, ran full set` instead of
   `scope: not narrowable, ran full set`.
 
-## 0.16.0 — 2026-09-25
+## 0.16.0
 
 Green now means green.
 
@@ -1629,7 +1714,7 @@ Green now means green.
   [What's next](/roadmap), the order the open ones are being fixed in. `schemas/profile.md`
   documents the keys of `profile.yaml` for anyone writing their own.
 
-## 0.15.1 — 2026-09-23
+## 0.15.1
 
 - Fix: `jig upgrade` in copy mode replaced `.ai/scripts/jig` by rewriting it in place — the file the
   shell was running at that moment. Once the new dispatcher was longer, the shell read on past the
@@ -1637,7 +1722,7 @@ Green now means green.
   complete upgrade in an error from a line it had never executed. Every file is now written beside
   its destination and renamed over it.
 
-## 0.15.0 — 2026-09-23
+## 0.15.0
 
 Agents that finish a task on their own.
 
@@ -1660,7 +1745,7 @@ Agents that finish a task on their own.
   workspace shared through a symlink is no longer reported as untracked. Existing projects can copy
   the change into their own `.gitignore`.
 
-## 0.14.0 — 2026-09-18
+## 0.14.0
 
 Rough edges, and the first pages of this site.
 
@@ -1676,7 +1761,7 @@ Rough edges, and the first pages of this site.
   in a repository without commits; `jig knowledge` suggests near misses for an unknown id; a
   document with neither domains nor paths no longer disappears from the catalog.
 
-## 0.13.0 — 2026-09-18
+## 0.13.0
 
 - Component boundaries become knowledge: the skills record what a boundary may, must and must not
   do as a convention document, and a broken "must not" is a blocking review finding.
@@ -1686,7 +1771,7 @@ Rough edges, and the first pages of this site.
 - `jig-idea` asks for two or three architecture options and a stack before a new project's spec is
   written.
 
-## 0.12.0 — 2026-09-18
+## 0.12.0
 
 - Seven more stacks have a profile: Python, Rust, .NET, JVM, Ruby, Dart and Swift, beside the
   existing generic, shell, Node, Go, PHP and Laravel ones.
@@ -1699,13 +1784,13 @@ Rough edges, and the first pages of this site.
 - A project can declare which paths affect which checks in `.ai/verify/<profile>.map`.
 - Changed: a first `jig init` turns on every stack it detects, not `generic` alone.
 
-## 0.11.0 — 2026-09-18
+## 0.11.0
 
 - New decision records are named by date — `.ai/knowledge/adr/YYYYMMDD-<slug>.md` — so two branches
   can each write an ADR without colliding on merge. Existing numbered ADRs keep their names and
   their `ADR-NNNN` citations.
 
-## 0.10.0 — 2026-09-17
+## 0.10.0
 
 - A document linked from your repository now reaches agents: a stub created with
   `jig knowledge new <type> <slug> --source <path>` resolves to the source text in `jig context`,
@@ -1718,14 +1803,14 @@ Rough edges, and the first pages of this site.
 - `jig knowledge adr-convention` reads your team's own ADR numbering, so an agent writes decision
   records in your style.
 
-## 0.9.0 — 2026-09-17
+## 0.9.0
 
 - `jig spec close <id>` closes a specification that has no epic, after listing the leftovers — open
   questions, unchecked roadmap items — that a human has to move or drop first.
 - `jig spec epic <id> --finish` now removes the finished specification instead of marking its
   roadmap line, and `--reopen` restores it from Git history.
 
-## 0.8.0 — 2026-09-17
+## 0.8.0
 
 Also carries the 0.7.x work, which was never released on its own.
 
@@ -1740,7 +1825,7 @@ Also carries the 0.7.x work, which was never released on its own.
 - `verify.full_run: ci` lets a plain `jig verify` check only what changed and leaves the full suite
   to CI.
 
-## 0.6.0 — 2026-09-16
+## 0.6.0
 
 - Windows support, through Git Bash: a PowerShell installer, `jig.cmd` for runtimes that call Jig
   natively, and junctions where symbolic links are not permitted.
@@ -1749,24 +1834,24 @@ Also carries the 0.7.x work, which was never released on its own.
 - Line endings and executable bits no longer depend on the machine — `jig init` merges the needed
   `.gitattributes` rules.
 
-## 0.5.0 — 2026-09-15
+## 0.5.0
 
 - A document your team already maintains can be adopted where it is:
   `jig knowledge new <type> <slug> --source <path> --proposed` records a stub pointing at the file
   instead of copying it. (Such a document started reaching agents in 0.10.0.)
 
-## 0.4.0 — 2026-09-15
+## 0.4.0
 
 - `jig spec done <task-id>` and `jig spec remove <id>`: a task names the specification phase it
   belongs to, and finishing it ticks the roadmap.
 
-## 0.3.0 — 2026-09-15
+## 0.3.0
 
 - Specifications: `jig spec new` and `jig spec list`, and the `jig-idea` skill that stress-tests an
   idea and keeps the result as a spec with a roadmap under `.ai/specs/`.
 - Claude Code runs housekeeping at the start of a session, through a session hook.
 
-## 0.2.0 — 2026-09-14
+## 0.2.0
 
 The first release.
 
