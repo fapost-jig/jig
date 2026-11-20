@@ -604,6 +604,15 @@ the change staged, and `jig upgrade` run again on it finishes the run.
 merged yourself, and for a base that did not move; run by an older copy of Jig in the project
 (0.47.0 or later), it is handed to the newer `jig` on your machine, as an upgrade is.
 
+## From 0.48.0 to 0.48.1
+
+Nothing to do by hand. `.ai/config.yaml` did not change, and no new setting appears in the
+upgrade's report. Run `jig self-update` first: a dry run with the project's own
+`.ai/scripts/jig` shows 0.48.0's plan, not 0.48.1's. The upgrade brings new scripts: when a check
+of a kept, edited stock `profile.yaml` fails (`names no check`, `has no checks.<role>.narrowed` or
+`gives no command`), `jig verify` now tells you to carry your edits onto the stock profile's new
+file, instead of naming `jig upgrade`.
+
 ## From 0.47.0 to 0.48.0
 
 **Before you run it.** Run `jig self-update` first. A real `jig upgrade` is carried out by 0.48.0
