@@ -1367,6 +1367,98 @@ test_status_says_nothing_of_a_roadmap_that_is_not_behind() {
   assert_not_contains "$OUT" "roadmap behind"
 }
 
+# A worktree cut before a task of the spec merged still reads that task's item as
+# unchecked, while the base holds the checkmark: the command status would advise
+# reads the base and finds nothing to check there. Only an item unchecked in both is
+# named, in `jig status` and `jig spec list` alike.
+test_status_does_not_name_a_checkmark_the_base_already_holds() {
+  fixture_jig_repo
+  mkdir -p .ai/specs/idea-a
+  printf '# Idea A\n' > .ai/specs/idea-a/spec.md
+  # shellcheck disable=SC2016 # backticked task ids, literal
+  printf '%s\n' '## Phase 1 — One' '' '- [ ] `t-a` — first' '- [ ] `t-b` — second' \
+    > .ai/specs/idea-a/roadmap.md
+  # The worktree reads a project that is installed: the whole snapshot is committed.
+  git add -A
+  git commit -q -m "spec"
+  git worktree add -q ../wt-base-holds -b wt
+  # shellcheck disable=SC2016 # backticked task ids, literal
+  printf '%s\n' '## Phase 1 — One' '' '- [x] `t-a` — first' '- [ ] `t-b` — second' \
+    > .ai/specs/idea-a/roadmap.md
+  git add -A .ai/specs
+  git commit -q -m "check t-a"
+  mkdir -p .ai/runtime
+  {
+    printf -- '--- run 2026-11-18T14:00:00Z forge=github\n'
+    printf '2026-11-18T14:40:30Z task=t-a status=consolidated remote=merged via=forge action=purge dest=x class=T3 created=2026-11-17 consolidated=true\n'
+    printf '2026-11-18T14:40:31Z task=t-b status=consolidated remote=merged via=forge action=purge dest=x class=T3 created=2026-11-17 consolidated=true\n'
+    printf -- '--- run 2026-11-19T09:00:00Z forge=github\n'
+  } > .ai/runtime/housekeeping.log
+  cd ../wt-base-holds || return 1
+  run jig status
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "roadmap behind: idea-a — 1 merged but unchecked (jig spec item check idea-a --merged)"
+  run jig spec list
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "roadmap 2/2 done, 0 filed, fog 0, 1 merged but unchecked"
+  # The base has no more to check once t-b is checked there too.
+  cd - >/dev/null || return 1
+  # shellcheck disable=SC2016 # backticked task ids, literal
+  printf '%s\n' '## Phase 1 — One' '' '- [x] `t-a` — first' '- [x] `t-b` — second' \
+    > .ai/specs/idea-a/roadmap.md
+  git add -A .ai/specs
+  git commit -q -m "check t-b"
+  cd ../wt-base-holds || return 1
+  run jig status
+  assert_eq 0 "$RC" "$OUT"
+  assert_not_contains "$OUT" "roadmap behind"
+  run jig spec list
+  assert_not_contains "$OUT" "merged but unchecked"
+}
+
+# An open epic's roadmap is read from the epic's ref when the checkout is elsewhere:
+# progress is made there, and the copy on main is stale by design.
+_status_epic_roadmap() {
+  fixture_jig_repo
+  mkdir -p .ai/specs/idea-a
+  printf '# Idea A\n' > .ai/specs/idea-a/spec.md
+  # shellcheck disable=SC2016 # backticked task ids, literal
+  printf '%s\n' '# Roadmap' '' 'Epic: epic/idea-a' '' '## Phase 1 — One' '' '- [ ] `t-2` — merged' \
+    > .ai/specs/idea-a/roadmap.md
+  git add -A .ai/specs
+  git commit -q -m "spec with an epic"
+  git branch epic/idea-a
+  fixture_task t-2 task/t-2 consolidated
+}
+
+test_status_names_an_item_unchecked_on_the_epic_ref() {
+  _status_epic_roadmap
+  # main's copy says checked, the epic's does not: only the epic counts.
+  # shellcheck disable=SC2016 # backticked task ids, literal
+  printf '%s\n' '# Roadmap' '' 'Epic: epic/idea-a' '' '## Phase 1 — One' '' '- [x] `t-2` — merged' \
+    > .ai/specs/idea-a/roadmap.md
+  git add -A .ai/specs
+  git commit -q -m "main is ahead of the epic"
+  run jig status
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "roadmap behind: idea-a — 1 merged but unchecked (jig spec item check idea-a --merged)"
+}
+
+test_status_says_nothing_of_an_item_checked_on_the_epic_ref() {
+  _status_epic_roadmap
+  git checkout -q epic/idea-a
+  # shellcheck disable=SC2016 # backticked task ids, literal
+  printf '%s\n' '# Roadmap' '' 'Epic: epic/idea-a' '' '## Phase 1 — One' '' '- [x] `t-2` — merged' \
+    > .ai/specs/idea-a/roadmap.md
+  git add -A .ai/specs
+  git commit -q -m "check t-2 on the epic"
+  git checkout -q main
+  # main still holds the stale `[ ]`; the epic is where progress is.
+  run jig status
+  assert_eq 0 "$RC" "$OUT"
+  assert_not_contains "$OUT" "roadmap behind"
+}
+
 test_status_finished_epic_has_no_epic_line() {
   status_epic_setup
   jig spec new idea-x >/dev/null

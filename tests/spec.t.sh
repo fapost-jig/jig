@@ -5332,7 +5332,7 @@ test_spec_item_add_refuses_with_codes_and_writes_nothing() {
 # _ic_repo — own_tree_repo whose roadmap names tasks: t-1 closed (merged), t-2 active, t-3
 # merged and purged by housekeeping, one item with no task, and one checked.
 _ic_repo() {
-  own_tree_repo commit
+  own_tree_repo "${1:-commit}"
   # shellcheck disable=SC2016 # backticked task ids, literal
   printf '%s\n' '# Roadmap: Idea X' '' '## Phase 1 — One' '' \
     '- [ ] `t-1` — Closed item' '  continued here' '- [ ] `t-2` — Active item' \
@@ -5423,6 +5423,65 @@ test_spec_item_check_refuses_with_codes_and_writes_nothing() {
   run jig spec item check idea-x "$(_si_id '`t-4` — Checked item')" --json
   assert_contains "$OUT" '"code":"already-closed"'
   assert_eq 0 "$(git rev-list --count main..spec/idea-x 2>/dev/null || printf 0)"
+  own_tree_gone
+}
+
+# The refusals of the usage kind say what to change, not only that something is wrong.
+test_spec_item_check_usage_refusals_say_what_to_change() {
+  _ic_repo
+  local h
+  h=$(_si_id '`t-2` — Active item')
+  run jig spec item check idea-x
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "spec item check: give an item or --merged"
+  run jig spec item check idea-x "$h" --merged
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "spec item check: give one of an item and --merged"
+  run jig spec item check idea-x "$h" --phase 1
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "spec item check: unexpected argument: --phase"
+  run jig spec item check idea-x "$h" --text x
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "spec item check: unexpected argument: --text"
+  own_tree_gone
+}
+
+# `--merged` belongs to `check` alone.
+test_spec_item_merged_is_refused_outside_check() {
+  _ic_repo
+  local h
+  h=$(_si_id '`t-2` — Active item')
+  run jig spec item add idea-x --phase 1 --text x --merged
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "spec item add: unexpected argument: --merged"
+  run jig spec item move idea-x "$h" --top --merged
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "spec item move: unexpected argument: --merged"
+  run jig spec item file idea-x "$h" --task t-2 --merged
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "spec item file: unexpected argument: --merged"
+  assert_eq 0 "$(git rev-list --count main..spec/idea-x 2>/dev/null || printf 0)"
+  own_tree_gone
+}
+
+# After `--merged` wrote its checks, they wait on spec/<id>: a second run finds nothing
+# to check and says where the checks are. Status stays quiet about the roadmap, for the
+# command it would advise has nothing left to do.
+test_spec_item_check_merged_names_the_write_that_already_holds_the_checks() {
+  _ic_repo
+  run jig status
+  assert_contains "$OUT" "roadmap behind: idea-x — 2 merged but unchecked (jig spec item check idea-x --merged)"
+  run jig spec item check idea-x --merged
+  assert_eq 0 "$RC" "$OUT"
+  run jig spec item check idea-x --merged
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "names a task known to have merged; spec/idea-x still waits to reach main: checks made there land with it"
+  run jig status
+  assert_eq 0 "$RC"
+  assert_not_contains "$OUT" "roadmap behind"
+  run jig spec list
+  assert_eq 0 "$RC"
+  assert_not_contains "$OUT" "merged but unchecked"
   own_tree_gone
 }
 
@@ -5888,6 +5947,23 @@ test_spec_item_on_an_epic_reaches_it_through_a_pull_request_and_never_a_push() {
   assert_eq "$epic" "$(git rev-parse epic/idea-x)"
   assert_eq "$epic" "$(git --git-dir=origin.git rev-parse epic/idea-x)"
   assert_eq "$epic" "$(git merge-base spec/idea-x epic/idea-x)"
+}
+
+test_spec_item_check_on_an_epic_reaches_it_through_a_pull_request() {
+  _ic_repo pr
+  _si_epic
+  own_tree_stub_gh
+  git fetch -q origin
+  local epic
+  epic=$(git rev-parse epic/idea-x)
+  run jig spec item check idea-x --merged --json
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" '"branch":"spec/idea-x","base":"epic/idea-x"'
+  assert_contains "$(cat stub-gh/create.argv)" "$(printf -- '--base\nepic/idea-x\n--head\nspec/idea-x')"
+  assert_eq "$epic" "$(git rev-parse epic/idea-x)"
+  assert_eq "$epic" "$(git --git-dir=origin.git rev-parse epic/idea-x)"
+  assert_eq "$epic" "$(git merge-base spec/idea-x epic/idea-x)"
+  assert_contains "$(_si_roadmap)" '- [x] `t-1` — Closed item'
 }
 
 test_spec_item_on_an_epic_that_is_not_here_is_refused() {

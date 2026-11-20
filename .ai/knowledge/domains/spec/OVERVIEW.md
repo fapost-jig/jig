@@ -12,7 +12,7 @@ paths:
   - "templates/spec/**"
   - "skills/jig-idea/**"
   - "skills/jig-release/**"
-reviewed_at: 2026-11-19
+reviewed_at: 2026-11-20
 ---
 # Spec
 
@@ -106,9 +106,18 @@ epic's ref — before that task's workspace, its only record of being merged, go
 (adr-20261114-a-closed-task-never-started-goes-to-trash). A phase's link to its epic is otherwise
 the task's `base_branch`.
 
+An item counts as behind (`roadmap behind`, the `spec list` tail) only while it is unchecked here and not
+checked where `spec item check` would start its write: the tip of `spec/<id>` while an earlier write of the
+spec still waits there, else the base branch as of the last fetch (`jig_base_ref`, no fetch). This
+checkout's copy may lag the base — a task worktree cut before a task merged, a main nobody pulled — and an
+item checked there is not owed. Only a spec with no open epic is asked: an open epic's roadmap is read from
+its own ref, and a coordinator holds checkmarks on the epic checked out here that no pull request has
+carried yet. With no base ref, or none holding the roadmap, the checkout's copy decides. The base ref and
+the records directory are read once per walk (`_spec_merged_memo`), as the merged set is.
+
 `status.sh` consumes `spec_count`, `spec_epic_status` and `spec_merged_unchecked_rows` (the `roadmap
 behind: <spec> — <n> merged but unchecked` line, a warn need on the page; `spec_progress` adds the same
-count to `spec list`), never recounts, and its status page renders
+count to `spec list`, both through `_spec_there_v`), never recounts, and its status page renders
 `spec_list_rows` — the unformatted rows `spec list` aligns — so the page and `spec list` cannot disagree
 about a spec's state. The counting rules for roadmap lines live in `spec_phase_counts` only: it counts
 per `## Phase <n>` section, and `spec_progress` is its sum. An unchecked item whose task merged counts

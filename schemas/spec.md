@@ -59,7 +59,10 @@ An item has no id in the file: `jig spec list --json` derives its handle from it
 `jig spec list` prints `roadmap <done>/<total> done, <filed> filed, fog <fog>`, and `, <n> merged but
 unchecked` after it when <n> unchecked items counted as done because their task merged: the count is
 right, the checkmark is still owed. `jig status` names the same gap as `roadmap behind: <spec> — <n>
-merged but unchecked (jig spec item check <spec> --merged)`. `jig spec list
+merged but unchecked (jig spec item check <spec> --merged)`. Both count an item only while it is
+unchecked here and not checked where that command starts its write: the tip of `spec/<id>` while an earlier
+write waits there, else the base branch as of the last fetch; so a checkout that lags the base, or a first
+`--merged` run whose pull request is still open, does not advise what has nothing left to check. `jig spec list
 --json` gives the same counts by section with their items (schemas/json.md), from the same pass
 over the roadmap, and the status page shows them by phase.
 
