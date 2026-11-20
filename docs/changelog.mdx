@@ -8,6 +8,19 @@ Update the tool with `jig self-update`, then run `jig upgrade` in each project; 
 as far as your settings allow ([Install](/install#keep-jig-up-to-date)). Releases are tagged on
 [GitHub](https://github.com/fapost-jig/jig/tags).
 
+## 0.48.1
+
+A fix to one message of `jig verify`, and corrections to the 0.48.0 notes.
+
+- **A kept, edited stock profile tells you what to do.** When `jig upgrade` kept a stock
+  `profile.yaml` you edited, `jig verify` failed its checks with `jig upgrade restores it`, but
+  `jig upgrade` keeps your file on every run. The message now says to carry your edits onto the
+  stock profile's new `profile.yaml`
+  ([From 0.47.0 to 0.48.0](/upgrading#from-0470-to-0480)).
+- **The 0.48.0 notes are corrected.** They now say that a plain PHP project's narrowed run selects
+  differently, what a refused spec branch diverged from, that a kept `laravel/verify.sh` runs the
+  tests twice until you delete it, and two smaller fixes they left out.
+
 ## 0.48.0
 
 Profiles now build on each other. A profile of your own can extend a stock one and change only the
