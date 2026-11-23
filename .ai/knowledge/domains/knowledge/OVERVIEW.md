@@ -13,7 +13,7 @@ paths:
   - scripts/lib/frontmatter.sh
   - schemas/frontmatter.md
   - "templates/knowledge/**"
-reviewed_at: 2026-11-19
+reviewed_at: 2026-11-23
 ---
 # Knowledge
 
@@ -26,7 +26,9 @@ them an agent has to read.
 - The shape of a knowledge document: frontmatter fields, their allowed values, and the
   templates new documents start from (`schemas/frontmatter.md`, ADR-0004).
 - The lifecycle of a document: `proposed` → `active` or `rejected`, and the deprecated and
-  superseded ends (ADR-0016, ADR-0018). An accepted stub whose source changed, has no approved
+  superseded ends (ADR-0016, ADR-0018). A document reaches the superseded end only through
+  `jig knowledge supersede <old-id> --by <new-id>`, which writes `supersedes` on its successor in
+  the same command; `check` warns about a superseded document no other document names. An accepted stub whose source changed, has no approved
   text or is gone goes to `rejected` too: `reject` drops its link
   (adr-20261106-a-changed-link-is-dropped-by-reject). A proposal has two recorded exits and neither
   deletes a file; `jig knowledge proposed` enumerates what is waiting and `jig status`
