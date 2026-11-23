@@ -49,6 +49,7 @@ If the trouble turns out to be Jig itself rather than your project, see [Known i
 |---|---|
 | `not inside a git repository` | Change into the project, or make the folder a Git repository first. |
 | `project is not initialised` | Run `jig init` in that repository. |
+| `jig task merge-pr` (or `land`, `request-review`) says the task `runs on autopilot` | An agent's autopilot run is still marked on, so Jig keeps your hands off the pull request. The message names the run's last event and when it happened. If an agent is still working, wait for it. If nobody is on the run any more (for example the ship ended `not merged` and the run was never ended), stop it with `jig task autopilot <id> stop --reason <why>`, or end it with `jig task autopilot <id> end --reason "not merged: <why>"`. |
 | `the repository has no commits yet` when starting a task | Commit what `jig init` added, then start again. |
 | Starting a task refuses because of uncommitted changes | They belong to other work. Pause the task that owns them (*"pause it and stash the changes"*), or start the new one in a separate worktree. |
 | `--worktree needs a directory link` | The disk supports neither symbolic links nor NTFS junctions (a network or FAT drive). Keep the project on a local disk, or start the task in the current checkout. |

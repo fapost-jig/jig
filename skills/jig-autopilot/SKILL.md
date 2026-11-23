@@ -135,6 +135,8 @@ as the run's level allows. Then:
 .ai/scripts/jig task autopilot <id> report
 ```
 
+A `not merged` ship does not finish the run: it stays on until you ship again once it can merge, or `end` it with the reason.
+
 Hand back the pull request link (or "ready for your commit", or the pushed branch CI lands) and the
 report. The pull request body — in the commit message when `external` leaves no pull request — is short and in English: what changed and why, the review result, the verify result, and the
 report's blocks as they are — never its stage and repair lines, never a task artifact. Its

@@ -9543,6 +9543,17 @@ _task_land_refusal() {
   return 0
 }
 
+# _task_ship_still_on <id> <why> — after a `not merged` outcome of `task ship`:
+# when the task's autopilot run is on, say it stays on and name the two ways
+# on (ship again, or end it). Nothing when the run is not on. An empty <why>
+# leaves the reason for the person to fill in.
+_task_ship_still_on() {
+  local run why="${2:-<why>}"
+  task_state_var run "$1" autopilot
+  [ "$run" = on ] || return 0
+  printf 'autopilot: the run of %s is still on: ship again once it can merge, or end it: jig task autopilot %s end --reason "not merged: %s"\n' "$1" "$1" "$why"
+}
+
 # _task_pr_busy_refusal <who> <id> <what> — why the agent being on <id> refuses
 # a person's action on its pull request, or nothing: its autopilot run is on,
 # or (<what> `merges`) a `jig task ship` is waiting for CI and merges it itself.
@@ -9561,7 +9572,25 @@ _task_pr_busy_refusal_v() {
   printf -v "$__tpb_var" '%s' ""
   task_state_var run "$id" autopilot
   if [ "$run" = on ]; then
+    local jdir line="" last="" ev="" at="" rest="" tab
+    tab=$(printf '\t')
+    task_dir_v jdir "$id"
+    if [ -f "$jdir/autopilot" ]; then
+      while IFS= read -r line || [ -n "$line" ]; do
+        [ -z "$line" ] || last=$line
+      done < "$jdir/autopilot"
+    fi
+    if [ -n "$last" ]; then
+      at=${last%%"$tab"*}
+      rest=${last#*"$tab"}
+      ev=${rest%%"$tab"*}
+    fi
+    # The text keeps `runs on autopilot`: the --json classifiers match it.
     printf -v "$__tpb_var" '%s: %s runs on autopilot; the agent is on it, wait for it to stop' "$who" "$id"
+    if [ -n "$ev" ] && [ "$ev" != "$last" ]; then
+      printf -v "$__tpb_var" '%s; its last event: %s at %s' "${!__tpb_var}" "$ev" "$at"
+    fi
+    printf -v "$__tpb_var" '%s; if no agent is on it any more: jig task autopilot %s stop --reason <why>' "${!__tpb_var}" "$id"
     return 0
   fi
   [ -n "$what" ] || return 0
@@ -10165,10 +10194,12 @@ EOF
   [ "$level" = merge ] || return 0
   if [ "$draft" -eq 1 ]; then
     printf 'not merged: a draft pull request is never merged\n'
+    _task_ship_still_on "$id" "a draft pull request is never merged"
     return 0
   fi
   if [ -n "$release_hold" ]; then
     printf 'not merged: %s\n' "$release_hold"
+    _task_ship_still_on "$id" "$release_hold"
     return 0
   fi
   # The task's own gates once more, right before the merge: the merge is the
@@ -10176,11 +10207,13 @@ EOF
   blocking=$(_task_blocking_findings "$id")
   if [ -n "$blocking" ]; then
     printf 'not merged: %s blocking finding(s) in the ledger\n' "$(_task_count_lines "$blocking")"
+    _task_ship_still_on "$id" "blocking finding(s) in the ledger"
     return 0
   fi
   receipt_msg=$(_task_receipt_gate_message "$id")
   if [ -n "$receipt_msg" ]; then
     printf 'not merged: %s\n' "$receipt_msg"
+    _task_ship_still_on "$id" "$receipt_msg"
     return 0
   fi
   local missing
@@ -10188,6 +10221,7 @@ EOF
     missing=$(_task_route_evidence_list "$id" consolidate)
     if [ -n "$missing" ]; then
       printf 'not merged: the route of %s is missing: %s\n' "$id" "$missing"
+      _task_ship_still_on "$id" "the route is missing: $missing"
       return 0
     fi
   fi
@@ -10203,6 +10237,7 @@ EOF
   jig_shipping_begin "$id"
   jig_ship_merge "task ship" "$JIG_SHIP_URL" "$sha" any
   jig_shipping_end "$id"
+  [ "$JIG_SHIP_MERGED" = 1 ] || _task_ship_still_on "$id" ""
   # Merged here, so this checkout goes back to the base and the branch goes;
   # from the task's own worktree it stays for housekeeping
   # (adr-20261007-a-merged-branch-leaves-with-its-work).
