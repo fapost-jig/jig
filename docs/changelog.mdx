@@ -8,6 +8,40 @@ Update the tool with `jig self-update`, then run `jig upgrade` in each project; 
 as far as your settings allow ([Install](/install#keep-jig-up-to-date)). Releases are tagged on
 [GitHub](https://github.com/fapost-jig/jig/tags).
 
+## 0.49.0
+
+A task whose pull request was replaced by hand can be closed. A document that a newer one replaces
+is retired with one command, and `jig knowledge check` warns about one marked by hand. Two refusals
+that left you without a way forward now name it.
+
+- **A task whose pull request was replaced by hand closes.** When you closed the pull request
+  `jig task ship` opened and merged another one from the same branch, `jig task set <id> status
+  consolidated` used to refuse because the recorded one was closed. It now finds the pull request
+  from the task's branch that was merged into the base (or the staging branch) after the recorded
+  one was opened, says `<old> was closed unmerged; <new> from the same branch, merged into <branch>,
+  is recorded in its place`, and closes the task with that pull request recorded. When it finds none,
+  it refuses as before ([Troubleshooting](/troubleshooting), [Working with tasks](/working-with-tasks)).
+  It works for a GitLab merge request too. Only tried against stand-ins for `gh` and `glab`, not on a
+  live pull or merge request. On GitLab, the `jig task ship` refusal for a branch that already has an
+  open merge request into another branch now names that merge request, not its author's profile.
+- **A refused `--without-review` names your own road.** Where nobody answers (`autopilot.unattended`,
+  which is read for the whole clone, not only inside a run), the agent cannot land a pull request
+  without review. The refusal now ends with `jig task land <id> --by human --without-review`, which
+  you run yourself; the docs say so on [Autopilot](/autopilot#without-stops),
+  [Configuration](/configuration) and the [staging flow](/staging-flow).
+- **A task stuck "on autopilot" tells you how to get out.** When `jig task merge-pr`, `land` or
+  `request-review` refuses because the task's autopilot run is on, the message now gives the run's
+  last event and when it happened, and, for a run no agent is on any more, `jig task autopilot <id>
+  stop --reason <why>`. A `jig task ship` that ends `not merged` while a run is on says the run is
+  still on, and that you can ship again or end it with `jig task autopilot <id> end --reason "not
+  merged: <why>"` ([Troubleshooting](/troubleshooting)).
+- **`jig knowledge supersede <old-id> --by <new-id>` retires a document.** It sets `status:
+  superseded` on the old document and `supersedes: <old-id>` on the new one, and refuses, writing
+  nothing, an unknown id, documents of different types, an old document that is not `active` or
+  `accepted`, a replacement that is not, or one that already replaces another document.
+  `jig knowledge check` now warns about a `superseded` document that no document names in
+  `supersedes` ([From 0.48.1 to 0.49.0](/upgrading#from-0481-to-0490)).
+
 ## 0.48.1
 
 A fix to one message of `jig verify`, and corrections to the 0.48.0 notes.

@@ -95,9 +95,10 @@ the cause, the kind of mistake, the files. A skill reads many of them and propos
 for what keeps recurring; a person accepts or rejects each one, as with any proposed knowledge. This
 needs a decision recorded first, because it is a new kind of record.
 
-**Knowledge documents that name each other.** An ADR that replaces another, a document that affects
-another — written as typed links and checked mechanically, so that a replaced decision cannot stay
-quietly in force.
+**Knowledge documents that name each other.** An ADR that replaces another is retired with one
+command that writes both sides of the link, and `jig knowledge check` warns about a replaced document
+no one names (0.49.0). Next, a document that affects another, written as a typed link and checked
+mechanically, and a document that replaces more than one.
 
 Beyond that, ideas with no start date: a link from each requirement in a specification to the check
 that proves it; accepting a known failure with a reason and an end date rather than switching the
