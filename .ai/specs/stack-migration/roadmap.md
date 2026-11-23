@@ -1,0 +1,91 @@
+# Roadmap — Stack migration
+
+Destination: Jig 1.0 runs with no bash except the installer and the compatibility path for a user's
+own `verify.sh`, its full test suite takes 10 minutes or less on Windows, and a project on 0.48.x
+reaches it through `jig upgrade` with no manual steps, open tasks included.
+
+## Phase 0 — Ready on main
+
+Goal: main is ready for the epic and the decision is on record. Done when: the ADR is accepted, a
+pull request into the epic runs no tests, and the bash tests can control time.
+
+- [ ] ADR superseding ADR-0002 — the language is chosen by the pilot, and the decisions of this spec that do not depend on it are accepted
+- [ ] CI skips pull requests into the epic, and a person can run the suite on Windows on any branch — `workflow_dispatch` (after: ADR superseding ADR-0002 — the epic exists only once the move is decided)
+- [ ] `JIG_NOW` in bash — every reading of the clock goes through one place a test can set, so recordings do not depend on the day they were taken
+
+## Phase 1 — Scaffold
+
+Goal: anything can be ported and proven against bash. Done when: a trivial command written in the
+new code passes against its recordings, locally and on the manual Windows run.
+
+- [ ] Recorder — running the bash tests in record mode keeps, for every `jig` call, arguments, environment, file trees before and after, output, exit code and stub logs, normalised (after: `JIG_NOW` in bash — time must be controlled before anything is recorded)
+- [ ] Parity check — a ported command is run against its recordings and the differences are reported, with a list of intended differences (after: Recorder — it reads what the recorder wrote)
+- [ ] TypeScript skeleton — runtime choice, `jig-next`, core and CLI split, the process executor, the storage module reading today's files, zod schemas, the invariant test, the bundle into `jig.mjs` with the dependency rules checked
+- [ ] Go skeleton — the same pieces in Go, enough to port the pilot
+
+## Phase 2 — Pilot and the language
+
+Goal: the language is chosen on numbers. Done when: the comparison is written and the owner has
+chosen, or the work is stopped by the gate.
+
+- [ ] `jig context` in TypeScript — passes its recordings and its own in-process tests (after: Parity check — it is proven against the recordings; TypeScript skeleton — it runs on it)
+- [ ] `jig context` in Go — the same, in Go (after: Parity check — the same proof; Go skeleton — it runs on it)
+- [ ] The comparison and the choice — Windows test time with `git` counted, hook start time, code size and review rounds, what lies in the project; the gate of 3× decides whether to go on (after: both pilots — it compares them)
+
+## Phase 3 — The leaves
+
+Goal: the commands nothing else calls are ported. Done when: each passes its recordings and its
+bash tests are deleted.
+
+- [ ] fog: the exact set of leaf commands — `knowledge`, `queue`, `spec`, `config`, `doctor` are the expected ones; the call graph decides when the tasks are filed
+
+## Phase 4 — Verify, profiles and the middle
+
+Goal: the commands in the middle of the graph are ported, and `jig verify` runs no bash for the
+stock profiles. Done when: each passes its recordings, and a user's `verify.sh` still runs.
+
+- [ ] `jig verify` with the compatibility path for a user's `verify.sh` (after: The comparison and the choice — the language must be fixed)
+- [ ] The 13 stock profiles as modules — one task each, in parallel (after: `jig verify` — it calls them)
+- [ ] fog: `status`, `land`, `upgrade`, `housekeeping`, `pr` and the shared code under them — split once the leaves show how much shared code has already moved
+
+## Phase 5 — Task
+
+Goal: `jig task`, the largest command, is ported. Done when: it passes its recordings, and the owner
+has shipped tasks on this repository with `jig-next`.
+
+- [ ] fog: `jig task` — 10k lines of bash; cut into tasks by subcommand once Phase 4 has moved the code it shares
+
+## Phase 6 — Cut-over
+
+Goal: the new code is Jig. Done when: no bash is left outside the installer and the compatibility
+path, the suite runs on Windows in 10 minutes or less, and the owner has upgraded two projects.
+
+- [ ] The launcher and the files in a project are the new code, and the bash code and its tests are gone (after: Phase 5 — every command must be ported first)
+- [ ] The installer places the runtime, the machine-wide install is in versioned directories switched atomically, and rollback to 0.48 is documented
+- [ ] `jig upgrade` to 1.0 lists the branches left on 0.48, and `jig upgrade --branches` brings the open ones over
+- [ ] A pull request to Jig UI's spec says what 1.0 changes for it, with the shape of the hosted service from `research.md`
+- [ ] The owner's trial on two projects, one on the staging flow with open tasks (after: the three items above — it tries the finished cut-over)
+
+## Waves
+
+1. ADR superseding ADR-0002; `JIG_NOW` in bash
+2. CI skips pull requests into the epic, and a person can run the suite on Windows on any branch
+3. Recorder; TypeScript skeleton; Go skeleton
+4. Parity check
+5. `jig context` in TypeScript; `jig context` in Go
+6. The comparison and the choice
+7. `jig verify` with the compatibility path for a user's `verify.sh`
+8. The 13 stock profiles as modules
+
+<!--
+Rules (jig-idea §8):
+- An item is a finished slice that makes the product noticeably better, never a layer.
+- A dependency without a one-line reason is not a dependency.
+- A `task-id` appears when the item's task is filed; `[x]` is set when that task is closed.
+- `fog:` items are not split or sized; they become real items once the fog lifts.
+- No dates, no point estimates: order is the priority.
+- `jig spec list` counts checkbox lines only: `[x]` done, a leading backticked task id
+  followed by a dash (`—` or `-`) filed, a leading `fog:` fog. Keep waves as a numbered list.
+- A wave entry names an item by its title (the text before its first ` — `) or its task id,
+  entries separated by `;` — `jig spec plan` reports an entry that names no item or several.
+-->
