@@ -622,8 +622,17 @@ test_task_set_status_consolidated_succeeds_after_knowledge_consolidated() {
 # list`/`pr create`, plus `gh pr view <url> --json state --jq .state`
 # answering <view-state> verbatim (e.g. OPEN, MERGED), or failing outright
 # when <view-state> is FAIL — how a network hiccup or a revoked token reads.
+# A `pr list ... --state merged` answers <merged-rows> (the
+# `base<TAB>url<TAB>mergedAt` lines `task set` asks for, one per line, newest
+# first; none by default) or fails when <merged-rows> is FAIL; `pr view ...
+# --json createdAt` answers <created> (2026-01-01T00:00:00Z by default).
 pr_check_stub_gh() {
-  local existing="${1:-}" state="${2:-OPEN}"
+  local existing="${1:-}" state="${2:-OPEN}" merged="${3:-}" created="${4:-2026-01-01T00:00:00Z}" merged_url="-no-merged-url-"
+  # `pr view` of a merged row's address answers MERGED, whatever <view-state> says.
+  case "$merged" in
+    "" | FAIL) ;;
+    *) merged_url=$(printf '%s' "$merged" | cut -f2) ;;
+  esac
   mkdir -p stub-bin
   cat > stub-bin/gh <<STUB
 #!/usr/bin/env bash
@@ -633,6 +642,12 @@ case "\$1" in
     shift
     case "\$1" in
       list)
+        case "\$*" in
+          *"--state merged"*)
+            [ "$merged" != FAIL ] || exit 1
+            [ -z "$merged" ] || printf '%s\n' "$merged"
+            exit 0 ;;
+        esac
         if [ -n "$existing" ]; then
           printf '%s\n' "$existing"
         else
@@ -645,6 +660,10 @@ case "\$1" in
         printf 'https://github.com/example/example/pull/99\n'
         ;;
       view)
+        case "\$*" in
+          *createdAt*) printf '%s\n' "$created"; exit 0 ;;
+          *"$merged_url"*) printf 'MERGED\n'; exit 0 ;;
+        esac
         if [ "$state" = FAIL ]; then
           exit 1
         fi
@@ -714,6 +733,185 @@ test_task_set_status_consolidated_names_the_forge_error() {
   assert_contains "$ERR" "pull/99 is unknown, the forge could not be asked (gh: HTTP 401: Bad credentials (https://api.github.com/graphql)); it may already be merged"
   assert_not_contains "$ERR" "Try authenticating"
   assert_not_contains "$(cat .ai/workspace/tasks/T-1/state)" "status: consolidated"
+}
+
+# adopt-replacement-pr: the pull request `task ship` recorded was closed
+# unmerged, and a person merged another one from the same branch. The command
+# records the merged one and closes; anything less keeps the refusal.
+# adopt_fixture <state> — T-1 with a recorded pull request (#7) the forge
+# answers <state> for; clean main, GitHub stubbed by the caller afterwards.
+adopt_fixture() {
+  task_setup_clean
+  ship_cfg forge github
+  git remote add origin https://github.com/example/example.git
+  fixture_task T-1 task/T-1 active "knowledge_consolidated:true" "pr_url:https://github.com/example/example/pull/7"
+}
+
+test_task_set_status_consolidated_adopts_a_merged_replacement_pull_request() {
+  adopt_fixture
+  local t
+  t=$(printf '\t')
+  pr_check_stub_gh "" CLOSED "main${t}https://github.com/example/example/pull/8${t}2026-06-01T00:00:00Z"
+  run_split jig task set T-1 status consolidated
+  assert_eq 0 "$RC" "$ERR"
+  assert_contains "$OUT" "task set: T-1: https://github.com/example/example/pull/7 was closed unmerged; https://github.com/example/example/pull/8 from the same branch, merged into main, is recorded in its place"
+  assert_file_contains .ai/workspace/tasks/T-1/state "pr_url: https://github.com/example/example/pull/8"
+  assert_file_contains .ai/workspace/tasks/T-1/state "pr_into: main"
+  assert_file_contains .ai/workspace/tasks/T-1/state "status: consolidated"
+}
+
+# The same under --revision: the adoption's own write must not make the
+# caller's claim stale.
+test_task_set_status_consolidated_adopts_under_a_claimed_revision() {
+  adopt_fixture
+  local t rev
+  t=$(printf '\t')
+  pr_check_stub_gh "" CLOSED "main${t}https://github.com/example/example/pull/8${t}2026-06-01T00:00:00Z"
+  _tr_rev
+  rev=$REV
+  run_split jig task set T-1 status consolidated --revision "$rev"
+  assert_eq 0 "$RC" "$ERR"
+  assert_file_contains .ai/workspace/tasks/T-1/state "pr_url: https://github.com/example/example/pull/8"
+  assert_file_contains .ai/workspace/tasks/T-1/state "status: consolidated"
+}
+
+test_task_set_status_consolidated_keeps_the_refusal_without_a_replacement() {
+  adopt_fixture
+  pr_check_stub_gh "" CLOSED ""
+  run_split jig task set T-1 status consolidated
+  assert_eq 1 "$RC"
+  assert_contains "$ERR" "pull/7 is closed; merge it, then run this again"
+  assert_not_contains "$OUT" "recorded in its place"
+  assert_file_contains .ai/workspace/tasks/T-1/state "pr_url: https://github.com/example/example/pull/7"
+  assert_not_contains "$(cat .ai/workspace/tasks/T-1/state)" "pr_into"
+  assert_not_contains "$(cat .ai/workspace/tasks/T-1/state)" "status: consolidated"
+}
+
+test_task_set_status_consolidated_ignores_a_replacement_merged_elsewhere() {
+  adopt_fixture
+  local t
+  t=$(printf '\t')
+  pr_check_stub_gh "" CLOSED "release${t}https://github.com/example/example/pull/8${t}2026-06-01T00:00:00Z"
+  run_split jig task set T-1 status consolidated
+  assert_eq 1 "$RC"
+  assert_contains "$ERR" "pull/7 is closed; merge it, then run this again"
+  assert_file_contains .ai/workspace/tasks/T-1/state "pr_url: https://github.com/example/example/pull/7"
+  assert_not_contains "$(cat .ai/workspace/tasks/T-1/state)" "pr_into"
+}
+
+# Only a pull request the forge calls closed is replaced: an open one stays
+# the one the close waits for, and a forge that cannot answer changes nothing.
+test_task_set_status_consolidated_adopts_only_for_a_closed_pull_request() {
+  adopt_fixture
+  local t
+  t=$(printf '\t')
+  pr_check_stub_gh "" OPEN "main${t}https://github.com/example/example/pull/8${t}2026-06-01T00:00:00Z"
+  run_split jig task set T-1 status consolidated
+  assert_eq 1 "$RC"
+  assert_contains "$ERR" "pull/7 is open; merge it, then run this again"
+  assert_file_contains .ai/workspace/tasks/T-1/state "pr_url: https://github.com/example/example/pull/7"
+
+  pr_check_stub_gh "" FAIL "main${t}https://github.com/example/example/pull/8${t}2026-06-01T00:00:00Z"
+  run_split jig task set T-1 status consolidated
+  assert_eq 1 "$RC"
+  assert_contains "$ERR" "is unknown, the forge could not be asked"
+  assert_file_contains .ai/workspace/tasks/T-1/state "pr_url: https://github.com/example/example/pull/7"
+}
+
+test_task_set_status_consolidated_keeps_the_refusal_when_the_merged_list_fails() {
+  adopt_fixture
+  pr_check_stub_gh "" CLOSED FAIL
+  run_split jig task set T-1 status consolidated
+  assert_eq 1 "$RC"
+  assert_contains "$ERR" "pull/7 is closed; merge it, then run this again"
+  assert_file_contains .ai/workspace/tasks/T-1/state "pr_url: https://github.com/example/example/pull/7"
+  assert_not_contains "$(cat .ai/workspace/tasks/T-1/state)" "pr_into"
+}
+
+# A pull request merged before the recorded one was opened is an earlier
+# shipment of the branch, not its stand-in.
+test_task_set_status_consolidated_ignores_a_pull_request_merged_before_the_recorded_one() {
+  adopt_fixture
+  local t
+  t=$(printf '\t')
+  pr_check_stub_gh "" CLOSED "main${t}https://github.com/example/example/pull/5${t}2025-12-01T00:00:00Z"
+  run_split jig task set T-1 status consolidated
+  assert_eq 1 "$RC"
+  assert_contains "$ERR" "pull/7 is closed; merge it, then run this again"
+  assert_file_contains .ai/workspace/tasks/T-1/state "pr_url: https://github.com/example/example/pull/7"
+  assert_not_contains "$(cat .ai/workspace/tasks/T-1/state)" "pr_into"
+}
+
+# A revision that is stale refuses the close, adoption or not, and writes nothing.
+test_task_set_status_consolidated_stale_revision_with_an_adoption_writes_nothing() {
+  adopt_fixture
+  local t rev
+  t=$(printf '\t')
+  pr_check_stub_gh "" CLOSED "main${t}https://github.com/example/example/pull/8${t}2026-06-01T00:00:00Z"
+  _tr_rev
+  rev=$REV
+  jig task set T-1 knowledge_consolidated true >/dev/null
+  run_split jig task set T-1 status consolidated --revision "$rev"
+  assert_eq 1 "$RC"
+  assert_contains "$ERR" "the clone changed since revision $rev"
+  assert_file_contains .ai/workspace/tasks/T-1/state "pr_url: https://github.com/example/example/pull/7"
+  assert_not_contains "$(cat .ai/workspace/tasks/T-1/state)" "pr_into"
+  assert_not_contains "$(cat .ai/workspace/tasks/T-1/state)" "status: consolidated"
+}
+
+# --json keeps stdout an envelope: the adoption line goes to stderr.
+test_task_set_status_consolidated_json_says_the_adoption_on_stderr() {
+  adopt_fixture
+  local t
+  t=$(printf '\t')
+  pr_check_stub_gh "" CLOSED "main${t}https://github.com/example/example/pull/8${t}2026-06-01T00:00:00Z"
+  run_split jig task set T-1 status consolidated --json
+  assert_eq 0 "$RC" "$ERR"
+  assert_contains "$ERR" "task set: T-1: https://github.com/example/example/pull/7 was closed unmerged; https://github.com/example/example/pull/8 from the same branch, merged into main, is recorded in its place"
+  assert_not_contains "$OUT" "recorded in its place"
+  assert_contains "$OUT" '{"schema":1,'
+  assert_contains "$OUT" '"task":'
+  assert_file_contains .ai/workspace/tasks/T-1/state "pr_url: https://github.com/example/example/pull/8"
+}
+
+# gitlab_adopt_stub <state> <created> <merged-rows> — glab: `mr view` answers
+# <state> (merged for !8) and created_at, `mr list --merged` answers the JSON rows, each with
+# its author's web_url before its own to show the merge request's is read.
+gitlab_adopt_stub() {
+  mkdir -p stub-bin
+  cat > stub-bin/glab <<STUB
+#!/usr/bin/env bash
+case "\$1" in
+  auth) exit 0 ;;
+  mr)
+    shift
+    case "\$1" in
+      view)
+        # !8 is the merged stand-in, whatever <state> says of the recorded !7.
+        st="$1"; [ "\$2" != 8 ] || st=merged
+        printf '{"iid":%s,"state":"%s","created_at":"$2","author":{"id":3,"web_url":"https://gitlab.example/joe"}}\n' "\$2" "\$st" ;;
+      list) printf '%s\n' '$3' ;;
+    esac
+    ;;
+esac
+STUB
+  chmod +x stub-bin/glab
+  PATH="$PWD/stub-bin:$PATH"
+  export PATH
+}
+
+test_task_set_status_consolidated_adopts_a_merged_merge_request_on_gitlab() {
+  task_setup_clean
+  ship_cfg forge gitlab
+  git remote add origin https://gitlab.example/example/example.git
+  fixture_task T-1 task/T-1 active "knowledge_consolidated:true" "pr_url:https://gitlab.example/example/example/-/merge_requests/7"
+  gitlab_adopt_stub closed 2026-01-01T00:00:00.000Z '[{"iid":8,"target_branch":"main","author":{"id":3,"web_url":"https://gitlab.example/joe"},"web_url":"https://gitlab.example/example/example/-/merge_requests/8","merged_at":"2026-06-01T00:00:00.000Z"}]'
+  run_split jig task set T-1 status consolidated
+  assert_eq 0 "$RC" "$ERR"
+  assert_contains "$OUT" "https://gitlab.example/example/example/-/merge_requests/8 from the same branch, merged into main"
+  assert_file_contains .ai/workspace/tasks/T-1/state "pr_url: https://gitlab.example/example/example/-/merge_requests/8"
+  assert_file_contains .ai/workspace/tasks/T-1/state "pr_into: main"
+  assert_file_contains .ai/workspace/tasks/T-1/state "status: consolidated"
 }
 
 # Without a forge to ask, the refusal says which part is missing: the setting,
@@ -13052,6 +13250,25 @@ test_task_close_of_a_pull_request_into_the_base_needs_no_promotion() {
   printf 'pr_url: https://github.com/example/example/pull/7\npr_into: main\n' >> .ai/workspace/tasks/never/state
   run jig task set never status consolidated
   assert_eq 0 "$RC" "$OUT"
+}
+
+# The case that started adopt-replacement-pr: on the staging flow `task ship`
+# opened a pull request into staging (`pr_into: staging`), a person closed it
+# and merged another from the same branch straight into the base. The close
+# adopts the merged one, and the staging wait does not apply to it.
+test_task_close_adopts_a_pull_request_merged_into_the_base_on_the_staging_flow() {
+  _park_repo
+  ship_cfg forge github
+  local t
+  t=$(printf '\t')
+  pr_check_stub_gh "" CLOSED "main${t}https://github.com/example/example/pull/8${t}2026-06-01T00:00:00Z"
+  _scl_ready on
+  printf 'pr_url: https://github.com/example/example/pull/7\npr_into: staging\n' >> .ai/workspace/tasks/on/state
+  run_split jig task set on status consolidated
+  assert_eq 0 "$RC" "$ERR"
+  assert_file_contains .ai/workspace/tasks/on/state "pr_url: https://github.com/example/example/pull/8"
+  assert_file_contains .ai/workspace/tasks/on/state "pr_into: main"
+  assert_file_contains .ai/workspace/tasks/on/state "status: consolidated"
 }
 
 # A task that never reached the staging branch and opened no pull request has
