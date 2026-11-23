@@ -195,7 +195,7 @@ staging branch instead: exit 5 is a conflict you resolve as `jig-consolidate` §
 not; exit 3 on review is a stop when attended, and an unattended run is told to wait. After
 `landed …` or `not landed: …`, `end --reason "<that line>"` and do not close the task: it is
 **parked** — waiting for review or for "prepare for prod" — and the run is over. Never land it
-`--without-review` unless the person said so, never approve its pull request, never run
+`--without-review` unless the person said so (where nobody answers, `autopilot.unattended`, it is refused: the person runs `jig task land <id> --by human --without-review`), never approve its pull request, never run
 `jig task promote`. `--by human` is a person's form, for the person or their UI; the agent never
 passes it. `autopilot start` and `stage` refuse a parked task, and only a person's
 `jig task resume <id>` takes it back for a fix. With
