@@ -4,21 +4,24 @@ Destination: Jig 1.0 runs with no bash except the installer and the compatibilit
 own `verify.sh`, its full test suite takes 10 minutes or less on Windows, and a project on 0.48.x
 reaches it through `jig upgrade` with no manual steps, open tasks included.
 
-## Phase 0 — Ready on main
+Epic: epic/stack-migration
 
-Goal: main is ready for the epic and the decision is on record. Done when: the ADR is accepted, a
-pull request into the epic runs no tests, and the bash tests can control time.
+## Phase 0 — Ready
 
-- [ ] ADR superseding ADR-0002 — the language is chosen by the pilot, and the decisions of this spec that do not depend on it are accepted
-- [ ] CI skips pull requests into the epic, and a person can run the suite on Windows on any branch — `workflow_dispatch` (after: ADR superseding ADR-0002 — the epic exists only once the move is decided)
-- [ ] `JIG_NOW` in bash — every reading of the clock goes through one place a test can set, so recordings do not depend on the day they were taken
+Goal: the decision is on record and the epic can take ported code. Done when: the ADR is accepted, a
+pull request into the epic runs no tests while a person can run the suite on Windows by hand, and
+the bash tests can control time.
+
+- [ ] `stack-adr` — ADR superseding ADR-0002: the language is chosen by the pilot, and the decisions of this spec that do not depend on it are accepted
+- [ ] `epic-ci-skip` — CI skips pull requests into the epic, and a person can run the suite on Windows on any branch through `workflow_dispatch`
+- [ ] `bash-clock-seam` — `JIG_NOW` in bash: every reading of the clock goes through one place a test can set, so recordings do not depend on the day they were taken
 
 ## Phase 1 — Scaffold
 
 Goal: anything can be ported and proven against bash. Done when: a trivial command written in the
 new code passes against its recordings, locally and on the manual Windows run.
 
-- [ ] Recorder — running the bash tests in record mode keeps, for every `jig` call, arguments, environment, file trees before and after, output, exit code and stub logs, normalised (after: `JIG_NOW` in bash — time must be controlled before anything is recorded)
+- [ ] Recorder — running the bash tests in record mode keeps, for every `jig` call, arguments, environment, file trees before and after, output, exit code and stub logs, normalised (after: `bash-clock-seam` — time must be controlled before anything is recorded)
 - [ ] Parity check — a ported command is run against its recordings and the differences are reported, with a list of intended differences (after: Recorder — it reads what the recorder wrote)
 - [ ] TypeScript skeleton — runtime choice, `jig-next`, core and CLI split, the process executor, the storage module reading today's files, zod schemas, the invariant test, the bundle into `jig.mjs` with the dependency rules checked
 - [ ] Go skeleton — the same pieces in Go, enough to port the pilot
@@ -68,14 +71,13 @@ path, the suite runs on Windows in 10 minutes or less, and the owner has upgrade
 
 ## Waves
 
-1. ADR superseding ADR-0002; `JIG_NOW` in bash
-2. CI skips pull requests into the epic, and a person can run the suite on Windows on any branch
-3. Recorder; TypeScript skeleton; Go skeleton
-4. Parity check
-5. `jig context` in TypeScript; `jig context` in Go
-6. The comparison and the choice
-7. `jig verify` with the compatibility path for a user's `verify.sh`
-8. The 13 stock profiles as modules
+1. `stack-adr`; `epic-ci-skip`; `bash-clock-seam`
+2. Recorder; TypeScript skeleton; Go skeleton
+3. Parity check
+4. `jig context` in TypeScript; `jig context` in Go
+5. The comparison and the choice
+6. `jig verify` with the compatibility path for a user's `verify.sh`
+7. The 13 stock profiles as modules
 
 <!--
 Rules (jig-idea §8):
