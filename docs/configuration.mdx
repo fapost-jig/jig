@@ -217,7 +217,10 @@ Some settings are a matter of personal taste rather than project policy. Put the
 - `agent.ci_timeout` — minutes the `merge` level waits for the pull request's checks (default 30);
   local only, like `agent.git`.
 - `autopilot.unattended` — `true` lets an autopilot run go on without asking you anything; local
-  only. See [Autopilot: without stops](/autopilot#without-stops).
+  only. It is read for the whole clone, not only inside a run: in any session there Jig treats
+  nobody as answering — the agent approves a T3/T4 design itself, cannot lower a class below T3 and
+  cannot land `--without-review`; you land such a pull request yourself with
+  `jig task land <id> --by human --without-review`. See [Autopilot: without stops](/autopilot#without-stops).
 - `autopilot.parallel` — how many tasks autopilot builds at the same time: a roadmap phase's wave,
   or a run over a set of tasks (default 2, at most 16); a run stopped for a person holds no slot;
   local only. See

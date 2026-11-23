@@ -7245,7 +7245,19 @@ test_task_land_unattended_waits_for_review() {
 
   run jig task land T-1 --without-review
   assert_eq 1 "$RC" "$OUT"
-  assert_contains "$OUT" "task land: --without-review: nobody answers in an unattended run, so https://github.com/example/example/pull/99 waits for review"
+  assert_contains "$OUT" "task land: --without-review: nobody answers in an unattended run, so https://github.com/example/example/pull/99 waits for review; the person lands it themselves: jig task land T-1 --by human --without-review"
+}
+
+# The person's own landing is somebody answering: the same clone, unattended,
+# does not refuse `--by human --without-review` for "nobody answers".
+test_task_land_by_human_without_review_is_not_refused_in_an_unattended_clone() {
+  shuman_setup
+  ship_cfg_local autopilot.unattended true
+
+  shuman_land --without-review
+  assert_eq 0 "$RC" "$ERR"
+  assert_not_contains "$OUT$ERR" "nobody answers"
+  assert_contains "$OUT" '"without_review":"person"'
 }
 
 test_task_land_require_waits_for_an_approval() {

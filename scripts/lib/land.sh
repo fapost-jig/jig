@@ -368,7 +368,7 @@ land_task() {
     [ "$(jig_staging_review || true)" != require ] \
       || _land_refuse review-required "$who: --without-review: git.staging_review is require, so $pr waits for an approval"
     ! _land_nobody_answers "$id" \
-      || jig_die "$who: --without-review: nobody answers in an unattended run, so $pr waits for review"
+      || jig_die "$who: --without-review: nobody answers in an unattended run, so $pr waits for review; the person lands it themselves: jig task land $id --by human --without-review"
   fi
 
   # The person's word given earlier in this landing, still standing while a
