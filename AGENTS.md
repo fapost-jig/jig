@@ -170,4 +170,4 @@ new class requires.
 - Before finishing a task, ask: what here should survive the task? Update
   `.ai/knowledge/` accordingly, or state `NO_DURABLE_KNOWLEDGE` — and record the decision
   in task state (`jig-consolidate`), not only in `plan.md`. Knowledge frontmatter is
-  maintained by `jig knowledge new|paths|reviewed`, never by hand.
+  maintained by `jig knowledge new|paths|reviewed|supersede`, never by hand.

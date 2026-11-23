@@ -1856,6 +1856,148 @@ test_summary_rejects_extra_argument() {
   assert_contains "$OUT" "knowledge summary: unknown argument: b"
 }
 
+# --- knowledge supersede ------------------------------------------------------
+
+# ks_pair <type> — an active pair of documents of one type: <type>-old, <type>-new.
+ks_pair() {
+  km_setup
+  jig knowledge new "$1" old --domains core >/dev/null
+  jig knowledge new "$1" new --domains core >/dev/null
+}
+
+test_supersede_marks_the_old_and_names_it_on_the_new() {
+  km_setup
+  jig knowledge new adr old --domains core >/dev/null
+  jig knowledge new adr new --domains core >/dev/null
+  oldid=$(grep -h '^id:' .ai/knowledge/adr/*old.md | sed 's/^id: *//')
+  newid=$(grep -h '^id:' .ai/knowledge/adr/*new.md | sed 's/^id: *//')
+  oldf=$(ls .ai/knowledge/adr/*old.md)
+  newf=$(ls .ai/knowledge/adr/*new.md)
+  sed -i.bak 's/^status: .*/status: accepted/' "$oldf" "$newf"; rm -f "$oldf.bak" "$newf.bak"
+  run jig knowledge supersede "$oldid" --by "$newid"
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "superseded $oldf  by $newid"
+  assert_contains "$OUT" "supersedes $newf  $oldid"
+  assert_contains "$(cat "$oldf")" "status: superseded"
+  assert_contains "$(cat "$newf")" "supersedes: $oldid"
+  run jig knowledge check
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "0 failures"
+}
+
+test_supersede_works_for_a_feature_pair() {
+  ks_pair feature
+  run jig knowledge supersede feature-old --by feature-new
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "superseded .ai/knowledge/features/old.md  by feature-new"
+  assert_contains "$(cat .ai/knowledge/features/new.md)" "supersedes: feature-old"
+  run jig knowledge check
+  assert_eq 0 "$RC"
+}
+
+test_supersede_refuses_a_self_reference_and_writes_nothing() {
+  ks_pair feature
+  run jig knowledge supersede feature-old --by feature-old
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "knowledge supersede: a document cannot supersede itself: feature-old"
+  assert_contains "$(cat .ai/knowledge/features/old.md)" "status: active"
+}
+
+test_supersede_refuses_an_unknown_id_on_either_side() {
+  ks_pair feature
+  run jig knowledge supersede feature-nope --by feature-new
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "knowledge: no document with id: feature-nope"
+  run jig knowledge supersede feature-old --by feature-nope
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "knowledge: no document with id: feature-nope"
+  assert_contains "$(cat .ai/knowledge/features/old.md)" "status: active"
+  assert_not_contains "$(cat .ai/knowledge/features/new.md)" "supersedes:"
+}
+
+test_supersede_refuses_documents_of_different_types() {
+  km_setup
+  jig knowledge new feature old --domains core >/dev/null
+  jig knowledge new convention new --domains core >/dev/null
+  run jig knowledge supersede feature-old --by convention-new
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "knowledge supersede: feature-old is type feature but convention-new is type convention; a document is replaced by one of its own type"
+  assert_contains "$(cat .ai/knowledge/features/old.md)" "status: active"
+}
+
+test_supersede_refuses_an_old_document_already_superseded() {
+  ks_pair feature
+  jig knowledge new feature third --domains core >/dev/null
+  jig knowledge supersede feature-old --by feature-new >/dev/null
+  run jig knowledge supersede feature-old --by feature-third
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "knowledge supersede: feature-old is already superseded"
+  assert_not_contains "$(cat .ai/knowledge/features/third.md)" "supersedes:"
+}
+
+test_supersede_refuses_a_document_that_is_not_active() {
+  ks_pair feature
+  jig knowledge new feature draft --domains core --proposed >/dev/null
+  run jig knowledge supersede feature-draft --by feature-new
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "knowledge supersede: feature-draft is proposed; only an active or accepted document is superseded"
+  run jig knowledge supersede feature-old --by feature-draft
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "knowledge supersede: feature-draft is proposed; the replacing document must be active or accepted (accept it first)"
+  assert_contains "$(cat .ai/knowledge/features/old.md)" "status: active"
+  assert_not_contains "$(cat .ai/knowledge/features/draft.md)" "supersedes:"
+}
+
+test_supersede_refuses_a_new_document_that_already_supersedes_another() {
+  ks_pair feature
+  jig knowledge new feature third --domains core >/dev/null
+  jig knowledge supersede feature-old --by feature-new >/dev/null
+  run jig knowledge supersede feature-third --by feature-new
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "knowledge supersede: feature-new already supersedes feature-old; one document replaces one"
+  assert_contains "$(cat .ai/knowledge/features/third.md)" "status: active"
+}
+
+test_supersede_refuses_a_cycle() {
+  ks_pair feature
+  # Hand-built state: the old document already names the new one as replaced.
+  sed -i.bak '/^status:/a\
+supersedes: feature-new
+' .ai/knowledge/features/old.md; rm -f .ai/knowledge/features/old.md.bak
+  run jig knowledge supersede feature-old --by feature-new
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "knowledge supersede: feature-old already supersedes feature-new; that would be a cycle"
+  assert_contains "$(cat .ai/knowledge/features/old.md)" "status: active"
+}
+
+test_supersede_usage_and_arguments() {
+  ks_pair feature
+  run jig knowledge supersede
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "usage: jig knowledge supersede <old-id> --by <new-id>"
+  run jig knowledge supersede feature-old
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "usage: jig knowledge supersede <old-id> --by <new-id>"
+  run jig knowledge supersede feature-old --by
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "knowledge supersede: --by requires an id"
+  run jig knowledge supersede feature-old --by feature-new extra
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "knowledge supersede: unknown argument: extra"
+  run jig knowledge supersede feature-old --by feature-new --bogus
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "knowledge supersede: unknown argument: --bogus"
+  assert_contains "$(cat .ai/knowledge/features/old.md)" "status: active"
+}
+
+test_check_warns_a_superseded_document_no_one_names() {
+  ks_pair feature
+  sed -i.bak 's/^status: active/status: superseded/' .ai/knowledge/features/old.md; rm -f .ai/knowledge/features/old.md.bak
+  run jig knowledge check
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "WARN .ai/knowledge/features/old.md: status superseded but no document names it in supersedes (jig knowledge supersede feature-old --by <new-id>)"
+}
+
 test_accept_promotes_proposed_feature_to_active() {
   km_setup
   jig knowledge new feature smoke --proposed >/dev/null

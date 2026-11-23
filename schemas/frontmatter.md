@@ -53,7 +53,7 @@ key:
 | `stages` | no | list of route-stage names; additive promotion for matched catalog documents inside entered domains (ADR-0021); with `load: stage`, the only stages the document is required at |
 | `requires` | no | list of document ids that must be loaded whenever this document is; transitive and acyclic |
 | `paths` | no | list of globs relative to the repository root, matched by `jig context --files`; `**` matches any depth. `*` is the only wildcard — `?`, `[...]` and brace groups (`{a,b}`) are literal characters, not glob syntax. A glob ending in `/` names a directory and matches any file under it, including directly under it, the same as if `*` (or `**`) had been appended — never the directory itself: a glob is checked against files that exist, and an otherwise-empty directory is not a match (ADR-20260930-a-paths-glob-has-one-wildcard) |
-| `supersedes` | no | id of the document this one replaces |
+| `supersedes` | no | id of the document this one replaces; written by `jig knowledge supersede`, which also sets the old document's `status: superseded` |
 | `reviewed_at` | no | `YYYY-MM-DD`, when the document was last reconciled with the code it describes; read by `jig knowledge stale` (ADR-0010) |
 | `source` | no | repository-relative path of an existing tracked file this document links; makes it a stub (see below, ADR-0036) |
 | `source_hash` | no | git blob hash of the source as a human approved it; written by `jig knowledge accept` and `jig knowledge reviewed` on a stub, never by hand |
@@ -184,6 +184,7 @@ domain just as well.
 | ADR file name not `YYYYMMDD-<slug>.md` (or a legacy `NNNN-<slug>.md`), an invalid date, a date other than `date:`, or a duplicate legacy number | fail |
 | relative markdown link to a missing file | fail |
 | `supersedes` pointing to an unknown id | fail |
+| `status: superseded` that no document names in `supersedes` | warn |
 | invalid `reviewed_at` (not `YYYY-MM-DD`) | fail |
 | unquoted scalar containing `: `, which YAML reads as a nested mapping | fail |
 | `source` absent, a symlink, untracked, or tracked with different case | fail |
@@ -210,6 +211,7 @@ characters that a careless `sed` would eat (ADR-0001, convention-shell):
 | `jig knowledge accept <id>...` | promote one or more `proposed` documents to `active` (adr: `accepted`) |
 | `jig knowledge reject <id>...` | mark one or more `proposed` documents `rejected`; never deletes or moves the file |
 | `jig knowledge inventory [--scope <dir>]` | deterministic facts about the repository's shape: tracked root files named individually (where manifests live), instruction files of every known tool (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.cursorrules`, `.windsurfrules`, `.github/copilot-instructions.md`, `.cursor/rules/*.mdc`) with their git state when untracked and the stub linking them, tracked file counts per directory, `doc:` candidates (Markdown-like files, tracked, untracked or ignored, with size and `linked by <id>`), and `skipped:` ignored directories it did not walk; `CLAUDE.local.md` never appears. It carries no knowledge of what a manifest *means* — that mapping is declared once in each profile's `detect` globs, and recognising it is the agent's judgement (ADR-0001). Prints neither the catalog nor the coverage gaps either — those are `jig context resolve --catalog` and `jig knowledge paths` |
+| `jig knowledge supersede <old-id> --by <new-id>` | retire a document in favour of another of its own type: `status: superseded` on the old one, `supersedes: <old-id>` on the new one. Refuses an unknown id, the same id twice, documents of different types, an old document that is already superseded or not `active`/`accepted`, a new document that is not `active`/`accepted` or already supersedes another, and writes nothing when it refuses |
 | `jig knowledge reviewed <id>` | stamp `reviewed_at` |
 | `jig knowledge stale` | `stale` / `unreviewed` / `orphaned` (stamped, code gone) / `planned` (never stamped, code not written yet) |
 
