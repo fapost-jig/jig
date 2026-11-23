@@ -2203,13 +2203,18 @@ _task_close_build() {
   local i=0
   while [ "$i" -lt "${#kv[@]}" ]; do
     n=$((n + 1))
-    next="$dst.step$n"
+    # The last step writes <dst> itself: this function moves nothing into
+    # place, its caller does, under its claim.
+    if [ $((i + 2)) -lt "${#kv[@]}" ]; then
+      next="$dst.step$n"
+    else
+      next=$dst
+    fi
     _task_state_set_into "$src" "$next" "${kv[$i]}" "${kv[$((i + 1))]}"
     [ "$src" = "$dir/state" ] || rm -f "$src"
     src=$next
     i=$((i + 2))
   done
-  mv "$src" "$dst"
 }
 
 # The pull request a close adopts in place of the recorded one, as
