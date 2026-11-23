@@ -7957,6 +7957,72 @@ test_task_land_by_human_refuses_a_draft_and_an_unknown_mergeable() {
   assert_no_file gh-merge.argv
 }
 
+test_task_merge_pr_refuses_while_autopilot_runs_naming_its_last_event_and_the_road() {
+  srow_ship 'git.flow: direct'
+  printf 'autopilot: on\n' >> .ai/workspace/tasks/T-1/state
+  printf '2026-11-20T10:00:00Z\tstage\tanalyze\n2026-11-20T11:30:00Z\trepair\tcheck failed\n' > .ai/workspace/tasks/T-1/autopilot
+
+  run jig task merge-pr T-1 --by human
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "T-1 runs on autopilot; the agent is on it, wait for it to stop"
+  assert_contains "$OUT" "its last event: repair at 2026-11-20T11:30:00Z"
+  assert_contains "$OUT" "if no agent is on it any more: jig task autopilot T-1 stop --reason <why>"
+  assert_not_contains "$OUT" "analyze"
+}
+
+test_task_merge_pr_refuses_while_autopilot_runs_without_a_journal_naming_only_the_road() {
+  srow_ship 'git.flow: direct'
+  printf 'autopilot: on\n' >> .ai/workspace/tasks/T-1/state
+  rm -f .ai/workspace/tasks/T-1/autopilot
+
+  run jig task merge-pr T-1 --by human
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "T-1 runs on autopilot; the agent is on it, wait for it to stop"
+  assert_not_contains "$OUT" "its last event"
+  assert_contains "$OUT" "if no agent is on it any more: jig task autopilot T-1 stop --reason <why>"
+}
+
+test_task_merge_pr_json_refusal_while_autopilot_runs_is_still_autopilot_running() {
+  srow_ship 'git.flow: direct'
+  printf 'autopilot: on\n' >> .ai/workspace/tasks/T-1/state
+  printf '2026-11-20T11:30:00Z\trepair\tcheck failed\n' > .ai/workspace/tasks/T-1/autopilot
+
+  run_split jig task merge-pr T-1 --by human --json
+  assert_eq 1 "$RC" "$ERR"
+  assert_eq autopilot-running "$(_tr_code)"
+}
+
+test_task_ship_not_merged_under_autopilot_says_the_run_is_still_on() {
+  mship_setup github
+  printf 'fail\n' > gh-checks
+  jig task autopilot T-1 start >/dev/null
+
+  run jig task ship T-1 --message-file msg.txt
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "not merged: a check failed"
+  assert_contains "$OUT" 'autopilot: the run of T-1 is still on: ship again once it can merge, or end it: jig task autopilot T-1 end --reason "not merged: <why>"'
+}
+
+test_task_ship_not_merged_without_autopilot_says_nothing_of_a_run() {
+  mship_setup github
+  printf 'fail\n' > gh-checks
+
+  run jig task ship T-1 --message-file msg.txt
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "not merged: a check failed"
+  assert_not_contains "$OUT" "is still on"
+}
+
+test_task_ship_merged_under_autopilot_says_nothing_of_a_run() {
+  mship_setup github
+  jig task autopilot T-1 start >/dev/null
+
+  run jig task ship T-1 --message-file msg.txt
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "merged https://"
+  assert_not_contains "$OUT" "is still on"
+}
+
 test_task_land_by_human_refuses_while_autopilot_runs() {
   shuman_setup
   printf 'APPROVED|APPROVED\n' > gh-review
@@ -8172,7 +8238,7 @@ test_task_actions_land_row_is_a_persons_and_reads_no_level() {
 
   printf 'autopilot: on\n' >> .ai/workspace/tasks/T-1/state
   run jig task list --json
-  assert_contains "$OUT" '{"id":"land","command":"jig task land T-1 --by human","offered":false,"reason":"task land: T-1 runs on autopilot; the agent is on it, wait for it to stop"}'
+  assert_contains "$OUT" '{"id":"land","command":"jig task land T-1 --by human","offered":false,"reason":"task land: T-1 runs on autopilot; the agent is on it, wait for it to stop; if no agent'
 }
 
 test_task_actions_land_row_is_withheld_while_a_ship_waits() {
@@ -8322,8 +8388,8 @@ test_task_actions_review_and_merge_rows_are_withheld_while_the_agent_is_on_the_t
   srow_ship 'git.flow: direct'
   printf 'autopilot: on\n' >> .ai/workspace/tasks/T-1/state
   run jig task list --json
-  assert_contains "$OUT" '"id":"request-review","command":"jig task request-review T-1 --reviewer <login> --by human","offered":false,"reason":"task request-review: T-1 runs on autopilot; the agent is on it, wait for it to stop"'
-  assert_contains "$OUT" '"id":"merge","command":"jig task merge-pr T-1 --by human","offered":false,"reason":"task merge-pr: T-1 runs on autopilot; the agent is on it, wait for it to stop"'
+  assert_contains "$OUT" '"id":"request-review","command":"jig task request-review T-1 --reviewer <login> --by human","offered":false,"reason":"task request-review: T-1 runs on autopilot; the agent is on it, wait for it to stop; if no agent'
+  assert_contains "$OUT" '"id":"merge","command":"jig task merge-pr T-1 --by human","offered":false,"reason":"task merge-pr: T-1 runs on autopilot; the agent is on it, wait for it to stop; if no agent'
   sed '/^autopilot:/d' .ai/workspace/tasks/T-1/state > s.tmp
   mv s.tmp .ai/workspace/tasks/T-1/state
   mkdir -p .ai/runtime/shipping
