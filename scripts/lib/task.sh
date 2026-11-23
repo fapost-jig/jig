@@ -2029,6 +2029,10 @@ _task_set_body() {
   # And a merge alone never closes a task (AGENTS.md), nor does closing stand
   # in for one: _task_close_refusal asks the forge about the pull request now.
   if [ "$key" = status ] && [ "$value" = consolidated ]; then
+    # What the close would adopt in place of a closed `pr_url` is decided here,
+    # in this shell, and written nothing: the refusal below judges it, and the
+    # one write that closes the task carries it (_task_close_write).
+    _task_close_adopt_v "$id"
     refusal=$(_task_close_refusal "$id" forge) || exit 1
     [ -z "$refusal" ] || jig_fail not-closable "$refusal"
   fi
@@ -2087,6 +2091,7 @@ _task_set_body() {
 
   if [ "$claim" -eq 1 ]; then
     _task_close_write "$id" "$dir" "$expected"
+    _task_close_adopt_say "$id" "$as_json"
     _task_queue_prune "$id" "task set"
     if [ "$as_json" -eq 1 ]; then
       printf '{"task":%s}\n' "$(_task_json_one "$id")"
@@ -2096,6 +2101,19 @@ _task_set_body() {
 
   local was=""
   [ "$key" != status ] || was=$(task_state_get "$id" status)
+  # A close that adopts a merged replacement of the recorded pull request is
+  # one file, built whole: the new address, where it went and the status.
+  if [ "$key:$value" = status:consolidated ] && [ -n "$_TASK_ADOPT_URL" ]; then
+    local atmp="$dir/state.tmp.$$"
+    _task_guard_dir "$dir"
+    _task_close_build "$id" "$dir" "$atmp"
+    mv "$atmp" "$dir/state"
+    jig_task_state_forget
+    jig_record_changed
+    _task_close_adopt_say "$id" "$as_json"
+    _task_queue_prune "$id" "task set"
+    return 0
+  fi
   # A bare triage task closes in one command: it carries no change whose
   # intent could be lost, so its knowledge decision is recorded with the close
   # and `consolidated` still implies `knowledge_consolidated: true` (ADR-0030)
@@ -2156,23 +2174,162 @@ _task_claim_or_refuse() {
 # claim, as `task resume` lands its own. A claim that does not stand writes
 # nothing and refuses with `stale-revision`.
 _task_close_write() {
-  local id="$1" dir="$2" expected="$3" claimed="${4:-}" tmp tmp2
+  local id="$1" dir="$2" expected="$3" claimed="${4:-}" tmp
   tmp="$dir/state.tmp.$$"
-  tmp2="$dir/state.tmp2.$$"
   _task_guard_dir "$dir"
-  if _task_is_bare_triage "$id" && [ "$(task_state_get "$id" knowledge_consolidated)" != true ]; then
-    _task_state_set_into "$dir/state" "$tmp2" knowledge_consolidated true
-    _task_state_set_into "$tmp2" "$tmp" status consolidated
-    rm -f "$tmp2"
-  else
-    _task_state_set_into "$dir/state" "$tmp" status consolidated
-  fi
+  _task_close_build "$id" "$dir" "$tmp"
   # <claimed> says the caller holds the claim already (`task merge-pr`, which
   # claims before it merges and closes under that one claim).
-  [ -n "$claimed" ] || _task_claim_or_refuse "task set" "$expected" "$tmp" "$tmp2"
+  [ -n "$claimed" ] || _task_claim_or_refuse "task set" "$expected" "$tmp"
   mv "$tmp" "$dir/state"
   jig_task_state_forget
   jig_record_changed
+}
+
+# _task_close_build <id> <dir> <dst> — the state of the closed task built whole
+# into <dst>, nothing moved into place: the knowledge decision of a bare
+# triage task, the pull request a close adopted (_task_close_adopt_v) with
+# where it went, and `status: consolidated`, as one file for one claim.
+_task_close_build() {
+  local id="$1" dir="$2" dst="$3" src="$2/state" n=0 next
+  local -a kv=()
+  if _task_is_bare_triage "$id" && [ "$(task_state_get "$id" knowledge_consolidated)" != true ]; then
+    kv+=(knowledge_consolidated true)
+  fi
+  if [ -n "$_TASK_ADOPT_URL" ]; then
+    kv+=(pr_url "$_TASK_ADOPT_URL" pr_into "$_TASK_ADOPT_INTO")
+  fi
+  kv+=(status consolidated)
+  local i=0
+  while [ "$i" -lt "${#kv[@]}" ]; do
+    n=$((n + 1))
+    next="$dst.step$n"
+    _task_state_set_into "$src" "$next" "${kv[$i]}" "${kv[$((i + 1))]}"
+    [ "$src" = "$dir/state" ] || rm -f "$src"
+    src=$next
+    i=$((i + 2))
+  done
+  mv "$src" "$dst"
+}
+
+# The pull request a close adopts in place of the recorded one, as
+# _task_close_adopt_v decided it: its address, the branch it went into and the
+# recorded address it replaces. Empty when nothing is adopted.
+_TASK_ADOPT_URL=""
+_TASK_ADOPT_INTO=""
+_TASK_ADOPT_FROM=""
+
+# _task_branch_pr_rows <branch> <open|merged> — one row per pull request of
+# the forge from <branch>, newest first: `<target><TAB><url><TAB><merged_at>`
+# (merged_at empty when the forge does not say, or for an open one). Returns 1
+# with nothing printed when there is no forge or it could not be asked, so a
+# caller can tell "none" from "could not say". The one place `task ship` and
+# the close ask the forge for the pull requests of a branch.
+_task_branch_pr_rows() {
+  local branch="$1" state="$2" kind out="" line
+  kind=$(jig_forge_kind 2>/dev/null) || return 1
+  case "$kind" in
+    github)
+      jig_gh_resolve || return 1
+      out=$(jig_net jig_gh pr list --head "$branch" --state "$state" --json url,baseRefName,mergedAt \
+        --jq '.[] | [.baseRefName, .url, .mergedAt] | join("\t")' 2>/dev/null) || return 1 ;;
+    gitlab)
+      local merged=""
+      [ "$state" != merged ] || merged=--merged
+      out=$(jig_net glab mr list --source-branch "$branch" ${merged:+"$merged"} --output json 2>/dev/null) || return 1
+      # The merge request's own web_url, not its author's, which comes first.
+      out=$(printf '%s\n' "$out" | jig_glab_fields target_branch web_url@/merge_requests/ merged_at) || return 1 ;;
+    *) return 1 ;;
+  esac
+  while IFS= read -r line; do
+    line=${line%$'\r'}
+    [ -z "$line" ] || printf '%s\n' "$line"
+  done <<ROWS
+$out
+ROWS
+  return 0
+}
+
+# _task_pr_created_v <var> <url> — when the pull request <url> was opened, as
+# the forge says it (empty when it cannot).
+_task_pr_created_v() {
+  local __tpc_kind __tpc_out="" __tpc_iid
+  __tpc_kind=$(jig_forge_kind 2>/dev/null) || __tpc_kind=""
+  case "$__tpc_kind" in
+    github)
+      jig_gh_resolve || __tpc_kind=""
+      [ -z "$__tpc_kind" ] || __tpc_out=$(jig_net jig_gh pr view "$2" --json createdAt --jq .createdAt 2>/dev/null) || __tpc_out="" ;;
+    gitlab)
+      __tpc_iid=$(_jig_ship_glab_mr "$2")
+      if [ -n "$__tpc_iid" ]; then
+        __tpc_out=$(jig_net glab mr view "$__tpc_iid" --output json 2>/dev/null | jig_glab_fields created_at) || __tpc_out=""
+      fi ;;
+  esac
+  __tpc_out=${__tpc_out%$'\r'}
+  printf -v "$1" '%s' "$__tpc_out"
+}
+
+# _task_close_adopt_v <id> — decide, before the close asks the forge about
+# `pr_url`, whether another pull request stands in for it, and write nothing.
+# The case: the recorded pull request is `closed` unmerged, and another from
+# the task's branch was merged into the base (or the staging branch) after the
+# recorded one was opened — a person opened it by hand and closed the one
+# `task ship` made. Sets _TASK_ADOPT_URL, _TASK_ADOPT_INTO and
+# _TASK_ADOPT_FROM; _task_close_refusal judges the adopted address like any
+# recorded one (only `merged` lets a close through) and _task_close_write
+# records it with the close. Anything else — not closed, unknown, a forge that
+# does not answer, no such pull request, a time that is missing — leaves them
+# empty. Runs in the caller's shell, not `$(...)`, so the globals reach the
+# refusal and the write.
+_task_close_adopt_v() {
+  local id="$1" pr branch base staging="" flow kind rows st="" why="" created
+  local target url merged_at found_url="" found_into="" t=$'\t'
+  _TASK_ADOPT_URL=""
+  _TASK_ADOPT_INTO=""
+  _TASK_ADOPT_FROM=""
+  task_state_var pr "$id" pr_url
+  task_state_var branch "$id" branch
+  [ -n "$pr" ] && [ -n "$branch" ] || return 0
+  kind=$(jig_forge_kind 2>/dev/null) || return 0
+  case "$kind" in github | gitlab) ;; *) return 0 ;; esac
+  jig_pr_state_v st why "$pr"
+  [ "$st" = closed ] || return 0
+  rows=$(_task_branch_pr_rows "$branch" merged) || return 0
+  _task_pr_created_v created "$pr"
+  [ -n "$created" ] || return 0
+  jig_task_base_v base "$id"
+  cfg_v flow git.flow direct
+  if [ "$flow" = staging ]; then
+    staging=$(jig_staging_in_use) || staging=""
+  fi
+  while IFS="$t" read -r target url merged_at; do
+    [ -n "$target" ] && [ -n "$url" ] && [ -n "$merged_at" ] || continue
+    if [ "$target" = "$base" ] || { [ -n "$staging" ] && [ "$target" = "$staging" ]; }; then
+      # Merged after the recorded one was opened (UTC, to the second): one
+      # merged before it is an earlier shipment of the branch, not its stand-in.
+      [ "${merged_at:0:19}" \> "${created:0:19}" ] || continue
+      found_url=$url
+      found_into=$target
+      break
+    fi
+  done <<ROWS
+$rows
+ROWS
+  [ -n "$found_url" ] && [ "$found_url" != "$pr" ] || return 0
+  _TASK_ADOPT_URL=$found_url
+  _TASK_ADOPT_INTO=$found_into
+  _TASK_ADOPT_FROM=$pr
+  return 0
+}
+
+# _task_close_adopt_say <id> <as-json> — the one line that says what the close
+# recorded in place of the closed pull request, after it was written (stderr
+# under --json, whose stdout is the envelope). Nothing when nothing was adopted.
+_task_close_adopt_say() {
+  local id="$1" as_json="$2" msg
+  [ -n "$_TASK_ADOPT_URL" ] || return 0
+  msg="task set: $id: $_TASK_ADOPT_FROM was closed unmerged; $_TASK_ADOPT_URL from the same branch, merged into $_TASK_ADOPT_INTO, is recorded in its place"
+  if [ "$as_json" = 1 ]; then printf '%s\n' "$msg" >&2; else printf '%s\n' "$msg"; fi
 }
 
 # _task_close_refusal <id> <pr-state> [<base-state>] — why `jig task set <id> status
@@ -2182,6 +2339,10 @@ _task_close_write() {
 # the actions table (_task_actions), which never asks the forge. A cache's
 # `merged` cannot be contradicted by the forge, since a merge is final; a cache
 # behind the forge can only withhold a close the command would allow.
+#
+# A closed unmerged `pr_url` is first replaced, by the command, with a pull
+# request from the same branch that was merged into the base or the staging
+# branch (_task_close_adopt_v).
 #
 # A merge alone never closes a task (AGENTS.md), and neither does the
 # reverse: closing a task never stands in for a merge that has not happened.
@@ -2223,6 +2384,9 @@ _task_close_refusal() {
   fi
   task_state_var pr "$id" pr_url
   [ "$pr_state" != forge ] || mode=forge
+  # The command's close judges the pull request it would adopt, not the closed
+  # one it replaces (_task_close_adopt_v); a reader holding a state never does.
+  [ "$mode" != forge ] || [ -z "$_TASK_ADOPT_URL" ] || pr=$_TASK_ADOPT_URL
   if [ -n "$pr" ]; then
     if [ "$mode" = forge ]; then
       jig_pr_state_v pr_state why "$pr"
@@ -2282,6 +2446,7 @@ _task_close_staging_refusal() {
   # (`pr_into`, a ship at a level below the staging flow's) is the landing:
   # _task_close_refusal already found it merged.
   task_state_var into "$id" pr_into
+  [ "$mode" != forge ] || [ -z "$_TASK_ADOPT_INTO" ] || into=$_TASK_ADOPT_INTO
   if [ -n "$pr" ] && [ -n "$into" ] && [ "$into" != "$staging" ]; then
     return 0
   fi
@@ -7405,6 +7570,9 @@ EOF
   case ",$flags," in
     *',"needs-consolidation",'*) base_state=merged ;;
   esac
+  # The table withholds the close for a closed `pr_url`: a cache can only
+  # withhold, never offer more than the command; the command adopts a merged
+  # replacement (_task_close_adopt_v).
   _task_actions_v atext "$id" "$pr_state" "$pr_ci" "$pr_mergeable" "$pr_url_state" "$base_state"
   while IFS="$t" read -r action offered command reason; do
     [ -n "$action" ] || continue
@@ -8750,22 +8918,9 @@ Nothing was committed. Merge $base into the task branch first (git merge ${ref#r
 # login), there is nothing to tell apart and the ship goes on, to fail where
 # it always did, at the pull request.
 _task_ship_foreign_pr() {
-  local branch="$1" staging="$2" kind rows="" target url found=""
-  kind=$(jig_forge_kind) || return 0
-  case "$kind" in
-    github)
-      # As this clone's account, resolved here in this shell: a clone that
-      # cannot name one cannot answer, and jig_ship_account refuses it later,
-      # before anything is sent.
-      jig_gh_resolve || return 0
-      rows=$(jig_net jig_gh pr list --head "$branch" --state open --json url,baseRefName \
-        --jq '.[] | .baseRefName + "\t" + .url' 2>/dev/null) || rows="" ;;
-    gitlab)
-      rows=$(jig_net glab mr list --source-branch "$branch" --output json 2>/dev/null \
-        | jig_glab_fields target_branch web_url) || rows="" ;;
-    *) return 0 ;;
-  esac
-  while IFS=$'\t' read -r target url; do
+  local branch="$1" staging="$2" rows="" target url found="" merged_at
+  rows=$(_task_branch_pr_rows "$branch" open) || return 0
+  while IFS=$'\t' read -r target url merged_at; do
     [ -n "$target" ] || continue
     [ "$target" != "$staging" ] || continue
     found="$found

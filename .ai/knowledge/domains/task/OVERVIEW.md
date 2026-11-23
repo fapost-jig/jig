@@ -14,7 +14,7 @@ paths:
   - templates/task.md
   - scripts/lib/notify.sh
   - scripts/lib/hklog.sh
-reviewed_at: 2026-11-11
+reviewed_at: 2026-11-23
 ---
 # Task
 
@@ -290,6 +290,11 @@ and who gave it: `human`, or `agent` in an unattended run, where `--by agent` is
 run's `autopilot_mode` (recorded by `autopilot start`) is `unattended` — and `pr_url`, written by
 `task ship` when it opened or found a pull request. `pr_url` is what ship
 did, not a merge state: ADR-0005 still holds, and housekeeping still derives whether it merged.
+It has one second writer: when the forge says the recorded pull request is `closed`, `task set <id>
+status consolidated` takes the newest pull request from the task's branch merged into its base or
+the staging branch after the closed one was opened, and writes it as `pr_url` and `pr_into` in the
+same claimed write as the close (`_task_close_adopt_v`) — a person who replaced ship's pull request
+by hand need not edit state. The table never offers that close from the cache; it only withholds.
 Right after `pr_url` (never for `--draft`), `task ship` hands the open P2/P3 to one triage task,
 `<id>-findings`, filed through `"$JIG_SELF" task new` as a process of its own and never stopping the
 ship, and links the two with `triage_task` and `triage_of`; the source ledger is left as the

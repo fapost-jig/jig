@@ -593,7 +593,7 @@ It answers four questions, in this order:
    | A pull request is waiting for review or merge | The card says what the forge last said (CI green, red or running, a conflict) and as of when. Review it and merge it: `jig task merge-pr <id> --by human`, or the same button; `jig task pr-status <id> --json` shows why it waits. Jig merges one itself only at `agent.git: merge`, once CI passed |
    | A pull request was open for a task you abandoned | Refresh, then close it on the forge or reopen the task — abandoning a task never touches GitHub or GitLab |
    | Merged: the task can be closed | Tell the agent to close the task — the card goes as soon as it is closed |
-   | The pull request was closed without merging | Reopen it, or tell the agent to abandon the task — the card goes as soon as it is abandoned |
+   | The pull request was closed without merging | Reopen it, or tell the agent to abandon the task — the card goes as soon as it is abandoned. When another pull request from the same branch was merged, tell the agent to close the task: Jig records that one in its place, and the card goes at the next housekeeping run |
    | A worktree was kept | Commit or discard what is left in it; the card goes as soon as the worktree does |
    | The work landed on a different branch than planned | Look at it; only you can say what happens next |
    | Knowledge is waiting for your decision | Ask the agent *"what's proposed?"* |
@@ -628,7 +628,7 @@ the last full `jig status` and show their time too.
 it asks for has been done *and* the page can see that in your own files. Three do:
 
 - *Merged: the task can be closed* — goes when the task is closed.
-- *The pull request was closed without merging* — goes when the task is abandoned.
+- *The pull request was closed without merging* — goes when the task is abandoned. Closed after another pull request from the same branch was merged, the task keeps it until the next housekeeping run.
 - *A worktree was kept* — goes when that worktree is no longer there.
 
 *A pull request was open at the last housekeeping run* goes too when you close its task after that
