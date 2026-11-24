@@ -324,8 +324,9 @@ What stays yours at every level:
   you, and `release.merge: human` in `.ai/config.local.yaml` leaves even that merge to you.
 - **A release.** A pull request whose change raises the version into the default branch —
   `VERSION`, or the `version` of `package.json`, `composer.json`, `pyproject.toml` or `Cargo.toml` at
-  the repository's root — is a release, and `jig task ship` merges it by the same rule: only in
-  an unattended run, only with `release.merge: agent`, never a `major` one, which it opens as a
+  the repository's root — is a release, and `jig task ship` merges it only where nobody answers (a
+  clone with `autopilot.unattended: true`, in a run or not, or the task's own unattended run), only
+  with `release.merge: agent`, never a `major` one, which it opens as a
   draft. It says so: `task ship: this change raises the version in package.json: 1.4.0 -> 1.5.0`.
 - **Release notes cover everything they release.** The task that writes a release's notes records
   which commit of the default branch they describe (`jig task set <id> notes_through <sha>`), and

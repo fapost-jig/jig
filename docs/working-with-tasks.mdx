@@ -47,7 +47,9 @@ Jig then reads the issue from the start of each new task's id and keeps it with 
 `jig task list` and `jig status` show `issue=SRD-2455`, and `jig task show` its `issue:` line. When the agent ships the
 task, the issue goes into the commit's first line and the pull request's title — `SRD-2455 Fix the
 login form`, or `Fix the login form (#123)` for a numbered issue — which is where a tracker's Git
-integration looks for it. A title that already names the issue is left as it is.
+integration looks for it. A title that already names the issue is left as it is. The same pattern,
+as a repository's base commits it, lets `jig pr fetch` propose the issue a colleague's pull request
+implements when you review it ([Manual control](/manual-control)).
 
 Without the setting no issue is read from any id, so a task called `release-0-25-1` never becomes
 issue `release-0`. A task filed before you added it keeps no issue. To have the agent create the
