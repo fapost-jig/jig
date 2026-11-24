@@ -49,10 +49,14 @@ _land_refuse() {
 }
 
 # _land_nobody_answers <id> — an unattended run waits for nobody; a person who
-# pressed the button is somebody.
+# pressed the button is somebody. Only the task's own unattended run, on or
+# stopped, counts: the clone's `autopilot.unattended` alone does not take the
+# word from the person working the task outside a run, as at the gate
+# (adr-20261111-a-task-lands-on-staging-through-its-pull-request, amended
+# 2026-11-23).
 _land_nobody_answers() {
   [ "$_LAND_BY_HUMAN" != 1 ] || return 1
-  _task_nobody_answers "$1"
+  _task_run_unattended "$1"
 }
 
 # _land_claim <who> — claim the revision a person's landing was asked against,

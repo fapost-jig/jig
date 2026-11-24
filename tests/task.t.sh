@@ -7431,10 +7431,12 @@ test_pr_reviewers_without_a_forge_is_forge_unavailable() {
   assert_contains "$OUT" '"error":{"code":"forge-unavailable","message":"pr reviewers: the forge could not be asked: no forge configured (forge: none)"}'
 }
 
-# AC-05: nobody answers in an unattended run, and `require` always waits.
+# AC-05: nobody answers in the task's own unattended run, on or stopped, and
+# `require` always waits.
 test_task_land_unattended_waits_for_review() {
   sship_setup merge
   ship_cfg_local autopilot.unattended true
+  jig task autopilot T-1 start >/dev/null
 
   run jig task ship T-1 --message-file msg.txt
   assert_eq 0 "$RC" "$OUT"
@@ -7444,18 +7446,126 @@ test_task_land_unattended_waits_for_review() {
   run jig task land T-1 --without-review
   assert_eq 1 "$RC" "$OUT"
   assert_contains "$OUT" "task land: --without-review: nobody answers in an unattended run, so https://github.com/example/example/pull/99 waits for review; the person lands it themselves: jig task land T-1 --by human --without-review"
+
+  # A stopped unattended run still has nobody to answer.
+  sed 's/^autopilot: on$/autopilot: stopped/' .ai/workspace/tasks/T-1/state > state.tmp
+  mv state.tmp .ai/workspace/tasks/T-1/state
+  assert_file_contains .ai/workspace/tasks/T-1/state "autopilot: stopped"
+  run jig task land T-1 --without-review
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "task land: --without-review: nobody answers in an unattended run"
+  assert_no_file gh-merge.argv
 }
 
-# The person's own landing is somebody answering: the same clone, unattended,
-# does not refuse `--by human --without-review` for "nobody answers".
+# The person's own landing is somebody answering: even inside the task's
+# unattended run, `--by human --without-review` is not refused for "nobody
+# answers".
 test_task_land_by_human_without_review_is_not_refused_in_an_unattended_clone() {
   shuman_setup
   ship_cfg_local autopilot.unattended true
+  jig task autopilot T-1 start >/dev/null
 
   shuman_land --without-review
   assert_eq 0 "$RC" "$ERR"
   assert_not_contains "$OUT$ERR" "nobody answers"
   assert_contains "$OUT" '"without_review":"person"'
+}
+
+# The clone's `autopilot.unattended` is about its runs: in an ordinary session
+# with no run of the task's own, the person answers as in any clone — the ship
+# asks, and their word lands the pull request
+# (adr-20261111-a-task-lands-on-staging-through-its-pull-request, amended
+# 2026-11-23).
+test_task_land_unattended_clone_without_a_run_takes_the_persons_word() {
+  sship_setup merge
+  ship_cfg_local autopilot.unattended true
+
+  run jig task ship T-1 --message-file msg.txt
+  assert_eq 3 "$RC" "$OUT"
+  assert_contains "$OUT" "task ship: https://github.com/example/example/pull/99 is not approved (no review). Ask the person: land without review — jig task land T-1 --without-review — or wait for review (the pull request stays open)"
+  assert_not_contains "$OUT" "an unattended run waits"
+  assert_no_file gh-merge.argv
+
+  run jig task land T-1 --without-review
+  assert_eq 0 "$RC" "$OUT"
+  assert_not_contains "$OUT" "nobody answers"
+  assert_contains "$OUT" "task land: landing https://github.com/example/example/pull/99 without an approval (no review), at the person's word (--without-review)"
+  assert_contains "$OUT" "landed https://github.com/example/example/pull/99 on staging (merged on the forge)"
+  assert_file_contains gh-comment.body "Landed without an approval, at the person's word."
+}
+
+# A run that is over — ended, or taken over by a person — no longer speaks for
+# the task: the person's word lands it.
+test_task_land_after_an_unattended_run_is_done_takes_the_persons_word() {
+  sship_setup merge
+  ship_cfg_local autopilot.unattended true
+  jig task autopilot T-1 start >/dev/null
+  run jig task ship T-1 --message-file msg.txt
+  assert_contains "$OUT" "an unattended run waits"
+  sed 's/^autopilot: on$/autopilot: done/' .ai/workspace/tasks/T-1/state > state.tmp
+  mv state.tmp .ai/workspace/tasks/T-1/state
+
+  run jig task land T-1 --without-review
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "at the person's word (--without-review)"
+  assert_contains "$OUT" "landed https://github.com/example/example/pull/99 on staging (merged on the forge)"
+}
+
+# `require` waits for an approval in an unattended clone too, run or no run.
+test_task_land_unattended_clone_without_a_run_still_requires_an_approval() {
+  sship_setup merge 'git.flow: staging
+git.staging_branch: staging
+git.staging_review: require'
+  ship_cfg_local autopilot.unattended true
+
+  run jig task ship T-1 --message-file msg.txt
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "and git.staging_review is require; T-1 waits for review"
+
+  run jig task land T-1 --without-review
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "task land: --without-review: git.staging_review is require, so https://github.com/example/example/pull/99 waits for an approval"
+  assert_no_file gh-merge.argv
+}
+
+# The person's word stands across the conflict in an unattended clone with no
+# run, as in any other: `--resolved` does not ask again.
+test_task_land_unattended_clone_without_a_run_keeps_the_word_across_the_conflict() {
+  sship_setup merge
+  ship_cfg_local autopilot.unattended true
+  printf 'CONFLICTING\n' > gh-mergeable
+  sland_staging_commit ship.txt 'staging change'
+
+  run jig task ship T-1 --message-file msg.txt
+  assert_eq 3 "$RC" "$OUT"
+  run jig task land T-1 --without-review
+  assert_eq 5 "$RC" "$OUT"
+  assert_file .ai/workspace/tasks/T-1/land-without-review
+  sland_resolve
+
+  run jig task land T-1 --resolved --note-file "$PWD.note"
+  assert_eq 0 "$RC" "$OUT"
+  assert_not_contains "$OUT" "Ask the person"
+  assert_contains "$OUT" "landed https://github.com/example/example/pull/99 on staging by a direct merge"
+  assert_file_contains gh-comment.body "Landed without an approval, at the person's word."
+  assert_no_file .ai/workspace/tasks/T-1/land-without-review
+}
+
+# A task cut from an epic — a phase run's — is not landed on staging at all,
+# whoever's word it is: refused before the word is read.
+test_task_land_without_review_refuses_a_task_cut_from_an_epic() {
+  sship_setup merge
+  ship_cfg_local autopilot.unattended true
+  run jig task ship T-1 --message-file msg.txt
+  jig task autopilot T-1 start >/dev/null
+  git branch -q epic/x main
+  sed 's|^base_branch:.*|base_branch: epic/x|' .ai/workspace/tasks/T-1/state > state.tmp
+  mv state.tmp .ai/workspace/tasks/T-1/state
+
+  run jig task land T-1 --without-review
+  assert_eq 1 "$RC" "$OUT"
+  assert_contains "$OUT" "task land: T-1 is cut from epic/x, not main; the staging flow does not apply to it"
+  assert_no_file gh-merge.argv
 }
 
 test_task_land_require_waits_for_an_approval() {
