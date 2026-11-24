@@ -362,11 +362,13 @@ go on without asking you anything. Hand over a task as usual — *"take the CSV 
 autopilot"* — and the agent comes back when the change is merged, or with a pull request and the
 reason it stayed open.
 
-`autopilot.unattended` is read for the whole clone, not only inside an autopilot run: in any session
-of that clone Jig treats nobody as answering. The agent approves a T3/T4 design at its gate itself,
-cannot lower a class below T3, and cannot land a pull request `--without-review`: that last word is
-yours. To land one nobody approved, run `jig task land <id> --by human --without-review` yourself;
-a person's landing is somebody answering, so this setting does not refuse it.
+`autopilot.unattended` changes what a run does, not what you may say. Once the run is over, or for
+a task you work without one, your agent asks you as in any clone: on the staging flow your word
+lands a pull request nobody approved (`jig task land <id> --without-review`). Inside the task's
+unattended run, on or stopped, nobody answers, and that landing is refused; you can still land it
+yourself with `jig task land <id> --by human --without-review`. Two things stay clone-wide: your
+agent cannot lower a T3/T4 task below T3 in any session of the clone, and a release's merge follows
+`release.merge` there instead of waiting for you.
 
 ### What the agent decides for you
 

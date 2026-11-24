@@ -10,7 +10,7 @@ paths:
   - scripts/lib/task.sh
   - scripts/lib/common.sh
 summary: Why jig task land and ship at merge land a staging pull request on the forge when clean and directly only on conflict, in a temporary worktree with rerere and an unforced push retried from a fresh fetch, why review follows git.staging_review, and why a task branch stays clean of staging.
-reviewed_at: 2026-11-13
+reviewed_at: 2026-11-24
 ---
 # A task lands on staging through its pull request, and directly only when it conflicts
 
@@ -152,3 +152,5 @@ base.
 - rerere writes its cache to the clone's `rr-cache`; git prunes it on its own schedule.
 
 > **Amendment (2026-11-14).** "Below `merge` it refuses with exit 3" holds for the agent's form only. `jig task land <id> --by human` is a person's landing at any level: it answers JSON with codes, looks at CI once, is not refused as unattended, and refuses a conflict as `conflict` without starting the direct merge (adr-20261114-a-persons-pull-request-action-does-not-read-agent-git).
+
+> **Amendment (2026-11-23).** "Where nobody answers" and "an unattended run waits" mean, for landing, the task's own unattended run while it is `on` or `stopped` (`_task_run_unattended`), not the clone's `autopilot.unattended`. Outside such a run — a task worked by hand in that clone, or one whose run is over (`end`, `handover`) — `jig task ship` at `merge` stops with exit 3 on an unapproved pull request under `ask`, `jig task land --without-review` lands at the person's word, and that word stands across the conflict stop, as in any clone; inside the run both still wait, and `require` refuses everywhere. The clone setting is about runs: it lets a run go on without asking, and does not take the word from a person working outside one. The gate made the same move first (adr-20261004-a-route-stage-is-proven-by-its-record: a person's approval is refused only inside an unattended run). The risk this opens — an agent outside a run claiming a word the person never gave — is the one every attended clone under `ask` already carries; it is held by the skills' rule and the pull request's "at the person's word" comment, never by the script, which cannot tell who speaks. Lowering a T3/T4 class and a release's merge hold still read the clone setting (`_task_nobody_answers`). A phase run's task is cut from its epic and is refused as `wrong-flow` before the word is read.

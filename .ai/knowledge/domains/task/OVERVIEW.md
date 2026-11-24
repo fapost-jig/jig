@@ -14,7 +14,7 @@ paths:
   - templates/task.md
   - scripts/lib/notify.sh
   - scripts/lib/hklog.sh
-reviewed_at: 2026-11-23
+reviewed_at: 2026-11-24
 ---
 # Task
 
@@ -104,7 +104,10 @@ merge) ask for verify as well. Only a task filed with `route_evidence: required`
 `task new`) is refused; an older one is warned. Lowering a class is the other cross-key write:
 it needs `--reason` and records `class_lowered_from` and `class_lowered_reason`, refused out of
 T3/T4 below T3 where nobody answers (`_task_nobody_answers`: the clone is unattended, or the task's
-unattended run is on or stopped).
+unattended run is on or stopped). Landing and the gate read only the task's own run
+(`_task_run_unattended`): in an unattended clone outside a run, the person's word still lands
+`--without-review` and approves a design (adr-20261111-a-task-lands-on-staging-through-its-pull-request,
+amended 2026-11-23).
 
 One consequence lands squarely on this domain, and ADR-0026 is the answer to it.
 Housekeeping can only establish that work landed when the task had a branch of its own: a

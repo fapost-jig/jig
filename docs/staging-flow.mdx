@@ -126,9 +126,10 @@ for a pull request that goes straight into your main branch, `jig task merge-pr 
 
 - **Review first**, as `git.staging_review` says. With `ask`, a pull request nobody approved stops
   (exit 3) and your agent asks you: land without review — `jig task land <id> --without-review`,
-  which also says so on the pull request — or wait. An autopilot run always waits, and so does any session of a clone with
-  `autopilot.unattended` (nobody answers there): the refusal names your own road,
-  `jig task land <id> --by human --without-review`, which you run yourself. A pull request
+  which also says so on the pull request — or wait. An unattended autopilot run always waits, on or
+  stopped: nobody answers inside it, and you land it yourself with
+  `jig task land <id> --by human --without-review`. Outside a run of the task's own, a clone with
+  `autopilot.unattended` asks you like any other, and your word lands it. A pull request
   is approved only once **every** reviewer it asks has answered: one approval while another
   requested reviewer has not looked reads `not approved (waiting for bob)`, and changes requested by
   anyone win over everything. On GitHub a reviewer who only commented counts as answered, as GitHub
