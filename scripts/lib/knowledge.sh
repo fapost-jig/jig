@@ -551,7 +551,7 @@ km_supersede() {
         old="$1"; shift ;;
     esac
   done
-  [ -n "$old" ] && [ -n "$new" ] || jig_die "$usage"
+  if [ -z "$old" ] || [ -z "$new" ]; then jig_die "$usage"; fi
   [ "$old" != "$new" ] || jig_die "knowledge supersede: a document cannot supersede itself: $old"
 
   local old_file new_file
@@ -1184,20 +1184,21 @@ km_check() {
   # Pass 1: collect all declared ids up front, so `supersedes` can reference an
   # id defined in a document that sorts after the one referencing it, and the
   # `requires` graph can be walked in either direction.
-  local t meta_status meta_reqs
+  local t meta_status meta_reqs meta_supersedes block
   t=$(printf '\t')
   while IFS= read -r file; do
     [ -n "$file" ] || continue
     jig_knowledge_is_global "$file" && continue
-    fm_has "$file" || continue
-    id=$(fm_get "$file" id)
+    fm_read_v block "$file" || continue
+    fm_get_block_v id "$block" id
     [ -n "$id" ] || continue
     printf '%s\n' "$id" >> "$KM_IDS_ALL_FILE"
     relpath=$(jig_relpath "$file" "$JIG_PROJECT")
-    meta_status=$(fm_get "$file" status)
-    # Who is replaced and who replaces: pass 3 asks that every superseded
+    fm_get_block_v meta_status "$block" status
+    # Who is replaced and who replaces: pass 4 asks that every superseded
     # document has a successor naming it.
-    fm_get "$file" supersedes | sed '/^$/d' >> "$KM_SUPERSEDES_FILE"
+    fm_get_block_v meta_supersedes "$block" supersedes
+    [ -z "$meta_supersedes" ] || printf '%s\n' "$meta_supersedes" >> "$KM_SUPERSEDES_FILE"
     [ "$meta_status" != superseded ] || printf '%s%s%s\n' "$id" "$t" "$relpath" >> "$KM_SUPERSEDED_FILE"
     meta_reqs=$(fm_list "$file" requires | sed '/^$/d' | tr '\n' ',' | sed 's/,$//')
     printf '%s%s%s%s%s%s%s\n' \
@@ -1215,11 +1216,13 @@ km_check() {
   # Pass 3: the `requires` graph, which no single document can validate alone.
   km_check_requires "$KM_META_FILE"
 
-  # Pass 4: a superseded document names its successor's side of the link.
-  local old_id old_rel
+  # Pass 4: every superseded document must be named in some other document's
+  # `supersedes`.
+  local old_id old_rel supersedes_all
+  supersedes_all=$(cat "$KM_SUPERSEDES_FILE")
   while IFS="$t" read -r old_id old_rel; do
     [ -n "$old_id" ] || continue
-    jig_has_line "$old_id" "$(cat "$KM_SUPERSEDES_FILE")" \
+    jig_has_line "$old_id" "$supersedes_all" \
       || km_warn "$old_rel" "status superseded but no document names it in supersedes (jig knowledge supersede $old_id --by <new-id>)"
   done < "$KM_SUPERSEDED_FILE"
 

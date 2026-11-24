@@ -1970,6 +1970,32 @@ supersedes: feature-new
   assert_contains "$(cat .ai/knowledge/features/old.md)" "status: active"
 }
 
+test_supersede_rolls_back_the_first_write_when_the_second_fails() {
+  ks_pair feature
+  # A list-form `supersedes` reads as empty to the precheck but fm_set refuses to
+  # write over it, so the second write fails after the first has landed.
+  sed -i.bak '/^status:/a\
+supersedes:\
+  - feature-x
+' .ai/knowledge/features/new.md; rm -f .ai/knowledge/features/new.md.bak
+  run jig knowledge supersede feature-old --by feature-new
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "knowledge supersede: could not write: feature-new"
+  assert_contains "$(cat .ai/knowledge/features/old.md)" "status: active"
+}
+
+test_supersede_first_write_refused_leaves_both_documents() {
+  skip_unless_readonly_dirs
+  ks_pair feature
+  chmod 555 .ai/knowledge/features
+  run jig knowledge supersede feature-old --by feature-new
+  chmod 755 .ai/knowledge/features
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "knowledge supersede: could not write: feature-old"
+  assert_contains "$(cat .ai/knowledge/features/old.md)" "status: active"
+  assert_not_contains "$(cat .ai/knowledge/features/new.md)" "supersedes:"
+}
+
 test_supersede_usage_and_arguments() {
   ks_pair feature
   run jig knowledge supersede
