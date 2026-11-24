@@ -336,6 +336,16 @@ Each document records when it was last reconciled with the code. When the files 
 after that, it is reported as stale; when a linked document of your own changed since it was
 approved, `jig status` says so until a human has looked at the change.
 
+### Knowledge that was replaced
+
+A decision or rule that no longer holds is not deleted: its document is retired in favour of the one
+that replaces it. `jig knowledge supersede <old-id> --by <new-id>` sets `status: superseded` on the
+old document and `supersedes: <old-id>` on the new one. Both must be of the same type, the old one
+`active` or `accepted`, and the new one `active` or `accepted` already; otherwise the command
+writes nothing. The superseded document stays in the repository as history, but `jig context` no
+longer hands it to an agent, and `jig knowledge check` warns about a superseded document that no
+document names in `supersedes` ([From 0.48.1 to 0.49.0](/upgrading#from-0481-to-0490)).
+
 ## Specifications
 
 A specification is a plan for work bigger than one task — a feature of tens of tasks, or a new

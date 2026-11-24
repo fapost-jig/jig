@@ -32,9 +32,9 @@ that left you without a way forward now name it.
 - **A task stuck "on autopilot" tells you how to get out.** When `jig task merge-pr`, `land` or
   `request-review` refuses because the task's autopilot run is on, the message now gives the run's
   last event and when it happened, and, for a run no agent is on any more, `jig task autopilot <id>
-  stop --reason <why>`. A `jig task ship` that ends `not merged` while a run is on says the run is
-  still on, and that you can ship again or end it with `jig task autopilot <id> end --reason "not
-  merged: <why>"` ([Troubleshooting](/troubleshooting)).
+  stop --reason <why>`. A `jig task ship` that ends `not merged` on the direct flow while a run is
+  on says the run is still on, and that you can ship again or end it with `jig task autopilot <id>
+  end --reason "not merged: <why>"` ([Troubleshooting](/troubleshooting)).
 - **`jig knowledge supersede <old-id> --by <new-id>` retires a document.** It sets `status:
   superseded` on the old document and `supersedes: <old-id>` on the new one, and refuses, writing
   nothing, an unknown id, documents of different types, an old document that is not `active` or
