@@ -91,6 +91,17 @@ $1
 "
 }
 
+# jig_strip_quotes <value> — <value> with one pair of surrounding single or
+# double quotes removed, printed with a newline.
+jig_strip_quotes() {
+  local v="$1"
+  case "$v" in
+    \'*\') v=${v#\'}; v=${v%\'} ;;
+    \"*\") v=${v#\"}; v=${v%\"} ;;
+  esac
+  printf '%s\n' "$v"
+}
+
 jig_cleanup_add() {
   local dir=0 p
   if [ "${1:-}" = "-d" ]; then dir=1; shift; fi

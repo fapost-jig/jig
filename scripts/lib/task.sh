@@ -276,17 +276,15 @@ _task_finding_valid_field() {
 _task_issue_pattern() {
   local pattern
   pattern=$(cfg task.issue_pattern "")
-  case "$pattern" in
-    \'*\') pattern=${pattern#\'}; pattern=${pattern%\'} ;;
-    \"*\") pattern=${pattern#\"}; pattern=${pattern%\"} ;;
-  esac
-  printf '%s\n' "$pattern"
+  jig_strip_quotes "$pattern"
 }
 
 # _task_issue_from_id <id> — the tracker issue at the start of <id>, or
 # nothing. The pattern is anchored at the first character, takes awk's longest
 # match, and counts only when that match ends at the end of the id or before a
 # `-`, `_` or `.`: `SRD-2455x-y` names no issue, `SRD-2455-y` names SRD-2455.
+# jig pr fetch reads a head branch by the same rule (_pr_issue_candidates in
+# pr.sh); keep the two the same.
 # Exit 2, printing nothing, when awk cannot read the pattern.
 _task_issue_from_id() {
   local pattern
