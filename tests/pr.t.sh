@@ -53,7 +53,9 @@ _pr_repo() {
 # login being the one the token in GH_TOKEN stands for — and `user` with that
 # login. A POST copies its --input file to <dir>/posted.<n>.<endpoint>, prints
 # 900<n> as the new id, and lands every <dir>/*.landed file (the read-back
-# after it). Every call goes to <dir>/calls and each filter to <dir>/jq.<file>.
+# after it). `text` answers the head branch, title and body of the pull
+# request (the filter naming `.head.ref`), one a line, the body last. Every call
+# goes to <dir>/calls and each filter to <dir>/jq.<file>.
 _pr_stub_gh() {
   local main
   mkdir -p "$1"
@@ -62,6 +64,7 @@ _pr_stub_gh() {
   printf 'false true true false false false\n' > "$1/repo"
   printf '%s\n' "$main" > "$1/compare"
   printf 'F\tadded\t1\t1\nN\tfeature.txt\nH\t@@ -0,0 +1 @@\nF\tremoved\t1\t1\nN\told.txt\nH\t@@ -1 +0,0 @@\n' > "$1/files"
+  printf 'feature\nAdd a feature\n' > "$1/text"
   : > "$1/reviews"
   : > "$1/comments"
   : > "$1/reviews.fu"
@@ -125,6 +128,7 @@ case "\$1" in
       *) exit 1 ;;
     esac
     case "\$jq" in *'"S\t'* | *'"C\t'*) key="\$key.fu" ;; esac
+    case "\$jq" in *'.head.ref'*) key=text ;; esac
     printf '%s\n' "\$jq" > "\$d/jq.\$key"
     if [ "\$method" = POST ]; then
       n=\$(cat "\$d/npost" 2>/dev/null || echo 0)
@@ -263,6 +267,190 @@ test_pr_fetch_refuses_a_base_commit_nobody_gives() {
   assert_eq 1 "$RC"
   assert_contains "$OUT" "starts below 0123456789012345678901234567890123456789"
   assert_no_file .git/jig/pr/7/record
+}
+
+# --- fetch: the head branch and the issue ------------------------------------
+
+# _pr_base_config <body> — .ai/config.yaml of main, pushed to origin, which is
+# the base the fetch reads; the clone's working tree is left as it is.
+_pr_base_config() {
+  printf '%s\n' "$1" > .ai/config.yaml
+  git add .ai/config.yaml
+  git commit -q -m "config"
+  git push -q ../origin.git main
+}
+
+test_pr_fetch_names_the_head_branch_and_a_candidate_from_it() {
+  _pr_repo jig
+  _pr_base_config 'task.issue_pattern: "[A-Z]+-[0-9]+"'
+  printf 'task/SRD-2455-fix-login\nFix the login\nIt is broken.\n' > ../bin/text
+  run jig pr fetch "$_pr_url"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "head branch: task/SRD-2455-fix-login"
+  assert_contains "$OUT" "issue: SRD-2455 (head branch)   (a candidate by the base's task.issue_pattern; confirm it with the person)"
+  assert_not_contains "$OUT" "issue: ask"
+}
+
+test_pr_fetch_finds_candidates_in_the_title_and_the_body() {
+  _pr_repo jig
+  _pr_base_config "task.issue_pattern: '[A-Z]+-[0-9]+'"
+  printf 'feature\nSRD-10: add it (SRD-1010x is not it)\nCloses SRD-10, relates to SRD-11, xSRD-12 and SRD-13.\n' > ../bin/text
+  run jig pr fetch "$_pr_url"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "issue: SRD-10 (title, body)   ("
+  assert_contains "$OUT" "issue: SRD-11 (body)   ("
+  assert_contains "$OUT" "issue: SRD-13 (body)   ("
+  assert_not_contains "$OUT" "SRD-1010"
+  assert_not_contains "$OUT" "xSRD-12"
+  assert_not_contains "$OUT" "SRD-12 ("
+}
+
+test_pr_fetch_counts_a_number_only_after_a_hash() {
+  _pr_repo jig
+  _pr_base_config 'task.issue_pattern: [0-9]+'
+  printf 'feature\nBump to 7 workers\nFixes #123. We saw 42 errors and version 2.0.\n' > ../bin/text
+  run jig pr fetch "$_pr_url"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "issue: 123 (body)   ("
+  assert_not_contains "$OUT" "issue: 42"
+  assert_not_contains "$OUT" "issue: 7"
+  # A branch that starts with the number names it as `jig task new` would.
+  printf '456-fix-login\nBump to 7 workers\nNo number here.\n' > ../bin/text
+  run jig pr fetch "$_pr_url"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "issue: 456 (head branch)   ("
+}
+
+test_pr_fetch_lists_at_most_five_candidates() {
+  _pr_repo jig
+  _pr_base_config 'task.issue_pattern: "[A-Z]+-[0-9]+"'
+  printf 'feature\nT\nA-1 B-2 C-3 D-4 E-5 F-6 G-7\n' > ../bin/text
+  run jig pr fetch "$_pr_url"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "issue: E-5 (body)"
+  assert_not_contains "$OUT" "F-6"
+}
+
+test_pr_fetch_says_when_more_matches_than_the_five_shown_exist() {
+  _pr_repo jig
+  _pr_base_config 'task.issue_pattern: "[A-Z][A-Z0-9]*-[0-9]+"'
+  printf 'feature\nT\nMove from MD-5 to SHA-256, encode as UTF-8, dates as ISO-8601 per RFC-3339. Closes SRD-42.\n' > ../bin/text
+  run jig pr fetch "$_pr_url"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "issue: RFC-3339 (body)"
+  assert_not_contains "$OUT" "issue: SRD-42"
+  assert_contains "$OUT" "issue: ask (more matches than shown; ask the person which issue the pull request implements)"
+}
+
+test_pr_fetch_reads_a_body_longer_than_the_environment_allows() {
+  _pr_repo jig
+  _pr_base_config 'task.issue_pattern: "[A-Z]+-[0-9]+"'
+  {
+    printf 'feature\nT\n'
+    awk 'BEGIN { for (i = 0; i < 4000; i++) print "filler line of prose with no issue in it at all, line " i " of many, padding padding padding"; print "Closes SRD-77" }'
+  } > ../bin/text
+  run jig pr fetch "$_pr_url"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "issue: SRD-77 (body)"
+}
+
+test_pr_fetch_asks_for_the_text_with_no_slash_in_the_filter() {
+  _pr_repo jig
+  run jig pr fetch "$_pr_url"
+  assert_eq 0 "$RC" "$OUT"
+  assert_file_contains ../bin/jq.text ".head.ref"
+  if grep -q / ../bin/jq.text; then fail "the --jq filter holds a slash: $(cat ../bin/jq.text)"; fi
+}
+
+test_pr_fetch_asks_when_the_base_sets_no_issue_pattern() {
+  _pr_repo
+  printf 'task/SRD-2455-fix\nFix SRD-2455\nSRD-2455\n' > ../bin/text
+  run jig pr fetch "$_pr_url"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "head branch: task/SRD-2455-fix"
+  assert_contains "$OUT" "issue: ask (the base sets no task.issue_pattern; ask the person for the issue or where to find it)"
+}
+
+test_pr_fetch_ignores_an_issue_pattern_only_the_head_sets() {
+  _pr_repo jig
+  local top
+  top=$(cd .. && pwd)
+  # The author's commit adds the key: the pull request's head carries it, the base does not.
+  git checkout -q -b theirs main
+  printf 'task.issue_pattern: "[A-Z]+-[0-9]+"\n' >> .ai/config.yaml
+  git add .ai/config.yaml
+  git commit -q -m "their pattern"
+  git push -q -f "$top/origin.git" theirs:refs/pull/7/head
+  git checkout -q main
+  git branch -q -D theirs
+  printf 'main\t%s\topen\t%s\tfalse\t2\n' "$(git --git-dir="$top/origin.git" rev-parse refs/pull/7/head)" "$(git rev-parse main)" > ../bin/api
+  printf 'task/SRD-2455-fix\nFix SRD-2455\nSRD-2455\n' > ../bin/text
+  run jig pr fetch "$_pr_url"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "issue: ask (the base sets no task.issue_pattern"
+  assert_not_contains "$OUT" "issue: SRD-2455"
+}
+
+test_pr_fetch_reads_the_pattern_of_the_base_not_of_this_clone() {
+  _pr_repo jig
+  _pr_base_config 'task.issue_pattern: "[A-Z]+-[0-9]+"'
+  # The person's working tree and local layer name other patterns.
+  printf 'task.issue_pattern: "[0-9]+"\n' > .ai/config.yaml
+  printf 'task.issue_pattern: "[a-z]+"\n' > .ai/config.local.yaml
+  printf 'task/SRD-2455-fix\nFix it for 99\nSee #99\n' > ../bin/text
+  run jig pr fetch "$_pr_url"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "issue: SRD-2455 (head branch)"
+  assert_not_contains "$OUT" "issue: 99"
+  assert_not_contains "$OUT" "issue: task"
+}
+
+test_pr_fetch_asks_when_the_pattern_matches_nothing() {
+  _pr_repo jig
+  _pr_base_config 'task.issue_pattern: "[A-Z]+-[0-9]+"'
+  run jig pr fetch "$_pr_url"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "head branch: feature"
+  assert_contains "$OUT" "issue: ask (the base's task.issue_pattern matches nothing in the head branch, title or body; ask the person)"
+}
+
+test_pr_fetch_asks_when_awk_cannot_read_the_pattern() {
+  _pr_repo jig
+  _pr_base_config 'task.issue_pattern: "[A-Z"'
+  printf 'task/SRD-2455-fix\nFix SRD-2455\nSRD-2455\n' > ../bin/text
+  run jig pr fetch "$_pr_url"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "issue: ask (the base's task.issue_pattern is not a pattern awk can read; ask the person)"
+}
+
+test_pr_fetch_asks_when_the_forge_gives_no_text() {
+  _pr_repo jig
+  _pr_base_config 'task.issue_pattern: "[A-Z]+-[0-9]+"'
+  rm ../bin/text
+  run jig pr fetch "$_pr_url"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "head branch: unknown"
+  assert_contains "$OUT" "issue: ask (the forge gave no head branch, title and body to look in"
+}
+
+test_pr_gitlab_fetch_names_the_head_branch_and_reads_the_description() {
+  _pr_gl_repo
+  local head main
+  head=$(git -C ../origin.git rev-parse refs/merge-requests/7/head)
+  main=$(git rev-parse main)
+  mkdir -p .ai
+  printf 'task.issue_pattern: "[A-Z]+-[0-9]+"\n' > .ai/config.yaml
+  git add .ai/config.yaml
+  git commit -q -m "config"
+  git push -q ../origin.git main
+  _PR_T_BRANCH="task/SRD-7-fix" _PR_T_TITLE="Fix it" _PR_T_DESC='What it does.\n\nCloses SRD-9\nand SRD-10.' \
+    _pr_gl_mr ../bin "$head" "$main"
+  run jig pr fetch "$_pr_gl_url"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "head branch: task/SRD-7-fix"
+  assert_contains "$OUT" "issue: SRD-7 (head branch)"
+  assert_contains "$OUT" "issue: SRD-9 (body)"
+  assert_contains "$OUT" "issue: SRD-10 (body)"
 }
 
 test_pr_fetch_makes_refs_and_a_detached_worktree_and_leaves_the_checkout_alone() {
@@ -1435,10 +1623,13 @@ _pr_gl_repo() {
 }
 
 # _pr_gl_mr <dir> <sha> <base_sha> [<diff head>] [<locked>] [<changes>] — the merge
-# request as GitLab answers for it, into <dir>/mr.
+# request as GitLab answers for it, into <dir>/mr. Its source branch, title and
+# description are _PR_T_BRANCH, _PR_T_TITLE and _PR_T_DESC, as JSON strings
+# (`\n` for a new line in the description).
+_PR_T_BRANCH="feature" _PR_T_TITLE="Add a feature" _PR_T_DESC=""
 _pr_gl_mr() {
-  printf '{"iid":7,"state":"opened","target_branch":"main","sha":"%s","discussion_locked":%s,"changes_count":"%s","diff_refs":{"base_sha":"%s","start_sha":"%s","head_sha":"%s"}}\n' \
-    "$2" "${5:-false}" "${6:-2}" "$3" "$3" "${4:-$2}" > "$1/mr"
+  printf '{"iid":7,"state":"opened","target_branch":"main","source_branch":"%s","title":"%s","description":"%s","sha":"%s","discussion_locked":%s,"changes_count":"%s","diff_refs":{"base_sha":"%s","start_sha":"%s","head_sha":"%s"}}\n' \
+    "$_PR_T_BRANCH" "$_PR_T_TITLE" "$_PR_T_DESC" "$2" "${5:-false}" "${6:-2}" "$3" "$3" "${4:-$2}" > "$1/mr"
 }
 
 # _pr_stub_glab <dir> <head> — a glab that stands in for GitLab. `api` answers

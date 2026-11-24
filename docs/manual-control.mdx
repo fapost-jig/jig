@@ -497,7 +497,17 @@ jig pr comments post 42 --shown <hash>
 `fetch` takes the pull request's head and base into refs of Jig's own and a detached worktree beside
 the repository, `<git.worktree_root>/.pr-<n>`, without touching your checkout. Read that tree; run
 nothing in it. Its `method:` and `show:` lines name the review method and the rule for showing a
-document in the Jig that ran it: the skill reads them there, not beside itself. `draft` checks the review against the format the skill keeps and prints it; give it a
+document in the Jig that ran it: the skill reads them there, not beside itself. It also prints the
+pull request's `head branch:` and `issue:` lines: each candidate issue found in the head branch, the
+title or the body, by the `task.issue_pattern` of the reviewed repository's `.ai/config.yaml` as it is at the pull
+request's base (up to five, each with where it was found). The head's own copy, your working tree
+and your own settings are never read for it, and a repository without Jig or without that key has no
+pattern: the line then says `issue: ask`, and the skill asks you for the issue instead. A number
+alone counts only as `#123`, or at the start of a segment of the head branch (`feature/123-x`). The skill does not start the review
+until the issue is settled: you confirm a candidate (or give the issue) and your agent reads it with
+its tracker tool, or you say there is none, or to review the diff only. The change is then checked
+against each of the issue's requirements; a review without a read issue says in its summary, shown
+and posted, that it checked the diff against the base's rules only. `draft` checks the review against the format the skill keeps and prints it; give it a
 file with `--from` to keep a new one. `comments check` places the draft on the forge's own diff and
 prints the review as it would be posted, with a hash. `comments post` posts only that version: it is
 refused unless `--shown` carries the hash `check` printed, so what you read is what goes out.
