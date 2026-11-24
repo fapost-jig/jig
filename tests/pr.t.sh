@@ -362,6 +362,38 @@ test_pr_fetch_asks_for_the_text_with_no_slash_in_the_filter() {
   if grep -q / ../bin/jq.text; then fail "the --jq filter holds a slash: $(cat ../bin/jq.text)"; fi
 }
 
+# The pattern is read by a setter called as a plain command, so the temp file it
+# makes is registered in the caller's shell (conventions/shell.md): a script of
+# its own, because the test's own shell would hide a registration lost in $(...).
+# shellcheck disable=SC2016 # the script body is written single-quoted on purpose
+test_pr_issue_pattern_setter_registers_its_temp_file_in_the_caller() {
+  local with without
+  git init -q cfgrepo
+  git -C cfgrepo config user.email t@example.com
+  git -C cfgrepo config user.name t
+  git -C cfgrepo commit -q --allow-empty -m none
+  without=$(git -C cfgrepo rev-parse HEAD)
+  mkdir -p cfgrepo/.ai
+  printf 'task.issue_pattern: "[A-Z]+-[0-9]+"\n' > cfgrepo/.ai/config.yaml
+  git -C cfgrepo add .ai/config.yaml
+  git -C cfgrepo commit -q -m config
+  with=$(git -C cfgrepo rev-parse HEAD)
+  {
+    printf '#!/usr/bin/env bash\nset -eu\nJIG_LIB="%s/scripts/lib"\n' "$JIG_HOME"
+    printf '. "%s/scripts/lib/common.sh"\n. "%s/scripts/lib/config.sh"\n. "%s/scripts/lib/pr.sh"\n' "$JIG_HOME" "$JIG_HOME" "$JIG_HOME"
+    printf 'JIG_PROJECT="%s"\n' "$PWD/cfgrepo"
+    printf '_pr_issue_pattern_at_v v "$1"\n'
+    printf 'printf "%%s" "$v" > "$2"\n'
+    printf 'printf "%%s\\n" "$_JIG_EXIT_FILES" | grep -c "jig-pr-config\\." > "$3" || true\n'
+  } > pattern-script.sh
+  bash pattern-script.sh "$with" with.val with.reg
+  assert_eq '[A-Z]+-[0-9]+' "$(cat with.val)"
+  assert_eq 1 "$(cat with.reg)"
+  bash pattern-script.sh "$without" without.val without.reg
+  assert_eq '' "$(cat without.val)"
+  assert_eq 1 "$(cat without.reg)"
+}
+
 test_pr_fetch_asks_when_the_base_sets_no_issue_pattern() {
   _pr_repo
   printf 'task/SRD-2455-fix\nFix SRD-2455\nSRD-2455\n' > ../bin/text
