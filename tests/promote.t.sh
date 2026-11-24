@@ -1900,3 +1900,41 @@ test_promote_by_human_with_a_stale_revision_sends_nothing() {
   promote_json jig task promote T-1 --by human --revision "$rev" --json
   assert_eq 0 "$RC" "$ERR"
 }
+
+# promote_jq_filter <file> <function> [n] — the n-th (default first) single-quoted --jq
+# filter in <function> of <file>, as the script spells it; the tests run it
+# through jq in place of gh's own gojq.
+promote_jq_filter() {
+  awk -v fn="$2" -v n="${3:-1}" '
+    index($0, fn "() {") == 1 { on = 1 }
+    on {
+      line = $0
+      if (!inq) {
+        i = index(line, "--jq '\''")
+        if (!i) next
+        line = substr(line, i + 6)
+        inq = 1
+        seen++
+      }
+      j = index(line, "'\''")
+      if (j) {
+        if (seen == n) { printf "%s", substr(line, 1, j - 1); exit }
+        inq = 0
+      } else if (seen == n) print line
+    }' "$1"
+}
+
+test_promote_classic_protection_filter_counts_the_required_checks() {
+  command -v jq >/dev/null 2>&1 || skip "jq is not here to run gh's filters"
+  local filter
+  filter=$(promote_jq_filter "$JIG_HOME/scripts/lib/promote.sh" _promote_base_gated_github 2)
+  assert_contains "$filter" "enforcement_level" "the filter was not found"
+  assert_eq '0' "$(printf '%s' '{"name":"m"}' | jq -r "$filter" | tr -d '\r')" "no protection key"
+  assert_eq '0' "$(printf '%s' '{"protection":{"required_status_checks":null}}' | jq -r "$filter" | tr -d '\r')" "required_status_checks null"
+  assert_eq '0' "$(printf '%s' '{"protection":{"required_status_checks":{"enforcement_level":"off","contexts":["a"],"checks":[{"context":"b"}]}}}' | jq -r "$filter" | tr -d '\r')" "enforcement off ignores what is listed"
+  assert_eq '3' "$(printf '%s' '{"protection":{"required_status_checks":{"contexts":["a"],"checks":[{"context":"b"},{"context":"c"}]}}}' | jq -r "$filter" | tr -d '\r')" "contexts and checks count together"
+  assert_eq '0' "$(printf '%s' '{"protection":{"required_status_checks":{"enforcement_level":"everyone","contexts":null,"checks":null}}}' | jq -r "$filter" | tr -d '\r')" "both null"
+  assert_eq '2' "$(printf '%s' '{"protection":{"required_status_checks":{"enforcement_level":"non_admins","contexts":["a","b"],"checks":null}}}' | jq -r "$filter" | tr -d '\r')" "enforcement_level non_admins with contexts only"
+  assert_eq '1' "$(printf '%s' '{"protection":{"required_status_checks":{"contexts":null,"checks":[{"context":"x"}]}}}' | jq -r "$filter" | tr -d '\r')" "contexts null, one check"
+  assert_eq '0' "$(printf '%s' '{"protection":{"required_status_checks":{}}}' | jq -r "$filter" | tr -d '\r')" "required_status_checks empty"
+}

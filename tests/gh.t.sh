@@ -576,6 +576,80 @@ test_gh_no_script_calls_gh_about_the_repository_without_jig_gh() {
 $found"
 }
 
+# --- no slash in a --jq filter ----------------------------------------------------
+
+# _gh_jq_slashes <scripts-dir> — `<file>:<line>:` for every single-quoted
+# `--jq '...'` filter under <scripts-dir> that holds a `/` (a `//` default, a
+# "/" literal), <line> being where the filter starts; the filter may run over
+# several lines and ends at the next `'`. Under Git Bash (MSYS) an argument
+# with a slash may be taken for a path and rewritten before gh sees it
+# (adr-20261109-a-review-is-posted-as-it-was-shown), so a filter says
+# `if x == null then d else x end` where it would say `x // d`. A comment is
+# not a filter.
+_gh_jq_slashes() {
+  local f
+  for f in $(find "$1" -type f \( -name '*.sh' -o -name jig \) | sort); do
+    awk -v file="$f" '
+      {
+        line = $0
+        while (1) {
+          if (!inq) {
+            if (line ~ /^[[:space:]]*#/) break
+            i = index(line, "--jq '\''")
+            if (!i) break
+            start = NR; body = ""; line = substr(line, i + 6); inq = 1
+          }
+          j = index(line, "'\''")
+          if (j) {
+            body = body substr(line, 1, j - 1)
+            if (body ~ /\//) printf "%s:%d:\n", file, start
+            inq = 0; line = substr(line, j + 1)
+          } else {
+            body = body line "\n"
+            break
+          }
+        }
+      }' "$f"
+  done
+}
+
+test_gh_the_jq_guard_tells_a_slash_in_a_filter_from_one_outside() {
+  mkdir -p guard/lib
+  cat > guard/lib/x.sh <<'EOF'
+# gh api --jq '.a // 0' in a comment is not a filter
+  # nor is this: --jq 'x / y'
+  out=$(jig_gh pr view --json a --jq .login)
+  out=$(jig_gh pr view --json a --jq '.login' 2>/dev/null)
+  out=$(jig_gh pr view --jq 'if .a == null then 0 else .a end' || echo a/b)
+  out=$(jig_gh pr list \
+    --jq '.[]
+          | .a
+          | if . == null then "-" else . end' 2>/dev/null)
+EOF
+  assert_eq "" "$(_gh_jq_slashes guard)" "the guard flags what is not a filter with a slash"
+  cat > guard/lib/y.sh <<'EOF'
+  out=$(jig_gh pr list \
+    --jq '.[]
+          | .a
+          | .b // 0' 2>/dev/null)
+  out=$(jig_gh pr list --jq 'group_by(.a + "/" + .b)[]')
+  out=$(jig_gh api x --jq '[.[] | .n] | max // 0')
+  out=$(jig_gh api x --jq '.a' --jq '.b // 1')
+EOF
+  assert_eq "guard/lib/y.sh:2:
+guard/lib/y.sh:5:
+guard/lib/y.sh:6:
+guard/lib/y.sh:7:" "$(_gh_jq_slashes guard)" "the guard misses a slash in a filter"
+}
+
+test_gh_no_jq_filter_holds_a_slash() {
+  local found
+  found=$(_gh_jq_slashes "$JIG_HOME/scripts")
+  assert_eq "" "$found" "a --jq filter holds a slash, which Git Bash may take for a path
+(adr-20261109-a-review-is-posted-as-it-was-shown; write 'if x == null then d else x end', not 'x // d'):
+$found"
+}
+
 # --- under jig_net ---------------------------------------------------------------
 
 # _gh_net <body> — run <body> in a shell that has loaded the libraries and is in
