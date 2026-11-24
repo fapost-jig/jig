@@ -775,6 +775,39 @@ test_task_set_status_consolidated_adopts_under_a_claimed_revision() {
   assert_file_contains .ai/workspace/tasks/T-1/state "status: consolidated"
 }
 
+# A task that was abandoned and is closed through the adoption or the claimed
+# close drops abandoned_at, abandoned_reason and moved_to, as the plain close does.
+test_task_set_status_consolidated_adoption_clears_the_abandoned_keys() {
+  adopt_fixture
+  local t
+  t=$(printf '\t')
+  fixture_task T-1 task/T-1 abandoned "knowledge_consolidated:true" "pr_url:https://github.com/example/example/pull/7" "abandoned_at:2026-01-02" "abandoned_reason:replaced by hand" "moved_to:T-2"
+  pr_check_stub_gh "" CLOSED "main${t}https://github.com/example/example/pull/8${t}2026-06-01T00:00:00Z"
+  run_split jig task set T-1 status consolidated
+  assert_eq 0 "$RC" "$ERR"
+  assert_file_contains .ai/workspace/tasks/T-1/state "pr_url: https://github.com/example/example/pull/8"
+  assert_file_contains .ai/workspace/tasks/T-1/state "status: consolidated"
+  assert_not_contains "$(cat .ai/workspace/tasks/T-1/state)" "abandoned_at"
+  assert_not_contains "$(cat .ai/workspace/tasks/T-1/state)" "abandoned_reason"
+  assert_not_contains "$(cat .ai/workspace/tasks/T-1/state)" "moved_to"
+  assert_eq "" "$(find .ai/workspace/tasks/T-1 -name 'state.tmp*')" "a temporary state file was left"
+}
+
+test_task_set_status_consolidated_under_a_revision_clears_the_abandoned_keys() {
+  adopt_fixture
+  local rev
+  fixture_task T-1 task/T-1 abandoned "knowledge_consolidated:true" "pr_url:https://github.com/example/example/pull/7" "abandoned_at:2026-01-02" "abandoned_reason:replaced by hand" "moved_to:T-2"
+  pr_check_stub_gh "" MERGED ""
+  _tr_rev
+  rev=$REV
+  run_split jig task set T-1 status consolidated --revision "$rev"
+  assert_eq 0 "$RC" "$ERR"
+  assert_file_contains .ai/workspace/tasks/T-1/state "status: consolidated"
+  assert_not_contains "$(cat .ai/workspace/tasks/T-1/state)" "abandoned_at"
+  assert_not_contains "$(cat .ai/workspace/tasks/T-1/state)" "abandoned_reason"
+  assert_not_contains "$(cat .ai/workspace/tasks/T-1/state)" "moved_to"
+}
+
 test_task_set_status_consolidated_keeps_the_refusal_without_a_replacement() {
   adopt_fixture
   pr_check_stub_gh "" CLOSED ""
@@ -911,6 +944,21 @@ test_task_set_status_consolidated_adopts_a_merged_merge_request_on_gitlab() {
   assert_contains "$OUT" "https://gitlab.example/example/example/-/merge_requests/8 from the same branch, merged into main"
   assert_file_contains .ai/workspace/tasks/T-1/state "pr_url: https://gitlab.example/example/example/-/merge_requests/8"
   assert_file_contains .ai/workspace/tasks/T-1/state "pr_into: main"
+  assert_file_contains .ai/workspace/tasks/T-1/state "status: consolidated"
+}
+
+# A merge request with two assignees and two reviewers carries `},{` inside
+# its own row: the row must stay whole, target_branch with web_url and merged_at.
+test_task_set_status_consolidated_adopts_a_gitlab_merge_request_with_two_assignees() {
+  task_setup_clean
+  ship_cfg forge gitlab
+  git remote add origin https://gitlab.example/example/example.git
+  fixture_task T-1 task/T-1 active "knowledge_consolidated:true" "pr_url:https://gitlab.example/example/example/-/merge_requests/7"
+  gitlab_adopt_stub closed 2026-01-01T00:00:00.000Z '[{"iid":8,"target_branch":"main","assignees":[{"id":1,"web_url":"https://gitlab.example/ann"},{"id":2,"web_url":"https://gitlab.example/bob"}],"reviewers":[{"id":4,"web_url":"https://gitlab.example/cy"},{"id":5,"web_url":"https://gitlab.example/di"}],"author":{"id":3,"web_url":"https://gitlab.example/joe"},"web_url":"https://gitlab.example/example/example/-/merge_requests/8","merged_at":"2026-06-01T00:00:00.000Z"}]'
+  run_split jig task set T-1 status consolidated
+  assert_eq 0 "$RC" "$ERR"
+  assert_contains "$OUT" "https://gitlab.example/example/example/-/merge_requests/8 from the same branch, merged into main"
+  assert_file_contains .ai/workspace/tasks/T-1/state "pr_url: https://gitlab.example/example/example/-/merge_requests/8"
   assert_file_contains .ai/workspace/tasks/T-1/state "status: consolidated"
 }
 
