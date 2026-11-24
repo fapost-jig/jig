@@ -773,3 +773,39 @@ task/a${t}staging${t}open${t}red${t}2026-11-14T00:00:00Z${t}aaa${t}https://f.tes
 task/b|green|approved|mergeable
 []" "$OUT"
 }
+
+# pd_jq_filter <file> <function> [n] — the n-th (default first) single-quoted --jq
+# filter in <function> of <file>, as the script spells it; the tests run it
+# through jq in place of gh's own gojq.
+pd_jq_filter() {
+  awk -v fn="$2" -v n="${3:-1}" '
+    index($0, fn "() {") == 1 { on = 1 }
+    on {
+      line = $0
+      if (!inq) {
+        i = index(line, "--jq '\''")
+        if (!i) next
+        line = substr(line, i + 6)
+        inq = 1
+        seen++
+      }
+      j = index(line, "'\''")
+      if (j) {
+        if (seen == n) { printf "%s", substr(line, 1, j - 1); exit }
+        inq = 0
+      } else if (seen == n) print line
+    }' "$1"
+}
+
+test_prdo_protection_filter_prints_the_approvals_and_the_checks_a_base_requires() {
+  command -v jq >/dev/null 2>&1 || skip "jq is not here to run gh's filters"
+  local filter
+  filter=$(pd_jq_filter "$JIG_HOME/scripts/lib/prdo.sh" _prdo_protection)
+  assert_contains "$filter" "required_approving_review_count" "the filter was not found"
+  # The most approvals any rule asks and the check contexts, sorted and once
+  # each; no pull_request rule, or none at all, asks for no approval.
+  assert_eq '2|a,b' "$(printf '%s' '[{"type":"pull_request","parameters":{"required_approving_review_count":2}},{"type":"pull_request","parameters":{"required_approving_review_count":1}},{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"b"},{"context":"a"},{"context":"a"}]}},{"type":"required_status_checks","parameters":{}}]' | jq -r "$filter" | tr -d '\r')" "two pull_request rules and a repeated context"
+  assert_eq '0|ci' "$(printf '%s' '[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"ci"}]}},{"type":"deletion"}]' | jq -r "$filter" | tr -d '\r')" "a check and no pull_request rule"
+  assert_eq '0|' "$(printf '%s' '[]' | jq -r "$filter" | tr -d '\r')" "no rules at all"
+  assert_eq '0|' "$(printf '%s' '[{"type":"pull_request","parameters":{"required_approving_review_count":0}}]' | jq -r "$filter" | tr -d '\r')" "a pull_request rule asking for none"
+}

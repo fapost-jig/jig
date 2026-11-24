@@ -5402,3 +5402,94 @@ test_housekeeping_an_open_pull_request_into_staging_keeps_an_old_task() {
   assert_not_contains "$OUT" "action=archive"
   assert_contains "$(cat .ai/workspace/tasks/never/state)" "status: active"
 }
+
+# hk_jq_filter <file> <function> [n] — the n-th (default first) single-quoted --jq
+# filter in <function> of <file>, as the script spells it; the tests run it
+# through jq in place of gh's own gojq.
+hk_jq_filter() {
+  awk -v fn="$2" -v n="${3:-1}" '
+    index($0, fn "() {") == 1 { on = 1 }
+    on {
+      line = $0
+      if (!inq) {
+        i = index(line, "--jq '\''")
+        if (!i) next
+        line = substr(line, i + 6)
+        inq = 1
+        seen++
+      }
+      j = index(line, "'\''")
+      if (j) {
+        if (seen == n) { printf "%s", substr(line, 1, j - 1); exit }
+        inq = 0
+      } else if (seen == n) print line
+    }' "$1"
+}
+
+test_housekeeping_forge_ci_filter_prints_what_the_forge_row_needs() {
+  command -v jq >/dev/null 2>&1 || skip "jq is not here to run gh's filters"
+  local filter
+  filter=$(hk_jq_filter "$JIG_HOME/scripts/lib/housekeeping.sh" _hk_forge_ci)
+  assert_contains "$filter" "statusCheckRollup" "the filter was not found"
+  # One pull request per case: no rollup, an empty one, a StatusContext beside
+  # a CheckRun, a re-run (the newest run counts), a missing workflowName, a
+  # name that is null beside a context, no start time, every conclusion, and
+  # empty or null words that print as "-".
+  cat > forge-ci.json <<'EOF'
+[
+{"headRefName":"a","baseRefName":"main","statusCheckRollup":null,"mergeable":null,"headRefOid":null,"url":null,"reviewDecision":null,"latestReviews":[],"reviewRequests":[]},
+{"headRefName":"b","baseRefName":"main","statusCheckRollup":[],"mergeable":"","headRefOid":"","url":"","reviewDecision":"","latestReviews":[],"reviewRequests":[]},
+{"headRefName":"c","baseRefName":"main","statusCheckRollup":[
+ {"__typename":"StatusContext","context":"ci/legacy","state":"SUCCESS"},
+ {"__typename":"CheckRun","name":"build","workflowName":"CI","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-01-01T00:00:00Z","completedAt":"2026-01-01T00:01:00Z"}],
+ "mergeable":"MERGEABLE","headRefOid":"abc","url":"u1","reviewDecision":"APPROVED","latestReviews":[{"state":"APPROVED"},{"state":"COMMENTED"}],"reviewRequests":[{"login":"bob"},{"slug":"team-x"},{"name":"Nm"},{"__typename":"Mannequin"}]},
+{"headRefName":"d","baseRefName":"main","statusCheckRollup":[
+ {"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-01-01T00:00:00Z","completedAt":"2026-01-01T00:01:00Z"},
+ {"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-01-01T01:00:00Z","completedAt":"2026-01-01T01:01:00Z"}],
+ "mergeable":"CONFLICTING","headRefOid":"def","url":"u2","reviewDecision":"REVIEW_REQUIRED","latestReviews":[],"reviewRequests":[{"login":"x"}]},
+{"headRefName":"e","baseRefName":"main","statusCheckRollup":[
+ {"__typename":"CheckRun","name":"test","workflowName":"W","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-01-01T00:00:00Z","completedAt":"2026-01-01T00:01:00Z"},
+ {"__typename":"CheckRun","name":"test","workflowName":"W","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-01-01T01:00:00Z","completedAt":"2026-01-01T01:01:00Z"}],
+ "mergeable":"MERGEABLE","headRefOid":"e1","url":"u3","reviewDecision":"CHANGES_REQUESTED","latestReviews":[{"state":"CHANGES_REQUESTED"}],"reviewRequests":[]},
+{"headRefName":"f","baseRefName":"main","statusCheckRollup":[
+ {"__typename":"CheckRun","name":null,"context":"ctxname","status":"IN_PROGRESS","conclusion":null,"startedAt":null,"completedAt":"2026-01-01T00:00:00Z"},
+ {"__typename":"CheckRun","name":"x","status":"COMPLETED","conclusion":"SKIPPED","startedAt":null,"completedAt":null},
+ {"__typename":"CheckRun","name":"y","status":"COMPLETED","conclusion":"NEUTRAL"}],
+ "mergeable":"UNKNOWN","headRefOid":"f1","url":"u4","reviewDecision":null,"latestReviews":[],"reviewRequests":[]},
+{"headRefName":"g","baseRefName":"main","statusCheckRollup":[
+ {"__typename":"CheckRun","name":"s","status":"COMPLETED","conclusion":"SKIPPED"},
+ {"__typename":"CheckRun","name":"t","status":"COMPLETED","conclusion":"NEUTRAL"}],
+ "mergeable":"MERGEABLE","headRefOid":"g1","url":"u5","reviewDecision":"","latestReviews":[],"reviewRequests":[]},
+{"headRefName":"h","baseRefName":"main","statusCheckRollup":[
+ {"__typename":"StatusContext","context":"s1","state":"PENDING"},
+ {"__typename":"StatusContext","context":"s2","state":"ERROR"},
+ {"__typename":"CheckRun","name":"c1","status":"COMPLETED","conclusion":"CANCELLED"},
+ {"__typename":"CheckRun","name":"c2","status":"COMPLETED","conclusion":"TIMED_OUT"},
+ {"__typename":"CheckRun","name":"c3","status":"COMPLETED","conclusion":"ACTION_REQUIRED"},
+ {"__typename":"CheckRun","name":"c4","status":"COMPLETED","conclusion":"STALE"}],
+ "mergeable":"MERGEABLE","headRefOid":"h1","url":"u6","reviewDecision":"APPROVED","latestReviews":[{"state":"APPROVED"}],"reviewRequests":[]},
+{"headRefName":"i","baseRefName":"main","statusCheckRollup":[
+ {"__typename":"CheckRun","name":"q","status":"QUEUED","conclusion":null,"startedAt":"2026-01-01T00:00:00Z"},
+ {"__typename":"StatusContext","context":"z","state":"SUCCESS"}],
+ "mergeable":"MERGEABLE","headRefOid":"i1","url":"u7","reviewDecision":"APPROVED","latestReviews":[],"reviewRequests":[]},
+{"headRefName":"j","baseRefName":"main","statusCheckRollup":[
+ {"__typename":"CheckRun","name":"a","workflowName":"W1","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-01-01T00:00:00Z"},
+ {"__typename":"CheckRun","name":"a","workflowName":"W2","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-01-01T01:00:00Z"}],
+ "mergeable":"MERGEABLE","headRefOid":"j1","url":"u8","reviewDecision":"APPROVED","latestReviews":[],"reviewRequests":[]}
+]
+EOF
+  jq -r "$filter" forge-ci.json | tr -d '\r' > forge-ci.out
+  tr '~' '\t' > forge-ci.want <<'EOF'
+a~main~none~-~-~-~-~-~-
+b~main~none~-~-~-~-~-~-
+c~main~green~MERGEABLE~abc~u1~APPROVED~APPROVED,COMMENTED~bob,team-x,Nm
+d~main~green~CONFLICTING~def~u2~REVIEW_REQUIRED~-~x
+e~main~red~MERGEABLE~e1~u3~CHANGES_REQUESTED~CHANGES_REQUESTED~-
+f~main~pending~UNKNOWN~f1~u4~-~-~-
+g~main~none~MERGEABLE~g1~u5~-~-~-
+h~main~red~MERGEABLE~h1~u6~APPROVED~APPROVED~-
+i~main~pending~MERGEABLE~i1~u7~APPROVED~-~-
+j~main~red~MERGEABLE~j1~u8~APPROVED~-~-
+EOF
+  assert_eq "$(cat forge-ci.want)" "$(cat forge-ci.out)" "the row of a pull request changed"
+}
