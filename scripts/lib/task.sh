@@ -2187,10 +2187,15 @@ _task_close_write() {
 # _task_close_build <id> <dir> <dst> — the state of the closed task built whole
 # into <dst>, nothing moved into place: the knowledge decision of a bare
 # triage task, the pull request a close adopted (_task_close_adopt_v) with
-# where it went, and `status: consolidated`, as one file for one claim.
+# where it went, and `status: consolidated`, as one file for one claim. A task
+# that was abandoned loses its abandoned_at, abandoned_reason and moved_to in
+# the same file, as the plain close removes them (_task_abandon_keys_clear), so
+# no consolidated state carries them; the reminder that clearing prints for a
+# task live again is left to that path.
 _task_close_build() {
-  local id="$1" dir="$2" dst="$3" src="$2/state" n=0 next
+  local id="$1" dir="$2" dst="$3" src="$2/state" n=0 next steps drop=0
   local -a kv=()
+  jig_cleanup_add "$dst"
   if _task_is_bare_triage "$id" && [ "$(task_state_get "$id" knowledge_consolidated)" != true ]; then
     kv+=(knowledge_consolidated true)
   fi
@@ -2198,12 +2203,14 @@ _task_close_build() {
     kv+=(pr_url "$_TASK_ADOPT_URL" pr_into "$_TASK_ADOPT_INTO")
   fi
   kv+=(status consolidated)
+  [ "$(task_state_get "$id" status)" != abandoned ] || drop=1
+  steps=$(( ${#kv[@]} / 2 + drop ))
   local i=0
   while [ "$i" -lt "${#kv[@]}" ]; do
     n=$((n + 1))
     # The last step writes <dst> itself: this function moves nothing into
     # place, its caller does, under its claim.
-    if [ $((i + 2)) -lt "${#kv[@]}" ]; then
+    if [ "$n" -lt "$steps" ]; then
       next="$dst.step$n"
     else
       next=$dst
@@ -2213,6 +2220,10 @@ _task_close_build() {
     src=$next
     i=$((i + 2))
   done
+  if [ "$drop" -eq 1 ]; then
+    _task_state_without_into "$src" "$dst" abandoned_at abandoned_reason moved_to
+    [ "$src" = "$dir/state" ] || rm -f "$src"
+  fi
 }
 
 # The pull request a close adopts in place of the recorded one, as
@@ -2297,6 +2308,9 @@ _task_close_adopt_v() {
   case "$kind" in github | gitlab) ;; *) return 0 ;; esac
   jig_pr_state_v st why "$pr"
   [ "$st" = closed ] || return 0
+  # As this clone's account, resolved here in this shell, where the memo
+  # survives: _task_branch_pr_rows runs under $(...) and could not keep it.
+  [ "$kind" != github ] || jig_gh_resolve || return 0
   rows=$(_task_branch_pr_rows "$branch" merged) || return 0
   _task_pr_created_v created "$pr"
   [ -n "$created" ] || return 0
@@ -8921,7 +8935,14 @@ Nothing was committed. Merge $base into the task branch first (git merge ${ref#r
 # login), there is nothing to tell apart and the ship goes on, to fail where
 # it always did, at the pull request.
 _task_ship_foreign_pr() {
-  local branch="$1" staging="$2" rows="" target url found="" merged_at
+  local branch="$1" staging="$2" rows="" target url found="" merged_at kind
+  kind=$(jig_forge_kind 2>/dev/null) || return 0
+  if [ "$kind" = github ]; then
+    # As this clone's account, resolved here in this shell: a clone that
+    # cannot name one cannot answer, and jig_ship_account refuses it later,
+    # before anything is sent.
+    jig_gh_resolve || return 0
+  fi
   rows=$(_task_branch_pr_rows "$branch" open) || return 0
   while IFS=$'\t' read -r target url merged_at; do
     [ -n "$target" ] || continue

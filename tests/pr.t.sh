@@ -2130,3 +2130,26 @@ event: discussions"
   assert_contains "$OUT" "not where it was shown (reply 1 fixed R1 feature.txt, thread bbbb2222 at thread cccc3333)"
   assert_eq 3 "$(cat ../bin/npost)"
 }
+
+# jig_glab_fields (scripts/lib/common.sh) splits glab's compact array into its
+# top-level objects: nested assignee and reviewer objects stay in their row.
+test_glab_fields_keeps_a_merge_request_with_several_assignees_whole() {
+  local json
+  json='[{"iid":1,"title":"fix {a} and \"}{\" too \\","state":"opened","target_branch":"main","assignees":[{"id":1,"web_url":"https://g.example/ann"},{"id":2,"web_url":"https://g.example/bob"}],"reviewers":[{"id":3,"web_url":"https://g.example/cy"},{"id":4,"web_url":"https://g.example/di"}],"author":{"id":9,"web_url":"https://g.example/joe"},"merged_at":"2026-06-01","web_url":"https://g.example/p/-/merge_requests/1"}, {"iid":2,"state":"merged","target_branch":"dev","assignees":[{"id":1}],"author":{"id":9,"web_url":"https://g.example/joe"},"merged_at":"2026-06-02","web_url":"https://g.example/p/-/merge_requests/2"}]'
+  run bash -c '. "$JIG_HOME/scripts/lib/common.sh"; printf "%s\n" "$1" | jig_glab_fields target_branch web_url@/merge_requests/ merged_at' _ "$json"
+  assert_eq 0 "$RC"
+  assert_eq "$(printf 'main\thttps://g.example/p/-/merge_requests/1\t2026-06-01\ndev\thttps://g.example/p/-/merge_requests/2\t2026-06-02')" "$OUT"
+}
+
+test_glab_fields_reads_a_single_object_and_an_array_across_lines() {
+  run bash -c '. "$JIG_HOME/scripts/lib/common.sh"; printf "%s\n" "$1" | jig_glab_fields state web_url' _ '{"state":"merged","reviewers":[{"id":1},{"id":2}],"web_url":"https://g.example/p/-/merge_requests/5"}'
+  assert_eq 0 "$RC"
+  assert_eq "$(printf 'merged\thttps://g.example/p/-/merge_requests/5')" "$OUT"
+  run bash -c '. "$JIG_HOME/scripts/lib/common.sh"; printf "%s\n" "$1" | jig_glab_fields state web_url' _ '[
+{"state":"x",
+"a":[{"q":1},{"q":2}],"web_url":"w1"},
+{"state":"y","web_url":"w2"}
+]'
+  assert_eq 0 "$RC"
+  assert_eq "$(printf 'x\tw1\ny\tw2')" "$OUT"
+}
