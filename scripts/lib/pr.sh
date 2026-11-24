@@ -616,19 +616,26 @@ _pr_gh_refuse_a_lost_reply() {
 # never the head's (the author controls it), never this clone's working tree or
 # the person's local layer, never personal or global settings.
 
-# _pr_issue_pattern_at <sha> — task.issue_pattern of `.ai/config.yaml` as it is
-# at commit <sha> of the reviewed repository, with one pair of surrounding
-# quotes removed (jig_strip_quotes, as _task_issue_pattern does); nothing when the commit has no
-# such file or the file no such key.
-_pr_issue_pattern_at() {
-  local tmp pattern=""
-  tmp=$(mktemp "${TMPDIR:-/tmp}/jig-pr-config.XXXXXX") || return 0
-  jig_cleanup_add "$tmp"
-  if _pr_git "$JIG_PROJECT" show "$1:.ai/config.yaml" > "$tmp" 2>/dev/null; then
-    _cfg_read_v pattern "$tmp" task.issue_pattern || pattern=""
+# _pr_issue_pattern_at_v <var> <sha> — task.issue_pattern of `.ai/config.yaml`
+# as it is at commit <sha> of the reviewed repository, into <var>, with one
+# pair of surrounding quotes removed (jig_strip_quotes, as _task_issue_pattern
+# does); empty when the commit has no such file or the file no such key. A
+# setter, called as a plain command, so the temp file is registered in the
+# caller's shell (conventions/shell.md: never from inside $(...)). Always
+# returns 0; <var> is set on every path. Locals are prefixed: the caller names
+# <var>, and a local of that name here would capture the write.
+_pr_issue_pattern_at_v() {
+  local __pip_tmp __pip_val=""
+  printf -v "$1" '%s' ""
+  __pip_tmp=$(mktemp "${TMPDIR:-/tmp}/jig-pr-config.XXXXXX") || return 0
+  jig_cleanup_add "$__pip_tmp"
+  if _pr_git "$JIG_PROJECT" show "$2:.ai/config.yaml" > "$__pip_tmp" 2>/dev/null; then
+    _cfg_read_v __pip_val "$__pip_tmp" task.issue_pattern || __pip_val=""
   fi
-  rm -f "$tmp"
-  jig_strip_quotes "$pattern"
+  rm -f "$__pip_tmp"
+  __pip_val=$(jig_strip_quotes "$__pip_val")
+  printf -v "$1" '%s' "$__pip_val"
+  return 0
 }
 
 # _pr_issue_candidates <pattern> <head branch> <title> <body> — one
@@ -708,7 +715,7 @@ _pr_issue_candidates() {
 _pr_issue_lines() {
   local pattern out rc=0 cand where tab
   tab=$(printf '\t')
-  pattern=$(_pr_issue_pattern_at "$1")
+  _pr_issue_pattern_at_v pattern "$1"
   if [ -z "$pattern" ]; then
     printf 'issue: ask (the base sets no task.issue_pattern; ask the person for the issue or where to find it)\n'
     return 0
