@@ -8,6 +8,45 @@ Update the tool with `jig self-update`, then run `jig upgrade` in each project; 
 as far as your settings allow ([Install](/install#keep-jig-up-to-date)). Releases are tagged on
 [GitHub](https://github.com/fapost-jig/jig/tags).
 
+## 0.50.0
+
+A review of a colleague's pull request starts from the issue it implements. In a clone with
+`autopilot.unattended`, your word now lands a pull request without review under
+`git.staging_review: ask` outside the task's own unattended run. GitLab merge requests with several
+assignees or reviewers are no longer dropped. Nothing to do by hand
+([From 0.49.0 to 0.50.0](/upgrading#from-0490-to-0500)).
+
+- **A colleague's pull request review starts from the tracker issue it implements.** `jig pr fetch`
+  prints the head branch and the issues it may implement, found by the reviewed repository's own
+  `task.issue_pattern` as its base commits it, and the `jig-pr-review` skill does not start until you
+  confirm or give the issue, or say there is none. A review without a read issue says so in its
+  summary, shown and posted. No new setting ([Manual control](/manual-control), [Skills](/skills)).
+  Only tried against a stand-in for the forge, not on a live pull or merge request.
+- **Landing without review in an unattended clone is refused only inside the task's own run.** The
+  0.49.0 notes say `autopilot.unattended` is "read for the whole clone, not only inside a run"; that
+  no longer holds for `jig task land --without-review`, under `ask` or `none`, and for the approval
+  check of `jig task ship` at `merge` on the staging flow under `git.staging_review: ask`. Only that run,
+  while on or stopped, still waits; elsewhere `jig task ship` stops and asks you, and your word lands
+  the pull request. `require` still waits for an approval everywhere. Lowering a T3 or T4 task
+  below T3 and a release's merge (`release.merge`) still follow the clone's setting
+  ([Autopilot](/autopilot#without-stops), [staging flow](/staging-flow)).
+- **GitLab merge requests with two or more assignees or reviewers are no longer dropped.** Every
+  reader of `glab` lost such a merge request: closing a task, housekeeping and `jig status`,
+  `jig upgrade`, `jig task promote` and `jig task ship`. This includes the adoption of a replacement
+  merge request on close that 0.49.0 described. Only tried against a stand-in for `glab`.
+- **Closing an abandoned task leaves no abandoned keys behind.** A close that adopted a replacement
+  pull request, or ran with `--revision`, kept `abandoned_at`, `abandoned_reason` and `moved_to` in
+  the closed task's state; it now removes them, as a plain close does.
+- **Three GitHub queries no longer carry a `/` that Git Bash on Windows may rewrite as a path.**
+  They are the CI and review state of open pull requests that housekeeping caches for `jig status`,
+  the base branch's required approvals and checks `jig task pr-status` reports, and the
+  classic branch protection `jig task promote` reads. Each filter gives the same output as before,
+  checked by running it through `jq` over the same fixtures; not tried on Windows itself.
+- **The 0.49.0 notes are corrected.** The line about a `jig task ship` that ends `not merged` while a
+  run is on now says it is the direct flow, and [Concepts](/concepts) gains "Knowledge that was
+  replaced". [Choose what the agent can do](/agent-ships) now names the unattended clone, not a
+  run, as what merges an epic's final pull request.
+
 ## 0.49.0
 
 A task whose pull request was replaced by hand can be closed. A document that a newer one replaces

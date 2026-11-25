@@ -54,7 +54,7 @@ selected.
 
 | Setting | Default | What it does |
 |---|---|---|
-| `task.issue_pattern` | not set | What an issue of your tracker looks like at the start of a task's id: `[A-Z][A-Z0-9]*-[0-9]+` for YouTrack, Jira or Linear (`SRD-2455-fix-login`), `[0-9]+` for GitHub or GitLab issues (`123-fix-login`). Jig keeps the issue with the task, shows it, and puts it in the commit's first line and the pull request title when it ships. Not set, no issue is read from any id. See [tasks from a tracker](/working-with-tasks#tasks-from-a-tracker). |
+| `task.issue_pattern` | not set | What an issue of your tracker looks like at the start of a task's id: `[A-Z][A-Z0-9]*-[0-9]+` for YouTrack, Jira or Linear (`SRD-2455-fix-login`), `[0-9]+` for GitHub or GitLab issues (`123-fix-login`). Jig keeps the issue with the task, shows it, and puts it in the commit's first line and the pull request title when it ships. Not set, no issue is read from any id. `jig pr fetch` reads this key from the reviewed repository's `.ai/config.yaml` at the pull request's base to propose the issue a colleague's pull request implements ([Manual control](/manual-control)). See [tasks from a tracker](/working-with-tasks#tasks-from-a-tracker). |
 
 The pattern is a regular expression that must match from the id's first character up to its end or
 to a `-`, `_` or `.`: with `[0-9]+`, `123-fix-login` names issue `123`, while `release-0-25-1` and
@@ -238,11 +238,13 @@ Some settings are a matter of personal taste rather than project policy. Put the
   uses it for every pull request, check, merge and push over HTTPS, whichever account `gh` has
   active. Set it when several of your accounts may push here. See
   [Two GitHub accounts](/agent-ships#two-github-accounts).
-- `release.merge` — who merges a release in an unattended run at `agent.git: merge`: `agent` (the
-  default) merges it once CI passed, `human` opens the pull request and leaves the merge to you. A
+- `release.merge` — who merges a release where nobody answers, at `agent.git: merge`: in a clone with
+  `autopilot.unattended: true`, in a run or not, and, for a notes task's `jig task ship`, in that
+  task's own unattended run elsewhere. `agent` (the default) merges it once CI passed, `human` opens
+  the pull request and leaves the merge to you. A
   release is a pull request whose change raises the version into the default branch (`VERSION`, or
   the `version` of `package.json`, `composer.json`, `pyproject.toml` or `Cargo.toml` at the
-  repository's root): a release's notes task, or a release epic's final pull request. Outside an unattended run a release is always yours to
+  repository's root): a release's notes task, or a release epic's final pull request. Where somebody answers, a release is always yours to
   merge, and a `major` one always is. Other task pull requests are not affected; local only.
 - `upgrade.merge` — whether `jig upgrade` carries its own pull request to the merge on your
   behalf: `agent` (the default) pushes it, opens the pull request and merges it once CI is green,
