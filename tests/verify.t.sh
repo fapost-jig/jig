@@ -4519,6 +4519,37 @@ test_verify_files_hands_the_profile_exactly_the_named_files() {
   assert_contains "$OUT" "RESULT probe: pass (scope: changed, 1 files)"
 }
 
+test_verify_narrowed_run_streams_the_profiles_lines_as_they_come() {
+  _fixture_files_repo
+  # A profile that prints a progress line, then waits for the test to have
+  # seen it: under a run that held the output until the profile exited the
+  # line never shows in time and the profile gives up.
+  cat > .ai/profiles/probe/verify.sh <<'EOT'
+#!/usr/bin/env bash
+[ -z "${JIG_VERIFY_EXPLAIN:-}" ] || { echo "PLAN probe: tests: filtered (named files)"; exit 0; }
+echo "probe: 63 / 287 ( 21%)"
+i=0
+while [ ! -f go ] && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+[ -f go ] || { echo "probe: tests: fail (nobody saw the progress line)"; exit 1; }
+echo "probe: tests: pass (scope: 1 filters, full set left to CI)"
+EOT
+  "$JIG_BIN" verify --files a.sh --profile probe > verify-out.log 2>&1 &
+  local pid=$! i=0
+  until grep -q "63 / 287" verify-out.log 2>/dev/null; do
+    i=$((i + 1))
+    [ "$i" -lt 200 ] || break
+    sleep 0.1
+  done
+  touch go
+  wait "$pid"
+  local rc=$?
+  OUT=$(cat verify-out.log)
+  assert_eq 0 "$rc" "$OUT"
+  assert_contains "$OUT" "probe: tests: pass"
+  # The summary still reads the kept output: the full set left to --files.
+  assert_contains "$OUT" "verify: 1 check(s) left their full set to the task's jig verify (--files)"
+}
+
 test_verify_files_header_and_summary_wording() {
   _fixture_files_repo
 

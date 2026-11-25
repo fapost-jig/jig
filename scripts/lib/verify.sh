@@ -666,6 +666,16 @@ EOF_TOKENS
   return 0
 }
 
+# _verify_out_tmp — the file a narrowed profile's output is kept in, made once
+# a run and emptied before each profile.
+_verify_out_tmp() {
+  if [ -z "${JIG_VERIFY_OUT_TMP:-}" ]; then
+    JIG_VERIFY_OUT_TMP=$(mktemp "${TMPDIR:-/tmp}/jig-verify-out.XXXXXX") \
+      || jig_die "verify: cannot create temporary file"
+  fi
+  : > "$JIG_VERIFY_OUT_TMP"
+}
+
 # _verify_cleanup — the one EXIT trap: temporary files and the run record. Its
 # variables are script-global, never `local`, because the trap runs after the
 # function that set them has returned (conventions/shell.md).
@@ -676,7 +686,7 @@ _verify_cleanup() {
   if [ -n "${JIG_VERIFY_MAP_TMP:-}" ]; then
     rm -f "$JIG_VERIFY_MAP_TMP.src" 2>/dev/null || true
   fi
-  rm -f "${JIG_VERIFY_TMP:-}" "${JIG_VERIFY_MAP_TMP:-}" "${JIG_VERIFY_MAP_ALL_TMP:-}" "${JIG_VERIFY_CHECKS_TMP:-}" 2>/dev/null || true
+  rm -f "${JIG_VERIFY_TMP:-}" "${JIG_VERIFY_MAP_TMP:-}" "${JIG_VERIFY_MAP_ALL_TMP:-}" "${JIG_VERIFY_CHECKS_TMP:-}" "${JIG_VERIFY_OUT_TMP:-}" 2>/dev/null || true
   if [ -n "${JIG_VERIFY_BUSY:-}" ]; then
     _verify_busy_release "$JIG_VERIFY_BUSY" own
     JIG_VERIFY_BUSY=""
@@ -1113,6 +1123,7 @@ cmd_verify() {
   JIG_VERIFY_MAP_TMP=""
   JIG_VERIFY_MAP_ALL_TMP=""
   JIG_VERIFY_CHECKS_TMP=""
+  JIG_VERIFY_OUT_TMP=""
   JIG_VERIFY_BUSY=""
   JIG_VERIFY_ENV=""
   while [ $# -gt 0 ]; do
@@ -1708,23 +1719,22 @@ EOF
           && JIG_VERIFY_EXPLAIN=1 bash "$pdir/verify.sh" )
       fi
       rc=$?
-    elif [ "$map_ok" = 1 ]; then
-      run_output=$( cd "$JIG_PROJECT" \
+    elif [ "$map_ok" = 1 ] || [ "$scope_ok" = 1 ]; then
+      # A narrowed run is shown as it comes — a test runner's progress lines
+      # included — and kept in a file for the summary to read afterwards.
+      _verify_out_tmp
+      ( cd "$JIG_PROJECT" \
         && unset JIG_VERIFY_EXPLAIN \
+        && if [ "$map_ok" = 1 ]; then
+             export JIG_VERIFY_MAPPED="$JIG_VERIFY_MAP_TMP" JIG_VERIFY_MAPPED_ALL="$JIG_VERIFY_MAP_ALL_TMP"
+           else
+             unset JIG_VERIFY_MAPPED JIG_VERIFY_MAPPED_ALL
+           fi \
         && JIG_VERIFY_SCOPE=changed JIG_VERIFY_FILES="$JIG_VERIFY_TMP" \
              JIG_VERIFY_BASE="$base" JIG_VERIFY_FULL_RUN="$profile_full_run" \
-           JIG_VERIFY_MAPPED="$JIG_VERIFY_MAP_TMP" JIG_VERIFY_MAPPED_ALL="$JIG_VERIFY_MAP_ALL_TMP" \
-           bash "$pdir/verify.sh" 2>&1 )
-      rc=$?
-      [ -z "$run_output" ] || printf '%s\n' "$run_output"
-    elif [ "$scope_ok" = 1 ]; then
-      run_output=$( cd "$JIG_PROJECT" \
-        && unset JIG_VERIFY_EXPLAIN JIG_VERIFY_MAPPED JIG_VERIFY_MAPPED_ALL \
-        && JIG_VERIFY_SCOPE=changed JIG_VERIFY_FILES="$JIG_VERIFY_TMP" \
-             JIG_VERIFY_BASE="$base" JIG_VERIFY_FULL_RUN="$profile_full_run" \
-           bash "$pdir/verify.sh" 2>&1 )
-      rc=$?
-      [ -z "$run_output" ] || printf '%s\n' "$run_output"
+           bash "$pdir/verify.sh" 2>&1 ) | tee "$JIG_VERIFY_OUT_TMP"
+      rc=${PIPESTATUS[0]}
+      run_output=$(cat "$JIG_VERIFY_OUT_TMP" 2>/dev/null) || run_output=""
     else
       # Never scope-aware (no --changed, or the profile declares no scope
       # support): a skip here cannot be scope narrowing, so there is nothing
