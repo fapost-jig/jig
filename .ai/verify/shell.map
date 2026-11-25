@@ -84,7 +84,7 @@ tests/*.t.ps1                   install::
 # refuses before any profile runs when the manifest says a framework file
 # is still to be placed. Measured: with this file overwritten with one line
 # of junk, init::, upgrade::, status::, doctor::, adapters::, section::,
-# ci-windows-scope:: and knowledge:: stayed green, 610 tests.
+# knowledge:: stayed green, 610 tests.
 .ai/manifest                    -
 
 # Except this map: tests/verify.t.sh checks it, and CI reads it to decide

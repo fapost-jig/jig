@@ -201,9 +201,6 @@ test_ci_workflow_scope_measures_a_pull_request_from_its_merge_parent() {
   # shellcheck disable=SC2016 # shell variables in a workflow, matched literally
   printf '%s\n' "$block" | grep -qF '.github/scripts/ci-scope.sh "$pr_base"' ||
     fail "the scope job must pass the merge parent to ci-scope.sh"
-  # shellcheck disable=SC2016 # shell variables in a workflow, matched literally
-  printf '%s\n' "$block" | grep -qF '.github/scripts/ci-windows-scope.sh "$pr_base"' ||
-    fail "the scope job must pass the merge parent to ci-windows-scope.sh"
   if printf '%s\n' "$block" | grep -qF 'pull_request.base.sha'; then
     fail "the scope job must not read github.event.pull_request.base.sha: it is where the branch started, not what it merges into"
   fi
@@ -231,27 +228,38 @@ test_ci_workflow_push_scope_follows_ci_push_base() {
   fi
 }
 
-# A push to an epic asks ci-windows-scope.sh, with the base the scope used (or
-# skips when the epic holds nothing); main, the nightly run and a dispatch
-# keep running every platform.
-test_ci_workflow_epic_push_asks_the_windows_scope_with_the_same_base() {
+# The Windows decision is ci-windows.sh's (tests/ci-windows.t.sh holds the
+# rules): the scope job asks it with the event and the branch, and does not
+# decide by event or by diff in the workflow.
+test_ci_workflow_windows_is_decided_by_ci_windows_sh_from_the_event() {
   local block
   block=$(cw_job_block scope)
   # shellcheck disable=SC2016
-  printf '%s\n' "$block" | grep -qF 'push:epic/*)' ||
-    fail "a push to an epic branch must be decided on its own"
+  printf '%s\n' "$block" | grep -qF '.github/scripts/ci-windows.sh "$EVENT" "$BRANCH"' ||
+    fail "the scope job must ask ci-windows.sh with the event and the branch"
+  if printf '%s\n' "$block" | grep -qF 'ci-windows-scope'; then
+    fail "ci-windows-scope.sh is gone: no pull request asks for Windows by its diff"
+  fi
+  if printf '%s\n' "$block" | grep -qF 'win="skip'; then
+    fail "the skip decision lives in ci-windows.sh, not in the workflow"
+  fi
+}
+
+# The plan step gives ci-matrix.sh the event: a pull request's whole suite is
+# Linux only, and that rule is the script's.
+test_ci_workflow_plan_passes_the_event_to_ci_matrix() {
+  local block
+  block=$(cw_job_block scope)
   # shellcheck disable=SC2016
-  printf '%s\n' "$block" | grep -qF 'win=$(.github/scripts/ci-windows-scope.sh "$push_base")' ||
-    fail "a push to an epic branch must ask ci-windows-scope.sh with push_base"
-  printf '%s\n' "$block" | grep -qF 'win="skip (epic holds nothing beyond its base' ||
-    fail "an epic holding nothing beyond its base must skip Windows"
+  printf '%s\n' "$block" | grep -qF '.github/scripts/ci-matrix.sh "$SUITE" "$plan/filters" "$plan/durations" "$EVENT"' ||
+    fail "the plan step must pass the event to ci-matrix.sh"
   # shellcheck disable=SC2016
-  printf '%s\n' "$block" | grep -qF '*) win="windows ($EVENT runs every platform)" ;;' ||
-    fail "every other event, main's push included, must keep running Windows"
+  printf '%s\n' "$block" | grep -qF 'EVENT: ${{ github.event_name }}' ||
+    fail "the plan step must read github.event_name"
 }
 
 # ci-ok needs the branch to hold Windows to every run but a pull request and an
-# epic push.
+# epic push (the only ones ci-windows.sh skips).
 test_ci_workflow_ci_ok_is_told_the_ref() {
   # shellcheck disable=SC2016
   cw_has "$(cw_job_block ci-ok)" 'REF_NAME: ${{ github.ref_name }}' ||

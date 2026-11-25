@@ -303,21 +303,21 @@ level, orders them in the queue, and has the notes task write the notes against 
 requests' diffs; a release epic is built only when tasks must reach `main` together.
 A red `main` gets no tag, so a release pull request has to show, before it merges, that the tag
 will follow. CI holds it to two things. A change to `JIG_VERSION` runs the whole suite on every
-platform, Windows (Git Bash) included, whatever else the diff touches
-(`.github/scripts/ci-windows-scope.sh`). And the `changelog` job refuses a pull request that changes
+platform, Windows (Git Bash) included, whatever else the diff touches, but only once it is on
+`main`: a pull request runs the whole suite on Linux alone and no Windows shards
+(`.github/scripts/ci-windows.sh`, `.github/scripts/ci-matrix.sh`), and the tag waits for the whole
+run on every platform. And the `changelog` job refuses a pull request that changes
 `JIG_VERSION` while the latest completed `ci` run on `main` is not green, naming that run
 (`.github/scripts/main-green-check.sh`): fix `main` first, then re-run the job. A run on `main` still
 in progress is not waited for — the latest completed one decides. Both checks answer when the pull
 request's CI runs, not at the merge, so after the merge watch CI on `main` until the tag exists.
 
-A release costs one run of the suite when its pull request is up to date with `main` at the merge.
-`main`'s run then finds that the pull request's full run — every platform, Windows included —
-already tested the very tree `main` now has, skips the suite and goes straight to tagging
-(`.github/scripts/ci-reuse.sh`,
-adr-20261027-main-is-not-retested-when-a-pull-request-tested-its-tree). When `main` moved after the
-branch last merged it, `main` tests everything as before and the tag waits for that run; to avoid
-it, merge `main` into the branch and let its run finish before merging. The nightly run tests the
-whole suite on `main` whatever happened.
+After a release pull request merges, `main` tests the merge in full on every platform, Windows
+included, and the tag waits for that run: no pull request runs Windows shards any more, so `main`'s
+run never reuses or narrows from one (`.github/scripts/ci-reuse.sh` always answers `test`; the
+2026-11-25 amendments of adr-20260924-windows-runs-on-a-pull-request-that-touches-platform-behaviour
+and adr-20261110-a-pull-request-runs-the-tests-its-change-reaches). The nightly run tests the whole
+suite on `main` whatever happened.
 
 A release that changes installation on Windows also goes through
 [`.github/WINDOWS_RELEASE_CHECKLIST.md`](.github/WINDOWS_RELEASE_CHECKLIST.md).

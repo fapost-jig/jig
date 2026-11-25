@@ -307,6 +307,34 @@ test_ci_reuse_a_run_without_windows_tests_everything() {
   assert_contains "$OUT" "it skipped the Windows Git Bash shares"
 }
 
+# A pull request's run of the whole suite on Linux alone (the 2026-11-25
+# amendment of adr-20261110): no macOS and no Windows share, so no run of
+# every platform; a macOS share missing from a run that has the others counts
+# the same.
+test_ci_reuse_a_linux_only_run_tests_everything() {
+  local repo="$PWD/repo" pr before
+  cr_history "$repo" yes
+  pr=$(cr_sha "$repo" pr)
+  before=$(cr_sha "$repo" before)
+  cr_gh
+  cr_pulls "$pr"
+  cr_runs "7 $pr https://github.com/example/jig/actions/runs/7"
+  cr_jobs 7 "success scope" "skipped knowledge" "success ubuntu-latest 1/4 (all)" \
+    "success ubuntu-latest 2/4 (all)" "success windows-latest smoke (install.ps1)" \
+    "success changelog" "skipped epic-pr" "skipped release" "success ci-ok"
+  run cr_check "$repo" "$before"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "test ("
+  assert_contains "$OUT" "it ran no macOS share of the suite"
+
+  cr_jobs 7 "success scope" "skipped knowledge" "success ubuntu-latest 1/1 (all)" \
+    "success windows-latest (Git Bash) 1/1 (all)" "success windows-latest smoke (install.ps1)" \
+    "success changelog" "skipped epic-pr" "skipped release" "success ci-ok"
+  run cr_check "$repo" "$before"
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "it ran no macOS share of the suite"
+}
+
 test_ci_reuse_no_pull_request_runs_tests_everything() {
   local repo="$PWD/repo" pr before
   cr_history "$repo" yes

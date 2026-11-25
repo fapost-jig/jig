@@ -133,3 +133,22 @@ now applies to a pull request's run of the whole suite only.
 > **Amendment (2026-11-18): a selected run is not repeated on `main`, and a tested tree is not repeated at night.** The alternative of keeping the push to `main` full is dropped for a push whose pull request tested the same tree: `ci-reuse.sh` also counts a pull request's run of selected tests when every share is `(selected)` and the run's `plan` artifact holds every filter the push needs, and `ci-reuse.sh` still refuses a mixed run and any run without a Windows share. The nightly run is `light` when `ci-nightly-tested.sh` finds `main` green and the last successful nightly run's tree equal to the tree of `HEAD`; a map line that lets a change skip a test is still found by the next nightly run on a tree that moved. Durations for the plan come from the newest successful nightly run that has `report-*` artifacts. Rules and risk: adr-20261027-main-is-not-retested-when-a-pull-request-tested-its-tree, amended 2026-11-18.
 
 > **Amendment (2026-11-18): a narrowed run may release; `release` reads `whole`, not `suite`.** "A selected run never releases" and "a release always runs the whole suite" no longer hold as written. `scope` now publishes `whole`, true when the proof behind the run is the whole suite: it ran the whole suite, it reused a pull request's run of the whole suite, or it narrowed from such a run (`ci-reuse.sh` answers `narrow`) and tests what differs on `HEAD`. `release` needs `whole == 'true'` in place of `suite == 'all'`, so a release pull request that lagged behind `main` is tagged by a narrowed run, which can be `selected`, instead of waiting for the nightly one. The evidence is the pull request's full run on the tree it recorded (checked by recomputing the merge) plus the tests the difference from that tree reaches, run on `HEAD`, the knowledge check among them whatever the difference; the argument is the one this decision already rests on. A reuse of a pull request's run of selected tests, or a plain selected run, is not whole and still does not tag, and `red-main` still closes only on `suite == all`. The proof is not the whole suite on `HEAD`: a test broken through a coupling the map has no line for, by the combination of the pull request and what landed or by a change that landed meanwhile before any whole-suite run on it failed, passes it, and a release can be tagged with that test failing until the next whole-suite run on `main`, at the latest the nightly one, opens `red-main`, after which narrowing is refused. The decision is `.github/scripts/ci-outputs.sh`; see adr-20261118-main-tests-what-changed-since-a-full-pull-request-run.
+
+> **Amendment (2026-11-25): what a pull request runs, and where.** Windows no longer runs on a
+> pull request, wherever this ADR says so: only a push to `main`, the nightly run and a dispatch
+> run it (adr-20260924-windows-runs-on-a-pull-request-that-touches-platform-behaviour). A pull
+> request whose scope is `full` — for any reason: `.github/`, the test harness, what decides the
+> selection, `ALL` from a profile, `JIG_VERSION` — runs the whole suite on Linux alone, up to four
+> shares (`ci-matrix.sh` is given the event and leaves macOS out); a `selected` pull request keeps
+> Linux and macOS. Pushes, the nightly run and dispatches are unchanged. Why: #647 waited about 45
+> minutes for ten Windows shards and a full suite on three platforms that the push to `main` ran
+> again, and running the selection instead of the suite would let a change to the selector choose
+> too little for itself. A Linux-only run is not a run of the suite on every platform, so
+> `ci-reuse.sh` demands a Linux, a macOS and a Windows share before it reuses a pull request's run:
+> the push to `main` that merges such a pull request tests everything everywhere, and `release`
+> tags only on that whole run. Since no pull request run holds a Windows share any more, the
+> reuse and narrowing of adr-20261027-main-is-not-retested-when-a-pull-request-tested-its-tree and
+> adr-20261118-main-tests-what-changed-since-a-full-pull-request-run have nothing to start from
+> (`ci-reuse.sh` is unchanged on that point): a push to `main` tests what its own scope says on
+> every platform. The accepted cost: a break only macOS or Windows shows on a `full`
+> pull request appears on `main`, as a red `main`, and not on the pull request.

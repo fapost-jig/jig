@@ -260,7 +260,8 @@ test_ci_ok_fails_when_the_suite_does_not_fit_the_scope() {
   assert_eq 1 "$RC"
 }
 
-# A push to an epic branch asks ci-windows-scope.sh like a pull request does,
+# A push to an epic branch skips the Windows shards like a pull request does
+# (ci-windows.sh),
 # so scope may say windows=false there. The verdict follows scope's answer, not
 # the event: the shards are then decided-skipped and the run passes, and when
 # scope asked for them a skip is still a failure.
