@@ -24,8 +24,8 @@ assignees or reviewers are no longer dropped. Nothing to do by hand
   Only tried against a stand-in for the forge, not on a live pull or merge request.
 - **Landing without review in an unattended clone is refused only inside the task's own run.** The
   0.49.0 notes say `autopilot.unattended` is "read for the whole clone, not only inside a run"; that
-  no longer holds for `jig task land --without-review` and for the approval check of
-  `jig task ship` at `merge` on the staging flow under `git.staging_review: ask`. Only that run,
+  no longer holds for `jig task land --without-review`, under `ask` or `none`, and for the approval
+  check of `jig task ship` at `merge` on the staging flow under `git.staging_review: ask`. Only that run,
   while on or stopped, still waits; elsewhere `jig task ship` stops and asks you, and your word lands
   the pull request. `require` still waits for an approval everywhere. Lowering a T3 or T4 task
   below T3 and a release's merge (`release.merge`) still follow the clone's setting
@@ -44,7 +44,8 @@ assignees or reviewers are no longer dropped. Nothing to do by hand
   checked by running it through `jq` over the same fixtures; not tried on Windows itself.
 - **The 0.49.0 notes are corrected.** The line about a `jig task ship` that ends `not merged` while a
   run is on now says it is the direct flow, and [Concepts](/concepts) gains "Knowledge that was
-  replaced".
+  replaced". [Choose what the agent can do](/agent-ships) now names the unattended clone, not a
+  run, as what merges an epic's final pull request.
 
 ## 0.49.0
 
