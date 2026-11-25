@@ -5020,15 +5020,16 @@ test_verify_orphans_the_helper_ends_only_the_exact_token() {
     sleep 120 & e=$!
     sleep 1
     runenv_list_tokens_v listed
-    printf "listed:%s\n" "$(printf "%s" "$listed" | tr "\n" " ")"
+    printf "listed: %s \n" "$(printf "%s" "$listed" | tr "\n" " ")"
     runenv_end_token_v n $h-111-222
     echo "ended=$n"
     wait "$a" 2>/dev/null; kill -0 "$a" 2>/dev/null && echo "a=alive" || echo "a=gone"
     for p in b c d e; do eval "pp=\$$p"; kill -0 "$pp" 2>/dev/null && echo "$p=alive" || echo "$p=gone"; done
     kill "$b" "$c" "$d" "$e" 2>/dev/null; wait 2>/dev/null; true'
   assert_eq 0 "$RC" "$OUT"
-  assert_contains "$OUT" "$JIG_VERIFY_RUN_HOST-111-222 "
-  assert_contains "$OUT" "$JIG_VERIFY_RUN_HOST-111-2222 "
+  # Each listed token stands between blanks, so 111-222 cannot match inside 111-2222.
+  assert_contains "$OUT" " $JIG_VERIFY_RUN_HOST-111-222 "
+  assert_contains "$OUT" " $JIG_VERIFY_RUN_HOST-111-2222 "
   assert_contains "$OUT" "ended=1"
   assert_contains "$OUT" "a=gone"
   assert_contains "$OUT" "b=alive"
