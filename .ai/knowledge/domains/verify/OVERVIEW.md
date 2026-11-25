@@ -123,7 +123,7 @@ contract. A change to how profiles are *copied* still belongs to `install`.
   `jp_path_matches`, `jp_is_doc`, `jp_first_missing`, `jp_files`, `jp_version`, `jp_run`,
   `jp_exec`, `jp_have`, `jp_skip`, `jp_end`; under `verify.full_run: ci`, `jp_select`,
   `jp_full_left_to_ci`, `jp_plan_full`, `jp_plan_select`.
-- `scripts/lib/runenv.sh` — `runenv_resolve`, `_runenv_detect`, `_runenv_signs`,
+- `scripts/lib/runenv.sh` — `runenv_resolve`, `runenv_shared_key`, `_runenv_detect`, `_runenv_signs`,
   `_runenv_probe`.
 - `scripts/lib/hostruntime.sh` — `hostruntime_report`, `_hr_satisfies`, `_hostruntime_version`.
 - `profiles/python/verify.sh` — the reference profile on the library; each profile's header

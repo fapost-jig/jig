@@ -4690,3 +4690,214 @@ test_verify_files_backslash_and_drive_paths() {
   assert_contains "$OUT" "outside the project"
   assert_no_file probe.ran
 }
+
+# --- one run per shared container (the environment record) -------------------
+# Clones whose checks run through one `docker exec … <container>` prefix share
+# that container, so they also wait for each other. The record lives in the
+# machine's cache directory (XDG_CACHE_HOME here), not in any clone.
+
+# _verify_env_fixture <container> — a project whose checks run in <container>
+# through a `docker` stub on PATH, with the cache directory under this test's
+# directory and a passing probe profile.
+_verify_env_fixture() {
+  local container="$1"
+  fixture_repo
+  jig init --from "$JIG_HOME" --profiles generic >/dev/null
+  jig config set verify.busy_ttl 5m --local >/dev/null
+  jig config set run.exec "docker exec -i -w /srv/app $container" --local >/dev/null
+  mkdir -p stub-bin
+  cat > stub-bin/docker <<'STUB'
+#!/usr/bin/env bash
+shift
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -u|-w) shift 2 ;;
+    -*) shift ;;
+    *) break ;;
+  esac
+done
+shift
+exec "$@"
+STUB
+  chmod +x stub-bin/docker
+  PATH="$PWD/stub-bin:$PATH"
+  XDG_CACHE_HOME="$PWD/cache"
+  export XDG_CACHE_HOME
+  _fixture_probe_profile probe "scope: [environment]"
+}
+
+test_verify_env_key_is_the_container_of_a_docker_exec_prefix() {
+  run bash -c '
+    JIG_LIB="$JIG_HOME/scripts/lib"; . "$JIG_LIB/runenv.sh"
+    RUNENV_EXEC="docker exec -i -u devilbox -w /shared/httpd/a devilbox-php-1"; runenv_shared_key
+    RUNENV_EXEC="docker container exec -i -w /app web"; runenv_shared_key
+    RUNENV_EXEC="docker compose exec -T -u sail -w /var/www/html laravel.test"; runenv_shared_key
+    RUNENV_EXEC="ddev exec --raw"; runenv_shared_key
+    RUNENV_EXEC="devcontainer exec --workspace-folder ."; runenv_shared_key
+    RUNENV_EXEC=""; runenv_shared_key
+    true'
+  assert_eq 0 "$RC"
+  assert_eq "devilbox-php-1
+web" "$OUT"
+}
+
+test_verify_env_writes_and_removes_the_environment_record() {
+  _verify_env_fixture shared-php
+  cat > .ai/profiles/probe/verify.sh <<'PROBE'
+#!/usr/bin/env bash
+cp "$XDG_CACHE_HOME/jig/verify-env/shared-php/busy/run" seen-env.txt
+exit 0
+PROBE
+  run jig verify --profile probe
+  assert_eq 0 "$RC" "$OUT"
+  assert_file_contains seen-env.txt "checkout: $(pwd -P)"
+  assert_file_contains seen-env.txt "pid: "
+  assert_no_file cache/jig/verify-env/shared-php/busy
+  assert_no_file .ai/runtime/verify/busy
+}
+
+test_verify_env_waits_for_a_live_record_of_another_clone_then_proceeds() {
+  _verify_env_fixture shared-php
+  sleep 120 &
+  local holder_pid=$!
+  mkdir -p cache/jig/verify-env/shared-php/busy
+  printf 'checkout: /other-clone\npid: %s\n' "$holder_pid" > cache/jig/verify-env/shared-php/busy/run
+
+  "$JIG_BIN" verify --profile probe > verify-out.log 2>&1 &
+  local verify_pid=$!
+  local start=$SECONDS
+  until grep -q "waiting for it" verify-out.log 2>/dev/null; do
+    if ! kill -0 "$verify_pid" 2>/dev/null; then
+      kill "$holder_pid" 2>/dev/null || true
+      fail "verify finished without ever waiting: $(cat verify-out.log)"
+    fi
+    if [ $((SECONDS - start)) -ge 60 ]; then
+      kill "$holder_pid" "$verify_pid" 2>/dev/null || true
+      fail "verify never said it was waiting within 60s: $(cat verify-out.log)"
+    fi
+    sleep 1
+  done
+  assert_file_contains verify-out.log "verify: another run holds the environment shared-php (in /other-clone, started"
+  assert_file_contains verify-out.log "set verify.busy_ttl: 0 in .ai/config.local.yaml never to wait"
+  # The clone's own record was taken first, and is held while waiting.
+  assert_file_contains .ai/runtime/verify/busy/run "pid: "
+
+  kill "$holder_pid" 2>/dev/null || true
+  local rc=0
+  wait "$verify_pid" || rc=$?
+  assert_eq 0 "$rc"
+  assert_file_contains verify-out.log "for the run in /other-clone (environment shared-php)"
+  assert_file_contains verify-out.log "RESULT probe: pass"
+  assert_no_file cache/jig/verify-env/shared-php/busy
+  assert_no_file .ai/runtime/verify/busy
+  wait 2>/dev/null || true
+}
+
+test_verify_env_does_not_wait_for_another_container() {
+  _verify_env_fixture shared-php
+  sleep 30 &
+  local holder_pid=$!
+  mkdir -p cache/jig/verify-env/other-php/busy
+  printf 'checkout: /other-clone\npid: %s\n' "$holder_pid" > cache/jig/verify-env/other-php/busy/run
+
+  run jig verify --profile probe
+  assert_eq 0 "$RC"
+  assert_not_contains "$OUT" "verify: waited"
+  assert_contains "$OUT" "RESULT probe: pass"
+  assert_file_contains cache/jig/verify-env/other-php/busy/run "checkout: /other-clone"
+  kill "$holder_pid" 2>/dev/null || true
+  wait 2>/dev/null || true
+}
+
+test_verify_env_takes_over_a_dead_pid_record() {
+  _verify_env_fixture shared-php
+  local dead_pid
+  ( exit 0 ) &
+  dead_pid=$!
+  wait "$dead_pid" 2>/dev/null || true
+  mkdir -p cache/jig/verify-env/shared-php/busy
+  printf 'checkout: /other-clone\npid: %s\n' "$dead_pid" > cache/jig/verify-env/shared-php/busy/run
+
+  run jig verify --profile probe
+  assert_eq 0 "$RC"
+  assert_not_contains "$OUT" "verify: waited"
+  assert_contains "$OUT" "RESULT probe: pass"
+  assert_no_file cache/jig/verify-env/shared-php/busy
+}
+
+test_verify_env_takes_over_an_expired_record() {
+  _verify_env_fixture shared-php
+  jig config set verify.busy_ttl 20s --local >/dev/null
+  sleep 60 &
+  local holder_pid=$!
+  mkdir -p cache/jig/verify-env/shared-php/busy
+  printf 'checkout: /other-clone\npid: %s\n' "$holder_pid" > cache/jig/verify-env/shared-php/busy/run
+  touch -t 200001010000 cache/jig/verify-env/shared-php/busy/run
+
+  run jig verify --profile probe
+  assert_eq 0 "$RC"
+  assert_not_contains "$OUT" "verify: waited"
+  assert_contains "$OUT" "RESULT probe: pass"
+  kill "$holder_pid" 2>/dev/null || true
+  wait 2>/dev/null || true
+}
+
+test_verify_env_record_is_off_under_busy_ttl_zero_and_ci() {
+  _verify_env_fixture shared-php
+  sleep 30 &
+  local holder_pid=$!
+  mkdir -p cache/jig/verify-env/shared-php/busy
+  printf 'checkout: /other-clone\npid: %s\n' "$holder_pid" > cache/jig/verify-env/shared-php/busy/run
+
+  jig config set verify.busy_ttl 0 --local >/dev/null
+  run jig verify --profile probe
+  assert_eq 0 "$RC"
+  assert_not_contains "$OUT" "verify: waited"
+  assert_file_contains cache/jig/verify-env/shared-php/busy/run "checkout: /other-clone"
+
+  jig config set verify.busy_ttl 5m --local >/dev/null
+  run env CI=1 "$JIG_BIN" verify --profile probe
+  assert_eq 0 "$RC"
+  assert_not_contains "$OUT" "verify: waited"
+  assert_file_contains cache/jig/verify-env/shared-php/busy/run "checkout: /other-clone"
+  kill "$holder_pid" 2>/dev/null || true
+  wait 2>/dev/null || true
+}
+
+test_verify_env_has_no_record_without_a_cache_directory() {
+  _verify_env_fixture shared-php
+  run env -u XDG_CACHE_HOME HOME= "$JIG_BIN" verify --profile probe
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" "RESULT probe: pass"
+}
+
+# The release deletes only what this code builds: an inherited JIG_VERIFY_ENV
+# is reset at the start of a run, and a directory of another shape is refused.
+test_verify_env_never_releases_a_record_it_did_not_take() {
+  _verify_env_fixture shared-php
+  sleep 30 &
+  local holder_pid=$!
+  mkdir -p cache/jig/verify-env/other-php/busy
+  printf 'checkout: /other-clone\npid: %s\n' "$holder_pid" > cache/jig/verify-env/other-php/busy/run
+
+  run env JIG_VERIFY_ENV="$PWD/cache/jig/verify-env/other-php" "$JIG_BIN" verify --profile probe
+  assert_eq 0 "$RC" "$OUT"
+  assert_file_contains cache/jig/verify-env/other-php/busy/run "checkout: /other-clone"
+
+  mkdir -p cache/jig/verify-env/a/b/busy cache/elsewhere/busy
+  : > cache/jig/verify-env/a/b/busy/run
+  : > cache/elsewhere/busy/run
+  run bash -c '
+    JIG_LIB="$JIG_HOME/scripts/lib"; JIG_AI_DIR=.ai
+    . "$JIG_LIB/common.sh"; . "$JIG_LIB/verify.sh"
+    _verify_busy_release "$XDG_CACHE_HOME/jig/verify-env/a/b"
+    _verify_busy_release "$XDG_CACHE_HOME/jig/verify-env/.."
+    _verify_busy_release "$XDG_CACHE_HOME/elsewhere"
+    _verify_busy_release "/x$XDG_CACHE_HOME/jig/verify-env/other-php"'
+  assert_eq 0 "$RC" "$OUT"
+  assert_file_exists cache/jig/verify-env/a/b/busy/run
+  assert_file_exists cache/elsewhere/busy/run
+  assert_file_exists cache/jig/verify-env/other-php/busy/run
+  kill "$holder_pid" 2>/dev/null || true
+  wait 2>/dev/null || true
+}

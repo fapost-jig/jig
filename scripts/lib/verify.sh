@@ -327,6 +327,24 @@ _verify_busy_claim() {
   return 0
 }
 
+# _verify_env_dir_is <dir> — true only when <dir> is exactly what _verify_env_dir
+# builds: `<cache>/jig/verify-env/<key>`, <key> one component of
+# [A-Za-z0-9._-], not `.` or `..`.
+_verify_env_dir_is() {
+  local base prefix key
+  base=$(_verify_env_base) || return 1
+  prefix="$base/jig/verify-env/"
+  case "$1" in
+    "$prefix"*) ;;
+    *) return 1 ;;
+  esac
+  key=${1#"$prefix"}
+  case "$key" in
+    '' | . | .. | */* | *[!A-Za-z0-9._-]*) return 1 ;;
+  esac
+  return 0
+}
+
 # _verify_busy_release <dir> — give the record back.
 #
 # The shape ADR-0035 allows `jig spec new`: one named file removed, then
@@ -338,50 +356,34 @@ _verify_busy_release() {
   [ -n "$dir" ] || return 0
   case "$dir" in
     */"$JIG_AI_DIR"/runtime/verify) ;;
-    *) return 0 ;;
+    *) _verify_env_dir_is "$dir" || return 0 ;;
   esac
   rm -f "$dir/busy/run" 2>/dev/null || true
   rmdir "$dir/busy" 2>/dev/null || true
   return 0
 }
 
-# _verify_busy_acquire — hold the clone for this run, waiting while another has
-# it. Sets JIG_VERIFY_BUSY to the directory when the record is ours, so the
-# EXIT trap gives it back, and prints one line to stdout when a wait happened:
+# _verify_busy_wait <dir> <ttl> <label> — take the record in <dir>, waiting
+# while a live run holds it. <label> is empty for the clone's own record and
+# `<key>` for the environment's. Returns 0 with JIG_VERIFY_TAKEN=1 when the
+# record is ours, and 0 with JIG_VERIFY_TAKEN=0 when it could not be taken and
+# the run goes on without it. Prints one line to stdout when a wait happened:
 # the evidence belongs in the report, while the waiting itself goes to stderr,
 # where it cannot become part of output a caller reads.
-#
-# Nothing here may fail `jig verify`. Every path that cannot answer gives up and
-# lets the run go ahead: a record that cannot be taken is a missed serialisation,
-# which is today's behaviour, while a refusal would be a new way to break.
-_verify_busy_acquire() {
-  local dir ttl holder age checkout waited=0 announced=0 said=0 ago futile=0
-
-  # CI parallelism is deliberate and each job has a machine of its own. `CI` is
-  # the signal this command already trusts for `verify.full_run` (ADR-0041), so
-  # the mechanism is off there rather than queueing jobs meant to run at once.
-  [ -z "${CI:-}" ] || return 0
-
-  ttl=$(jig_verify_busy_ttl)
-  [ "$ttl" -gt 0 ] || return 0
-  dir=$(jig_verify_busy_dir) || return 0
-  [ -n "$dir" ] || return 0
-
-  # A `jig verify` started by a run that already holds this clone — a suite that
-  # verifies its own project — must not wait for itself.
-  [ "${JIG_VERIFY_BUSY_HELD:-}" != "$dir" ] || return 0
-
-  # A directory that cannot be made at all — a read-only clone root, a
-  # permission the agent does not have — is not a reason to refuse to verify.
-  mkdir -p "$dir" 2>/dev/null || return 0
-
+_verify_busy_wait() {
+  local dir="$1" ttl="$2" label="$3" holder age checkout="" waited=0 announced=0 said=0 ago futile=0
+  JIG_VERIFY_TAKEN=0
   while :; do
     if _verify_busy_claim "$dir"; then
-      JIG_VERIFY_BUSY="$dir"
-      export JIG_VERIFY_BUSY_HELD="$dir"
+      JIG_VERIFY_TAKEN=1
       if [ "$waited" -gt 0 ]; then
-        printf 'verify: waited %s for the run in %s\n' \
-          "$(jig_checkout_ago "$waited")" "$checkout"
+        if [ -n "$label" ]; then
+          printf 'verify: waited %s for the run in %s (environment %s)\n' \
+            "$(jig_checkout_ago "$waited")" "$checkout" "$label"
+        else
+          printf 'verify: waited %s for the run in %s\n' \
+            "$(jig_checkout_ago "$waited")" "$checkout"
+        fi
       fi
       return 0
     fi
@@ -409,9 +411,15 @@ _verify_busy_acquire() {
     ago=$(jig_checkout_ago "$age")
     if [ "$announced" = 0 ]; then
       announced=1
-      jig_info "verify: another run holds this clone (in $checkout, started $ago ago); waiting for it"
-      jig_info "  two sets at once make both slower than running them in turn;" \
-        "set verify.busy_ttl: 0 in .ai/config.local.yaml never to wait"
+      if [ -n "$label" ]; then
+        jig_info "verify: another run holds the environment $label (in $checkout, started $ago ago); waiting for it"
+        jig_info "  two sets at once make both slower than running them in turn;" \
+          "set verify.busy_ttl: 0 in .ai/config.local.yaml never to wait"
+      else
+        jig_info "verify: another run holds this clone (in $checkout, started $ago ago); waiting for it"
+        jig_info "  two sets at once make both slower than running them in turn;" \
+          "set verify.busy_ttl: 0 in .ai/config.local.yaml never to wait"
+      fi
     elif [ $((waited - said)) -ge 60 ]; then
       said="$waited"
       jig_info "verify: still waiting ($(jig_checkout_ago "$waited"))"
@@ -419,6 +427,87 @@ _verify_busy_acquire() {
     sleep 2
     waited=$((waited + 2))
   done
+}
+
+# _verify_env_base — the machine's cache directory, or fail without one.
+# _verify_env_dir <key> — where the record of a shared environment lives, or
+# nothing: the machine's cache directory (the one `jig_machine_latest_file`
+# uses), under `jig/verify-env/`, named for the key made safe as a path
+# component. A container is shared between clones, so no clone's `.ai/runtime`
+# can hold it; without a cache directory there is no place and no record.
+_verify_env_base() {
+  if [ -n "${XDG_CACHE_HOME:-}" ]; then
+    printf '%s\n' "$XDG_CACHE_HOME"
+  elif [ -n "${HOME:-}" ]; then
+    printf '%s\n' "$HOME/.cache"
+  else
+    return 1
+  fi
+}
+
+_verify_env_dir() {
+  local base safe
+  base=$(_verify_env_base) || return 1
+  safe=$(printf '%s' "$1" | sed 's/[^A-Za-z0-9._-]/_/g')
+  case "$safe" in
+    '' | . | ..) return 1 ;;
+  esac
+  printf '%s/jig/verify-env/%s\n' "$base" "$safe"
+}
+
+# _verify_busy_acquire — hold the clone for this run, waiting while another has
+# it, and then the environment the checks run in when other clones share it.
+# Sets JIG_VERIFY_BUSY (and JIG_VERIFY_ENV) to the directory when the record is
+# ours, so the EXIT trap gives it back.
+#
+# Always the clone first, then the environment: one order everywhere, so two
+# runs can never each hold what the other waits for.
+#
+# Nothing here may fail `jig verify`. Every path that cannot answer gives up and
+# lets the run go ahead: a record that cannot be taken is a missed serialisation,
+# which is today's behaviour, while a refusal would be a new way to break.
+_verify_busy_acquire() {
+  local dir ttl key envdir
+
+  # CI parallelism is deliberate and each job has a machine of its own. `CI` is
+  # the signal this command already trusts for `verify.full_run` (ADR-0041), so
+  # the mechanism is off there rather than queueing jobs meant to run at once.
+  [ -z "${CI:-}" ] || return 0
+
+  ttl=$(jig_verify_busy_ttl)
+  [ "$ttl" -gt 0 ] || return 0
+  dir=$(jig_verify_busy_dir) || return 0
+  [ -n "$dir" ] || return 0
+
+  # A `jig verify` started by a run that already holds this clone — a suite that
+  # verifies its own project — must not wait for itself.
+  if [ "${JIG_VERIFY_BUSY_HELD:-}" != "$dir" ]; then
+    # A directory that cannot be made at all — a read-only clone root, a
+    # permission the agent does not have — is not a reason to refuse to verify.
+    if mkdir -p "$dir" 2>/dev/null; then
+      _verify_busy_wait "$dir" "$ttl" ""
+      if [ "$JIG_VERIFY_TAKEN" = 1 ]; then
+        JIG_VERIFY_BUSY="$dir"
+        export JIG_VERIFY_BUSY_HELD="$dir"
+      fi
+    fi
+  fi
+
+  # The environment: only when the checks run in a container other clones can
+  # share (runenv_shared_key), and only where there is a cache directory.
+  # tests/run.sh takes the clone's record without ever resolving an
+  # environment, so runenv.sh may not be loaded: no environment, no record.
+  key=$(runenv_shared_key 2>/dev/null) || key=""
+  [ -n "$key" ] || return 0
+  envdir=$(_verify_env_dir "$key") || return 0
+  [ "${JIG_VERIFY_ENV_HELD:-}" != "$envdir" ] || return 0
+  mkdir -p "$envdir" 2>/dev/null || return 0
+  _verify_busy_wait "$envdir" "$ttl" "$key"
+  if [ "$JIG_VERIFY_TAKEN" = 1 ]; then
+    JIG_VERIFY_ENV="$envdir"
+    export JIG_VERIFY_ENV_HELD="$envdir"
+  fi
+  return 0
 }
 
 # _verify_skip_lines_all_scoped <output> — true when <output> (a covered
@@ -479,6 +568,10 @@ _verify_cleanup() {
   if [ -n "${JIG_VERIFY_BUSY:-}" ]; then
     _verify_busy_release "$JIG_VERIFY_BUSY"
     JIG_VERIFY_BUSY=""
+  fi
+  if [ -n "${JIG_VERIFY_ENV:-}" ]; then
+    _verify_busy_release "$JIG_VERIFY_ENV"
+    JIG_VERIFY_ENV=""
   fi
   return 0
 }
@@ -903,6 +996,7 @@ cmd_verify() {
   JIG_VERIFY_MAP_ALL_TMP=""
   JIG_VERIFY_CHECKS_TMP=""
   JIG_VERIFY_BUSY=""
+  JIG_VERIFY_ENV=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --changed) scope=1; explicit=1; shift ;;

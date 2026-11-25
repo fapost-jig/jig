@@ -39,8 +39,14 @@
   manifest records it with the hash jig installed, the file is unchanged, the new version no
   longer ships it, and the path — relative, without `..` — lies under `.ai/` or an adapter's
   skills directory (`.claude/skills/`, `.codex/skills/`); anything else is kept and reported
-  `keep-outside`. (ADR-0024) The carry into a task worktree adds a third shape rather than a
-  fifth exception: `jig task start --worktree` and `jig task bootstrap` delete nothing outside a
+  `keep-outside`. (ADR-0024) `jig verify`'s record of a shared container is the fifth: it removes
+  only `<cache>/jig/verify-env/<key>/busy/run` and then `rmdir`s `busy`, where `<cache>` is
+  `XDG_CACHE_HOME` or `~/.cache`, `<key>` is one path component of `[A-Za-z0-9._-]` built by
+  `_verify_env_dir`, and the path is checked to have exactly that shape before anything is removed
+  — on its own release, and when it takes over a record whose holder is dead or expired. Nothing
+  else under the cache is touched. (adr-20260925-one-test-run-per-clone-and-a-dead-run-is-not-a-pass,
+  amendment 2026-11-25) The carry into a task worktree adds a third shape rather than a
+  sixth exception: `jig task start --worktree` and `jig task bootstrap` delete nothing outside a
   worktree's `.ai/runtime/bootstrap`, the staging directory where they build a declared path
   before renaming it into place. Two deletions, guarded two ways. The staging directory itself
   goes whole — cleared on the way in and swept on the way out by a trap, so an interrupted carry

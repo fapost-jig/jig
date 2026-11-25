@@ -543,6 +543,23 @@ runenv_resolve() {
   return 0
 }
 
+# runenv_shared_key — the name of the container the checks run in when it can
+# be shared between projects, else nothing. Only a `docker exec` prefix names
+# a container by itself: its last word. Any such prefix is keyed, whichever
+# detector (Devilbox, say) or run.exec built it. Compose, Sail, DDEV, Lando and devcontainers are an
+# environment per project, where a service name like `laravel.test` repeats
+# across projects without meaning one container.
+runenv_shared_key() {
+  case "$RUNENV_EXEC" in
+    "docker exec "* | "docker container exec "*)
+      local last
+      last=${RUNENV_EXEC##* }
+      printf '%s\n' "$last"
+      ;;
+  esac
+  return 0
+}
+
 # _runenv_place — runenv_resolve without run.path: the host, a prefix, or a
 # refusal, from run.exec and the detectors.
 _runenv_place() {
