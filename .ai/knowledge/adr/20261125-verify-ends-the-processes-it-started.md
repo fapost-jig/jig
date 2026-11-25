@@ -35,7 +35,8 @@ the container and `kill` them one by one, never by pattern, which would hit the 
    left two seconds later — well inside the signal supervisor's own grace (`JIG_TERM_GRACE`), and
    after the run's records are released, so a cleanup cut short leaves no record behind.
 3. A run that starts, after taking its records, lists the tokens present in the environment and,
-   for each whose `<host-id>` is this machine's and whose host pid no longer answers `kill -0`, ends that token's processes
+   for each whose `<host-id>` is this machine's and whose host pid answers neither `kill -0` nor `ps -p` (a live process of another user refuses
+   `kill -0` and is still alive), ends that token's processes
    the same way: SIGKILL leaves no exit path, so only a later run can clean up.
 4. It never ends a process by name, pattern or user, never one whose environment it cannot read,
    and never one carrying a live run's token. Nothing in it fails `jig verify` or changes its exit

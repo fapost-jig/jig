@@ -2609,16 +2609,22 @@ jig_release_check_record() {
 _JIG_LATEST_FRESH_MIN=360
 _JIG_LATEST_RETRY_MIN=60
 
-# jig_machine_latest_file — the path of that record; fails without a home.
-jig_machine_latest_file() {
-  local dir
+# jig_machine_cache_dir — the machine's cache directory ($XDG_CACHE_HOME, else
+# $HOME/.cache); fails without a home.
+jig_machine_cache_dir() {
   if [ -n "${XDG_CACHE_HOME:-}" ]; then
-    dir="$XDG_CACHE_HOME"
+    printf '%s\n' "$XDG_CACHE_HOME"
   elif [ -n "${HOME:-}" ]; then
-    dir="$HOME/.cache"
+    printf '%s\n' "$HOME/.cache"
   else
     return 1
   fi
+}
+
+# jig_machine_latest_file — the path of that record; fails without a home.
+jig_machine_latest_file() {
+  local dir
+  dir=$(jig_machine_cache_dir) || return 1
   printf '%s/jig/latest-release\n' "$dir"
 }
 

@@ -4552,6 +4552,30 @@ test_verify_files_normalises_dot_slash_and_absolute_paths() {
   assert_contains "$OUT" "RESULT probe: pass (scope: changed, 4 files)"
 }
 
+test_verify_files_collapses_slashes_and_drops_a_trailing_slash() {
+  _fixture_files_repo
+
+  run jig verify --files "dir//b.sh,dir/./a.sh,$PWD/dir//./c.sh,sub/,sub//,./sub/./" --profile probe
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "probe: file dir/b.sh"
+  assert_contains "$OUT" "probe: file dir/a.sh"
+  assert_contains "$OUT" "probe: file dir/c.sh"
+  assert_contains "$OUT" "probe: file sub"
+  assert_contains "$OUT" "RESULT probe: pass (scope: changed, 4 files)"
+}
+
+test_verify_files_refuses_the_project_root_itself() {
+  _fixture_files_repo
+
+  local spelling
+  for spelling in . ./ ./. "$PWD" "$PWD/" "$PWD/." "$PWD//"; do
+    run jig verify --files "$spelling" --profile probe
+    assert_eq 1 "$RC" "$spelling: $OUT"
+    assert_contains "$OUT" "--files names the project root"
+  done
+  assert_no_file probe.ran
+}
+
 test_verify_files_refuses_a_path_outside_the_project() {
   _fixture_files_repo
 
