@@ -5201,3 +5201,165 @@ STUB
   n=$(printf '%s\n' "$OUT" | grep -c "could not check" || true)
   assert_eq 1 "$n" "$OUT"
 }
+
+# --- the record's ttl is its holder's; a run releases only its own ------------
+
+test_verify_env_key_skips_options_and_quotes() {
+  run bash -c '
+    JIG_LIB="$JIG_HOME/scripts/lib"; . "$JIG_LIB/runenv.sh"
+    RUNENV_EXEC="docker exec -i php env APP_ENV=testing"; runenv_shared_key
+    RUNENV_EXEC="docker exec '"'"'php'"'"'"; runenv_shared_key
+    RUNENV_EXEC="docker exec -it \"php\" ls"; runenv_shared_key
+    RUNENV_EXEC="docker exec -i -u devilbox -w /x devilbox-php-1"; runenv_shared_key
+    RUNENV_EXEC="docker exec --user=x --workdir=/y c"; runenv_shared_key
+    RUNENV_EXEC="docker exec -iu devilbox php"; runenv_shared_key
+    RUNENV_EXEC="docker exec -iw /a php"; runenv_shared_key
+    RUNENV_EXEC="docker container exec -e A=b --env-file f --privileged d"; runenv_shared_key
+    RUNENV_EXEC="docker exec -i -w /x"; runenv_shared_key
+    RUNENV_EXEC="docker compose exec -T app"; runenv_shared_key
+    RUNENV_EXEC=""; runenv_shared_key
+    true'
+  assert_eq 0 "$RC" "$OUT"
+  assert_eq "php
+php
+php
+devilbox-php-1
+c
+php
+php
+d" "$OUT"
+}
+
+# _verify_ttl_age_stamp <seconds> — a `touch -t` stamp that many seconds ago.
+_verify_ttl_age_stamp() {
+  local at=$(( $(date +%s) - $1 ))
+  date -d "@$at" +%Y%m%d%H%M.%S 2>/dev/null || date -r "$at" +%Y%m%d%H%M.%S
+}
+
+test_verify_env_waiter_believes_the_holders_ttl_in_the_record() {
+  _verify_env_fixture shared-php
+  jig config set verify.busy_ttl 30m --local >/dev/null
+  sleep 120 &
+  local holder_pid=$!
+  mkdir -p cache/jig/verify-env/shared-php/busy
+  printf 'checkout: /other-clone\npid: %s\nttl: 7200\n' "$holder_pid" > cache/jig/verify-env/shared-php/busy/run
+  touch -t "$(_verify_ttl_age_stamp 1860)" cache/jig/verify-env/shared-php/busy/run
+
+  "$JIG_BIN" verify --profile probe > verify-out.log 2>&1 &
+  local verify_pid=$! start=$SECONDS
+  until grep -q "waiting for it" verify-out.log 2>/dev/null; do
+    if ! kill -0 "$verify_pid" 2>/dev/null; then
+      kill "$holder_pid" 2>/dev/null || true
+      fail "verify took a record whose holder's ttl had not run out: $(cat verify-out.log)"
+    fi
+    if [ $((SECONDS - start)) -ge 60 ]; then
+      kill "$holder_pid" "$verify_pid" 2>/dev/null || true
+      fail "verify never said it was waiting within 60s: $(cat verify-out.log)"
+    fi
+    sleep 1
+  done
+  assert_file_contains cache/jig/verify-env/shared-php/busy/run "ttl: 7200"
+  kill "$holder_pid" 2>/dev/null || true
+  local rc=0
+  wait "$verify_pid" || rc=$?
+  assert_eq 0 "$rc"
+  assert_contains "$(cat verify-out.log)" "RESULT probe: pass"
+  wait 2>/dev/null || true
+}
+
+test_verify_env_record_without_a_ttl_line_is_judged_by_the_waiters_ttl() {
+  _verify_env_fixture shared-php
+  jig config set verify.busy_ttl 30m --local >/dev/null
+  sleep 120 &
+  local holder_pid=$!
+  mkdir -p cache/jig/verify-env/shared-php/busy
+  printf 'checkout: /other-clone\npid: %s\n' "$holder_pid" > cache/jig/verify-env/shared-php/busy/run
+  touch -t "$(_verify_ttl_age_stamp 1860)" cache/jig/verify-env/shared-php/busy/run
+
+  run jig verify --profile probe
+  assert_eq 0 "$RC" "$OUT"
+  assert_not_contains "$OUT" "verify: waited"
+  assert_contains "$OUT" "RESULT probe: pass"
+  kill "$holder_pid" 2>/dev/null || true
+  wait 2>/dev/null || true
+}
+
+test_verify_busy_claim_records_the_holders_ttl() {
+  run bash -c '
+    JIG_LIB="$JIG_HOME/scripts/lib"; JIG_AI_DIR=.ai
+    . "$JIG_LIB/common.sh"; . "$JIG_LIB/verify.sh"
+    JIG_PROJECT=me; _verify_busy_claim "$PWD/rt" 7200 || exit 3'
+  assert_eq 0 "$RC" "$OUT"
+  assert_file_contains rt/busy/run "ttl: 7200"
+}
+
+test_verify_own_release_leaves_a_record_of_another_pid() {
+  mkdir -p .ai/runtime/verify/busy
+  printf 'checkout: /other\npid: 999999\nttl: 60\n' > .ai/runtime/verify/busy/run
+  run bash -c '
+    JIG_LIB="$JIG_HOME/scripts/lib"; JIG_AI_DIR=.ai
+    . "$JIG_LIB/common.sh"; . "$JIG_LIB/verify.sh"
+    _verify_busy_release "$PWD/.ai/runtime/verify" own'
+  assert_eq 0 "$RC" "$OUT"
+  assert_file_exists .ai/runtime/verify/busy/run
+  # Taking over a dead or expired record passes no `own`, and still removes it.
+  run bash -c '
+    JIG_LIB="$JIG_HOME/scripts/lib"; JIG_AI_DIR=.ai
+    . "$JIG_LIB/common.sh"; . "$JIG_LIB/verify.sh"
+    _verify_busy_release "$PWD/.ai/runtime/verify"'
+  assert_eq 0 "$RC" "$OUT"
+  assert_no_file .ai/runtime/verify/busy
+  # A record of this very process is given back by its own release.
+  run bash -c '
+    JIG_LIB="$JIG_HOME/scripts/lib"; JIG_AI_DIR=.ai; JIG_PROJECT=me
+    . "$JIG_LIB/common.sh"; . "$JIG_LIB/verify.sh"
+    _verify_busy_claim "$PWD/.ai/runtime/verify" 60 || exit 3
+    _verify_busy_release "$PWD/.ai/runtime/verify" own'
+  assert_eq 0 "$RC" "$OUT"
+  assert_no_file .ai/runtime/verify/busy
+}
+
+test_verify_env_nested_run_does_not_wait_for_the_environment_it_holds() {
+  _verify_env_fixture shared-php
+  sleep 60 &
+  local holder_pid=$!
+  mkdir -p cache/jig/verify-env/shared-php/busy
+  printf 'checkout: /other-clone\npid: %s\nttl: 7200\n' "$holder_pid" > cache/jig/verify-env/shared-php/busy/run
+
+  run env JIG_VERIFY_ENV_HELD="$PWD/cache/jig/verify-env/shared-php" "$JIG_BIN" verify --profile probe
+  assert_eq 0 "$RC" "$OUT"
+  assert_not_contains "$OUT" "waiting for it"
+  assert_contains "$OUT" "RESULT probe: pass"
+  assert_file_contains cache/jig/verify-env/shared-php/busy/run "checkout: /other-clone"
+  kill "$holder_pid" 2>/dev/null || true
+  wait 2>/dev/null || true
+}
+
+test_verify_env_term_during_a_run_releases_both_records() {
+  _verify_env_fixture shared-php
+  cat > .ai/profiles/probe/verify.sh <<'PROBE'
+#!/usr/bin/env bash
+: > probe.started
+sleep 120
+exit 0
+PROBE
+  "$JIG_BIN" verify --profile probe > verify-out.log 2>&1 &
+  local verify_pid=$! until=$((SECONDS + 60))
+  until [ -f probe.started ]; do
+    if [ "$SECONDS" -ge "$until" ] || ! kill -0 "$verify_pid" 2>/dev/null; then
+      kill "$verify_pid" 2>/dev/null || true
+      fail "the probe never started: $(cat verify-out.log)"
+    fi
+    sleep 0.2
+  done
+  assert_file_exists cache/jig/verify-env/shared-php/busy/run
+  kill -TERM "$verify_pid"
+  until=$((SECONDS + 60))
+  while kill -0 "$verify_pid" 2>/dev/null; do
+    [ "$SECONDS" -lt "$until" ] || { kill -KILL "$verify_pid" 2>/dev/null || true; fail "verify did not end after TERM: $(cat verify-out.log)"; }
+    sleep 0.2
+  done
+  wait "$verify_pid" 2>/dev/null || true
+  assert_no_file cache/jig/verify-env/shared-php/busy
+  assert_no_file .ai/runtime/verify/busy
+}

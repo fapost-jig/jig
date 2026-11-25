@@ -147,7 +147,8 @@ the global `RULES.md` (ADR-0013). What follows binds changes inside this domain.
   or a `run.exec` of that form), the run also claims a record per container in the machine cache,
   `<cache>/jig/verify-env/<key>/busy/run`, by the same mechanics, so two clones sharing one
   container wait for each other. The clone record is always taken first, then the container's;
-  `JIG_VERIFY_ENV_HELD` keeps a nested run from waiting for its own. Compose, Sail, DDEV and the
+  `JIG_VERIFY_ENV_HELD` keeps a nested run from waiting for its own. A record carries its holder's ttl, which
+  decides its expiry, and a run releases only a record whose pid is its own. Compose, Sail, DDEV and the
   host get no key: their container belongs to one project (amendment 2026-11-25 of
   adr-20260925-one-test-run-per-clone-and-a-dead-run-is-not-a-pass).
 - **A profile answers `pass` only for a check that could have come out false on this

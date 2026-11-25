@@ -6963,10 +6963,14 @@ _jig_verify_busy_value() {
 #      reads as alive. Both errors are bounded. "Wrongly dead" is today's
 #      behaviour; "wrongly alive" waits no longer than the ttl.
 #
+# The ttl is the holder's: the `ttl:` line the record carries (seconds) beats
+# <ttl>, which only serves records written by older versions. A waiter with a
+# short setting must not take a record from a holder with a long one.
+#
 # A record with no readable pid falls back to the ttl alone, so a torn read can
 # only cost a wait, never a wrong start.
 jig_verify_busy_holder() {
-  local dir="$1" ttl="$2" file mtime now age pid checkout
+  local dir="$1" ttl="$2" file mtime now age pid checkout own
   file="$dir/busy/run"
   [ -f "$file" ] || return 1
   mtime=$(_jig_verify_busy_mtime "$file") || return 1
@@ -6975,6 +6979,13 @@ jig_verify_busy_holder() {
   esac
   now=$(date +%s)
   if [ "$now" -lt "$mtime" ]; then age=0; else age=$((now - mtime)); fi
+  # The record's own ttl is the holder's; the caller's is for records written
+  # before it carried one.
+  own=$(_jig_verify_busy_value "$file" ttl) || own=""
+  case "$own" in
+    '' | *[!0-9]*) ;;
+    *) ttl=$own ;;
+  esac
   [ "$age" -le "$ttl" ] || return 1
   pid=$(_jig_verify_busy_value "$file" pid) || pid=""
   case "$pid" in

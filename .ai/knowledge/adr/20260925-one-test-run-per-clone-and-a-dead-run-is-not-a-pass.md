@@ -355,3 +355,13 @@ produces such artefacts; the second makes legible the part the machine can actua
 > taking over a dead or expired record. Without a cache directory there is no record and the run
 > goes on. Known limit: a record's expiry is judged by the waiting run's `verify.busy_ttl`, so a
 > holder whose suite outlives the waiter's ttl can be run over.
+
+> **Amendment (2026-11-25, later): a record says how long it lives, and a run releases only its own.**
+> The "Known limit" above is closed. `busy/run` carries `ttl: <seconds>`, the holder's own
+> `verify.busy_ttl`, and `jig_verify_busy_holder` judges expiry by it; a record without the line
+> (an older version) is judged by the waiter's ttl. A run's release removes a record only when its
+> `pid:` is the run's own, so a run that outlived its waiter's ttl can no longer delete the record of
+> the run that took over; taking over a dead or expired record is unchanged. The container key is the
+> container's name, not the prefix's last word: options of `docker exec` (`-i`, `-it`, `-u <user>`,
+> `--workdir=<dir>`, …) are skipped and one pair of quotes stripped, so `docker exec -i php env A=b`
+> and `docker exec 'php'` both key `php`.

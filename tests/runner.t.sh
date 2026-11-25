@@ -566,6 +566,27 @@ test_runner_does_not_queue_behind_the_verify_that_started_it() {
   assert_file_contains root/.ai/runtime/verify/busy/run "checkout: /elsewhere"
 }
 
+# A record a `jig verify` took over while this runner was still going is that
+# verify's: the runner's release at exit leaves a record of another pid.
+test_runner_release_leaves_a_record_of_another_pid() {
+  rn_build_suite
+  mkdir -p root/.ai root/scripts/lib
+  cp "$JIG_HOME"/scripts/lib/common.sh "$JIG_HOME"/scripts/lib/config.sh \
+     "$JIG_HOME"/scripts/lib/checkout.sh "$JIG_HOME"/scripts/lib/verify.sh \
+     root/scripts/lib/
+  printf 'profiles: [generic]\nverify.busy_ttl: 3s\n' > root/.ai/config.yaml
+  cat > root/tests/a.t.sh <<'EOF'
+# shellcheck shell=bash
+test_1_takeover() {
+  printf 'checkout: /taker\npid: 1\nttl: 60\n' > "$RN_RECORD"
+}
+EOF
+  run env -u JIG_TEST_SHARD -u JIG_TEST_SKIP -u JIG_VERIFY_BUSY_HELD JIG_TEST_JOBS=1 \
+    RN_RECORD="$PWD/root/.ai/runtime/verify/busy/run" "$PWD/root/tests/run.sh"
+  assert_eq 0 "$RC" "$OUT"
+  assert_file_contains root/.ai/runtime/verify/busy/run "checkout: /taker"
+}
+
 # --- several filters, JIG_TEST_REPORT and JIG_TEST_DURATIONS ---------------------
 
 # rn_run_args <env assignment>... -- <filter>... — the copied runner with one job,

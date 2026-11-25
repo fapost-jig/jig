@@ -545,18 +545,45 @@ runenv_resolve() {
 
 # runenv_shared_key — the name of the container the checks run in when it can
 # be shared between projects, else nothing. Only a `docker exec` prefix names
-# a container by itself: its last word. Any such prefix is keyed, whichever
+# a container by itself: the first word after its options, quotes stripped.
+# Any such prefix is keyed, whichever
 # detector (Devilbox, say) or run.exec built it. Compose, Sail, DDEV, Lando and devcontainers are an
 # environment per project, where a service name like `laravel.test` repeats
 # across projects without meaning one container.
 runenv_shared_key() {
+  local rest word skip=0
   case "$RUNENV_EXEC" in
-    "docker exec "* | "docker container exec "*)
-      local last
-      last=${RUNENV_EXEC##* }
-      printf '%s\n' "$last"
-      ;;
+    "docker exec "*) rest=${RUNENV_EXEC#docker exec } ;;
+    "docker container exec "*) rest=${RUNENV_EXEC#docker container exec } ;;
+    *) return 0 ;;
   esac
+  # Word splitting is the point; globbing is not.
+  set -f
+  # shellcheck disable=SC2086
+  set -- $rest
+  set +f
+  for word in "$@"; do
+    if [ "$skip" = 1 ]; then
+      skip=0
+      continue
+    fi
+    case "$word" in
+      -e | -u | -w | --env | --user | --workdir | --env-file | --detach-keys) skip=1 ;;
+      --* | *=*) ;;
+      # A grouped short flag ending in a value-taking letter (-iu, -iw) takes
+      # the next word as its value.
+      -*[euw]) skip=1 ;;
+      -*) ;;
+      *)
+        word=${word#\'}
+        word=${word#\"}
+        word=${word%\'}
+        word=${word%\"}
+        [ -z "$word" ] || printf '%s\n' "$word"
+        return 0
+        ;;
+    esac
+  done
   return 0
 }
 

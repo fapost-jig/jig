@@ -326,7 +326,8 @@ _verify_map_apply() {
 # The record is read by jig_verify_busy_holder and its helpers in common.sh:
 # `jig upgrade` asks the same question before it replaces scripts.
 
-# _verify_busy_claim <dir> — take the record, or fail.
+# _verify_busy_claim <dir> [<ttl>] — take the record, or fail. <ttl> is the
+# holder's verify.busy_ttl in seconds, written into the record.
 #
 # Creating `busy/run` exclusively is the claim (jig_claim_file,
 # adr-20261023-a-claim-is-an-exclusive-create); `busy/` is only its container.
@@ -340,10 +341,14 @@ _verify_map_apply() {
 # file falls back to the ttl, and a leftover temporary would make `rmdir` refuse
 # for good.
 _verify_busy_claim() {
-  local dir="$1"
+  local dir="$1" ttl="${2:-}"
   mkdir -p "$dir/busy" 2>/dev/null || return 1
   jig_claim_file "$dir/busy/run" || return 1
-  printf 'checkout: %s\npid: %s\n' "$JIG_PROJECT" "$$" > "$dir/busy/run" 2>/dev/null || {
+  # `ttl:` is the holder's own verify.busy_ttl: how long a waiter with another
+  # setting must believe this record (jig_verify_busy_holder).
+  { printf 'checkout: %s\npid: %s\n' "$JIG_PROJECT" "$$"
+    if [ -n "$ttl" ]; then printf 'ttl: %s\n' "$ttl"; fi
+  } > "$dir/busy/run" 2>/dev/null || {
     rm -f "$dir/busy/run" 2>/dev/null || true
     rmdir "$dir/busy" 2>/dev/null || true
     return 1
@@ -369,19 +374,26 @@ _verify_env_dir_is() {
   return 0
 }
 
-# _verify_busy_release <dir> — give the record back.
+# _verify_busy_release <dir> [own] — give the record back. With `own` (a run's
+# own release at exit) the record goes only when its pid is this run's: a record
+# another run took over after this one's ttl ran out is that run's to give back.
+# Taking over a dead or expired record passes no `own`.
 #
 # The shape ADR-0035 allows `jig spec new`: one named file removed, then
 # `rmdir`, which refuses a directory that is not empty. No `rm -rf` on a
 # computed path anywhere, and the path is checked to be the one this code
 # builds before anything is deleted (RULES.md).
 _verify_busy_release() {
-  local dir="$1"
+  local dir="$1" mode="${2:-}" pid
   [ -n "$dir" ] || return 0
   case "$dir" in
     */"$JIG_AI_DIR"/runtime/verify) ;;
     *) _verify_env_dir_is "$dir" || return 0 ;;
   esac
+  if [ "$mode" = own ]; then
+    pid=$(_jig_verify_busy_value "$dir/busy/run" pid) || pid=""
+    [ "$pid" = "$$" ] || return 0
+  fi
   rm -f "$dir/busy/run" 2>/dev/null || true
   rmdir "$dir/busy" 2>/dev/null || true
   return 0
@@ -398,7 +410,7 @@ _verify_busy_wait() {
   local dir="$1" ttl="$2" label="$3" holder age checkout="" waited=0 announced=0 said=0 ago futile=0
   JIG_VERIFY_TAKEN=0
   while :; do
-    if _verify_busy_claim "$dir"; then
+    if _verify_busy_claim "$dir" "$ttl"; then
       JIG_VERIFY_TAKEN=1
       if [ "$waited" -gt 0 ]; then
         if [ -n "$label" ]; then
@@ -666,11 +678,11 @@ _verify_cleanup() {
   fi
   rm -f "${JIG_VERIFY_TMP:-}" "${JIG_VERIFY_MAP_TMP:-}" "${JIG_VERIFY_MAP_ALL_TMP:-}" "${JIG_VERIFY_CHECKS_TMP:-}" 2>/dev/null || true
   if [ -n "${JIG_VERIFY_BUSY:-}" ]; then
-    _verify_busy_release "$JIG_VERIFY_BUSY"
+    _verify_busy_release "$JIG_VERIFY_BUSY" own
     JIG_VERIFY_BUSY=""
   fi
   if [ -n "${JIG_VERIFY_ENV:-}" ]; then
-    _verify_busy_release "$JIG_VERIFY_ENV"
+    _verify_busy_release "$JIG_VERIFY_ENV" own
     JIG_VERIFY_ENV=""
   fi
   # Last, and after the records are given back: a run that did not reach the
