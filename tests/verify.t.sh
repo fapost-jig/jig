@@ -5103,8 +5103,17 @@ PROBE
   done
   local child
   child=$(cat container.pid)
-  tr '\0' '\n' < "/proc/$child/environ" | grep -x "JIG_VERIFY_RUN=$JIG_VERIFY_RUN_HOST-$verify_pid-[0-9]*" >/dev/null \
-    || fail "the process in the container carries no token of this run: $(tr '\0' '\n' < "/proc/$child/environ" | grep JIG || true)"
+  # The stub writes the pid of `setsid` before it execs `env JIG_VERIFY_RUN=… sleep`,
+  # so the token can appear a moment after the pid does: wait for it, bounded.
+  until=$((SECONDS + 30))
+  until tr '\0' '\n' < "/proc/$child/environ" 2>/dev/null \
+      | grep -x "JIG_VERIFY_RUN=$JIG_VERIFY_RUN_HOST-$verify_pid-[0-9]*" >/dev/null; do
+    if [ "$SECONDS" -ge "$until" ]; then
+      kill "$verify_pid" 2>/dev/null || true
+      fail "the process in the container carries no token of this run: $(tr '\0' '\n' < "/proc/$child/environ" 2>/dev/null | grep JIG || true)"
+    fi
+    sleep 0.2
+  done
 
   kill -TERM "$verify_pid"
   until=$((SECONDS + 60))
