@@ -318,8 +318,8 @@ What stays yours at every level:
   touching the version; `jig spec ship` refuses one that raises it. The release comes after, made
   apart by the `jig-release` skill (below). An epic that `jig-release` declared as a release carries
   a `Release:` line with the level you chose, and its final pull request raises the version by it.
-- **Merging.** Only an unattended run at `merge` (`autopilot.git`, or `agent.git` when that is not
-  set) merges an epic's final pull request — with a merge commit, once CI passed and every roadmap
+- **Merging.** Only an unattended clone (`autopilot.unattended: true` in `.ai/config.local.yaml`) at
+  `merge` (`autopilot.git`, or `agent.git` when that is not set) merges an epic's final pull request — with a merge commit, once CI passed and every roadmap
   item is done. On a release epic it never merges a `major` release, which it opens as a draft for
   you, and `release.merge: human` in `.ai/config.local.yaml` leaves even that merge to you.
 - **A release.** A pull request whose change raises the version into the default branch —
