@@ -8,6 +8,17 @@ Update the tool with `jig self-update`, then run `jig upgrade` in each project; 
 as far as your settings allow ([Install](/install#keep-jig-up-to-date)). Releases are tagged on
 [GitHub](https://github.com/fapost-jig/jig/tags).
 
+## 0.51.1
+
+Runs in a shared container now wait for each other whatever way you write an option of
+`docker exec`. Nothing to do by hand ([From 0.51.0 to 0.51.1](/upgrading#from-0510-to-0511)).
+
+- **A `docker exec` option with its value attached no longer hides the container.** In 0.51.0 a
+  prefix such as `docker exec -w/var/www php` or `docker exec -uwww php` — an attached value ending
+  in `e`, `u` or `w` — keyed no container, so two projects' runs in it started at once. The value
+  is now read as the option's, and the container is waited for. Devilbox writes these options as
+  separate words and was not affected. Proven by tests of the key, not on a real container.
+
 ## 0.51.0
 
 The agent checks a change while writing it on only the files it names: `jig verify --files`. A
