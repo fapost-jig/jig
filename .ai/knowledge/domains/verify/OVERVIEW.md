@@ -56,6 +56,11 @@ it actually did.
   restore the full set. The mode and its reason are printed in a header line. A narrowed run
   under `ci` never starts a check's full set: profiles run what they can name and print
   `full set left to CI`, and the summary counts those checks (adr-0041, amendment 2026-10-08).
+- The run the caller names (ADR-0041, amendment 2026-11-25): `--files <list>|-` replaces the
+  changed-file list with the named paths (`_verify_named_files`), tells every profile `ci`, skips
+  a profile that cannot narrow, and takes `JIG_VERIFY_BASE` from `_verify_task_merge_base`, the
+  one resolver of the task's merge base it shares with the `ci` mode. It is the implement
+  stage's tool; plain `jig verify` stays the verify stage's evidence.
 - The project map `.ai/verify/<profile>.map` (`schemas/verify-map.md`): parsed and validated
   here, handed as `JIG_VERIFY_MAPPED` to profiles declaring `scope: [changed, map]`.
 - Where the project's checks run (adr-20261001-checks-run-where-the-project-runs):
@@ -109,7 +114,7 @@ contract. A change to how profiles are *copied* still belongs to `install`.
 
 ## Entry points
 
-- `scripts/lib/verify.sh` — `cmd_verify`, `_verify_changed_files`, `_verify_map_check`,
+- `scripts/lib/verify.sh` — `cmd_verify`, `_verify_changed_files`, `_verify_named_files`, `_verify_task_merge_base`, `_verify_map_check`,
   `_verify_map_apply`, `_verify_profile_maps_v` (the one place that orders a profile's maps:
   its pure layers' first, then its own).
 - `scripts/lib/profiles.sh` — `profiles_check_table`, `profiles_check_rows` (the check table),

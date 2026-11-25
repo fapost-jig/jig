@@ -70,8 +70,14 @@ the global `RULES.md` (ADR-0013). What follows binds changes inside this domain.
 - **Incomplete outranks fail**, in `cmd_verify`, in `jp_end`, in `profiles/shell/verify.sh`
   and in `tests/run.sh` alike. A run something was killed in is not evidence, so the failures
   beside it are not evidence either.
-- The changed-file list is computed once, in `_verify_changed_files`, and shared. Two
-  profiles must never disagree about what changed in the same run.
+- The changed-file list is computed once, in `_verify_changed_files` — or, under `--files`,
+  taken from the caller in `_verify_named_files` instead — and shared. Two profiles must never
+  disagree about what changed in the same run.
+- **A `--files` run never starts a full set and is never a task's verification.** Profiles are
+  told `JIG_VERIFY_FULL_RUN=ci` whatever `verify.full_run` says; a profile without
+  `scope: [changed]` is skipped with a `scope:` reason and is left out of the run's covers, by
+  the same gate in the loop that decides covers and the loop that runs profiles (ADR-0041,
+  amendment 2026-11-25).
 - The changed-file list includes staged, unstaged and untracked files: a project is
   verified in the state it is in, not the state it was committed in.
 
