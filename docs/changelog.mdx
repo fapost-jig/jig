@@ -8,6 +8,40 @@ Update the tool with `jig self-update`, then run `jig upgrade` in each project; 
 as far as your settings allow ([Install](/install#keep-jig-up-to-date)). Releases are tagged on
 [GitHub](https://github.com/fapost-jig/jig/tags).
 
+## 0.51.0
+
+The agent checks a change while writing it on only the files it names: `jig verify --files`. A
+project whose checks run in a shared container — Devilbox, or a `docker exec` prefix — gets one
+run at a time across the projects that share it. The test processes a stopped run leaves in any
+container it runs its checks in are ended. Nothing to do by hand ([From 0.50.0 to 0.51.0](/upgrading#from-0500-to-0510)).
+
+- **`jig verify --files <list>` checks only the files you name.** It is meant for the small runs an
+  agent makes while it writes a change, and the `jig-implement` skill now makes its small runs by file
+  with it, so they go where the project's checks run, with the profile's flags, one at a time. The list is comma-separated, or `-` reads one path per line. Under `--files`
+  a full set is never started: profiles are told it is left to CI, and a profile that cannot narrow
+  to changed files is skipped. It is not the verification of a task; a plain `jig verify` still is
+  ([Run the project's checks](/manual-control#run-the-projects-checks)). Proven by tests against
+  the shell profile and stand-in profiles, not yet on a PHP project.
+- **Runs of different projects sharing one container wait for each other.** When checks run through
+  a `docker exec` prefix (Devilbox, or a `run.exec` of that shape), a second `jig verify` in another
+  project on the same container waits for the first, as one in another worktree of the same clone
+  already did, under the same `verify.busy_ttl` ([Configuration](/configuration#working-in-one-checkout)).
+  The record lives in the machine's cache directory (`$XDG_CACHE_HOME/jig/verify-env/`, else
+  `~/.cache/jig/verify-env/`), keyed by the container's name with the options of `docker exec`
+  skipped; an attached option value ending in `e`, `u` or `w` (`-w/var/www`) is not read right yet
+  ([Known issues](/known-issues)). Compose, Sail, DDEV, Lando and devcontainers are an environment per project and are not
+  shared. A record now carries its holder's own `verify.busy_ttl`, so a long suite is no longer run
+  over by a waiter with a shorter one, and a run releases only the record it holds.
+- **A stopped `jig verify` no longer leaves its tests running in the container.** `docker exec`
+  passes no stop on to what it started, so `phpunit` and its workers went on holding memory and the
+  test database. A run through a prefix now marks what it starts with a token of its own; an
+  interrupted run ends those processes (`TERM`, then `KILL` two seconds later), and the next run in
+  the same container ends those of a run that was killed outright. Only processes carrying the run's
+  own token, or that of a run of this machine that is gone, are touched — never by name, pattern or
+  user
+  ([Troubleshooting](/troubleshooting)). Proven by tests that read `/proc` on Linux with a stand-in
+  for `docker`; not yet tried on a real Devilbox container.
+
 ## 0.50.0
 
 A review of a colleague's pull request starts from the issue it implements. In a clone with

@@ -48,7 +48,7 @@ is not sure of is handed to a fresh agent that has not seen the reasoning behind
 only if that agent confirms it. A wrong finding then costs one check instead of a round of fixes.
 
 **A task merges sooner, and the full check guards the way into the main branch.** A task's pull
-request waits for the whole test matrix today, 15 to 40 minutes for this repository's own. A project
+request waits for the project's whole CI today. A project
 will be able to collect its tasks on a release branch (a "train") that checks only what changed, and
 run the full matrix once, on the train's way into the main branch, with a task that would raise the
 version above the train's level kept off it. Optional, and off under the staging flow until an
