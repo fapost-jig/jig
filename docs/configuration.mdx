@@ -150,6 +150,11 @@ php: static (phpstan): skip (scope: phpstan configuration changed, full set left
 This saves the agent from running the whole suite after every small change, while CI still proves
 everything before a merge. A red CI run sends the task back to verification.
 
+`jig verify --files <list>` names the files itself and, whatever `verify.full_run` says, always
+tells the profiles the full set is left to CI, so it never starts one. It is for small runs while
+a change is being written, not evidence that the task is verified: that stays the task's own
+`jig verify`. See [Run the project's checks](/manual-control#run-the-projects-checks).
+
 ## What your file does not say
 
 Every key not in `.ai/config.yaml` takes its default, and that is by design — the file is short

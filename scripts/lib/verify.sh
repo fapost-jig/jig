@@ -16,6 +16,9 @@
 # (.ai/verify/<profile>.map) is parsed here, never in a profile, and handed to
 # profiles declaring `scope: [changed, map]` as JIG_VERIFY_MAPPED.
 #
+# --files <list>|- names the changed files itself and never starts a full set: the
+# profiles are told `ci`, and a profile that cannot narrow is skipped.
+#
 # One run per clone, and a run that dies is not a pass
 # (adr-20260925-one-test-run-per-clone-and-a-dead-run-is-not-a-pass): a run
 # takes a record every worktree of the clone can see and waits while another
@@ -105,6 +108,100 @@ _verify_merge_base() {
   printf -v "$2" '%s' "$__vmb_ref"
   printf -v "$3" '%s' "$__vmb_mb"
   return 0
+}
+
+# _verify_task_merge_base <ref-var> <mb-var> <note-var> <branch-var> — the merge
+# base a narrowed run is measured from. The current task's own base first
+# (ADR-0039): a task cut from an epic is measured from the epic, not from main,
+# or every task re-runs the whole epic's diff. A recorded base this clone cannot
+# resolve (an epic deleted after its merge, never fetched) falls back to the
+# configured one, never to the working tree alone. <ref-var> and <mb-var> are as
+# in _verify_merge_base (<mb-var> empty when nothing resolves), <note-var> is
+# "base of <which>; " when the task's base was used, <branch-var> the branch the
+# merge base was taken against.
+_verify_task_merge_base() {
+  local __vtm_ref="" __vtm_mb="" __vtm_note="" __vtm_branch __vtm_tb="" __vtm_tw=""
+  __vtm_branch=$(cfg git.base_branch main)
+  _verify_task_base __vtm_tb __vtm_tw
+  if [ -n "$__vtm_tb" ]; then
+    _verify_merge_base "$__vtm_tb" __vtm_ref __vtm_mb
+    if [ -n "$__vtm_mb" ]; then
+      __vtm_branch="$__vtm_tb"
+      __vtm_note="base of $__vtm_tw; "
+    fi
+  fi
+  [ -n "$__vtm_mb" ] || _verify_merge_base "$__vtm_branch" __vtm_ref __vtm_mb
+  printf -v "$1" '%s' "$__vtm_ref"
+  printf -v "$2" '%s' "$__vtm_mb"
+  printf -v "$3" '%s' "$__vtm_note"
+  printf -v "$4" '%s' "$__vtm_branch"
+  return 0
+}
+
+# _verify_named_files <raw> — the --files list, normalised: one repo-relative
+# path per line, sorted and unique. Each entry is trimmed and loses a leading
+# ./; an absolute path inside the project becomes repo-relative. A path outside
+# the project, or with a .. segment, is refused (exit 1), as is a list with
+# nothing in it. A path that does not exist on disk is fine: it may be a file
+# the change deleted, and the profile decides what that means.
+_verify_named_files() {
+  local raw="$1" line root root_p out="" drive
+  root="${JIG_PROJECT%/}"
+  root_p=$(cd "$JIG_PROJECT" && pwd -P)
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=$(printf '%s' "$line" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; s|\\|/|g')
+    [ -n "$line" ] || continue
+    # A drive path (C:/x/a.php) is absolute. On MSYS the project root reads
+    # /c/x, so the drive is rewritten to that spelling and matched like any
+    # other absolute path; a root spelled otherwise leaves it outside.
+    case "$line" in
+      [A-Za-z]:/*)
+        drive=$(printf '%s' "${line%%:*}" | tr '[:upper:]' '[:lower:]')
+        case "$root" in
+          [A-Za-z]:/*) ;;
+          *) line="/$drive/${line#?:/}" ;;
+        esac
+        ;;
+    esac
+    case "/$line/" in
+      */../*) jig_die "verify: --files path is outside the project (.. segment): $line" ;;
+    esac
+    case "$line" in
+      /*)
+        case "$line" in
+          "$root"/*) line=${line#"$root"/} ;;
+          "$root_p"/*) line=${line#"$root_p"/} ;;
+          *)
+            # The same place spelled through a symlink (/var and /private/var):
+            # resolve the nearest directory that exists, keep the rest.
+            local dir="${line%/*}" rest="${line##*/}"
+            while [ -n "$dir" ] && [ ! -d "$dir" ]; do
+              rest="${dir##*/}/$rest"
+              dir="${dir%/*}"
+            done
+            [ -z "$dir" ] || dir=$(cd "$dir" && pwd -P)
+            case "$dir/$rest" in
+              "$root_p"/*) line=${dir#"$root_p"}/$rest; line=${line#/} ;;
+              *) jig_die "verify: --files path is outside the project: $line" ;;
+            esac
+            ;;
+        esac
+        ;;
+    esac
+    while :; do
+      case "$line" in
+        ./*) line=${line#./} ;;
+        *) break ;;
+      esac
+    done
+    [ -n "$line" ] && [ "$line" != "." ] || continue
+    out="$out$line
+"
+  done <<EOF
+$raw
+EOF
+  [ -n "$out" ] || jig_die "verify: --files is empty"
+  printf '%s' "$out" | LC_ALL=C sort -u
 }
 
 # _verify_ref_label <ref> — how a base ref reads in the report:
@@ -796,10 +893,11 @@ cmd_verify() {
   # since piping an empty string through `tr`/`read` yields zero lines, not
   # one empty line, and would otherwise be dropped rather than rejected.
   local list_only=0 explain=0 profile_given=0 profiles_words="" p pdir raw tok
+  local files_given=0 files_stdin=0 files_arg="" named_files="" profile_full_run files_left=0
   local scope=0 base="" nfiles=0 scope_ok note full=0 explicit=0 full_run
   local header="" base_branch base_ref mb map map_ok map_err maps maps_listed map_bad b pmaps stale_base stock_src stale_why tracked_profiles=""
   local incomplete=0 covered=0 explained=0 unknown=0 plan_output plan_bad hr_state hr_rt hr_text
-  local table_err table_rows table_overrides="" base_roles="" p_dropped="" dropped_msg="" dropped_needs=0 covered_needs_install=0 is_fallback=0 run_output ci_left=0 task_base="" task_which="" task_note=""
+  local table_err table_rows table_overrides="" base_roles="" p_dropped="" dropped_msg="" dropped_needs=0 covered_needs_install=0 is_fallback=0 run_output ci_left=0 task_note=""
   JIG_VERIFY_TMP=""
   JIG_VERIFY_MAP_TMP=""
   JIG_VERIFY_MAP_ALL_TMP=""
@@ -827,6 +925,12 @@ cmd_verify() {
             *) profiles_words="$profiles_words $tok" ;;
           esac
         done < <(printf '%s\n' "$raw" | tr ',' '\n')
+        shift 2
+        ;;
+      --files)
+        [ $# -ge 2 ] || jig_die "verify: --files requires a value"
+        files_given=1
+        if [ "$2" = "-" ]; then files_stdin=1; files_arg=""; else files_stdin=0; files_arg="$2"; fi
         shift 2
         ;;
       --list) list_only=1; shift ;;
@@ -899,6 +1003,26 @@ EOF
     *) jig_die "verify: invalid verify.full_run: $full_run (expected local or ci)" ;;
   esac
 
+  # --files names the files itself: a computed scope or a full run beside it
+  # would say two things about one run. A full set is never started under it, so
+  # profiles are always told the project's CI runs it (the `ci` answer), and
+  # JIG_VERIFY_FULL_RUN is decided here, once, for every place that hands it on.
+  profile_full_run=$full_run
+  if [ "$files_given" = 1 ]; then
+    [ "$full" = 0 ] || jig_die "verify: --files cannot be combined with --full"
+    [ "$scope" = 0 ] || jig_die "verify: --files cannot be combined with --changed"
+    [ -z "$base" ] || jig_die "verify: --files cannot be combined with --base"
+    if [ "$files_stdin" = 1 ]; then
+      named_files=$(cat)
+    else
+      named_files=$(printf '%s\n' "$files_arg" | tr ',' '\n')
+    fi
+    named_files=$(_verify_named_files "$named_files")
+    scope=1
+    explicit=1
+    profile_full_run=ci
+  fi
+
   if [ "$full" = 1 ] && { [ "$scope" = 1 ] || [ -n "$base" ]; }; then
     jig_die "verify: --full cannot be combined with --changed or --base"
   fi
@@ -917,23 +1041,7 @@ EOF
       header="verify: full run (CI is set)"
     else
       scope=1
-      # The current task's own base first (ADR-0039): a task cut from an epic
-      # is measured from the epic, not from main, or every task re-runs the
-      # whole epic's diff. A recorded base this clone cannot resolve (an epic
-      # deleted after its merge, never fetched) falls back to the configured
-      # one, never to the working tree alone.
-      base_branch=$(cfg git.base_branch main)
-      _verify_task_base task_base task_which
-      base_ref=""
-      mb=""
-      if [ -n "$task_base" ]; then
-        _verify_merge_base "$task_base" base_ref mb
-        if [ -n "$mb" ]; then
-          base_branch="$task_base"
-          task_note="base of $task_which; "
-        fi
-      fi
-      [ -n "$mb" ] || _verify_merge_base "$base_branch" base_ref mb
+      _verify_task_merge_base base_ref mb task_note base_branch
       if [ -n "$mb" ]; then
         base="$mb"
         header=$(printf 'verify: scope changed since %s@%s (%sverify.full_run: ci, full set runs in CI)' \
@@ -1009,8 +1117,20 @@ EOF
   if [ "$scope" = 1 ]; then
     JIG_VERIFY_TMP=$(mktemp "${TMPDIR:-/tmp}/jig-verify-files.XXXXXX") \
       || jig_die "verify: cannot create temporary file"
-    _verify_changed_files "$base" > "$JIG_VERIFY_TMP"
+    if [ "$files_given" = 1 ]; then
+      printf '%s\n' "$named_files" > "$JIG_VERIFY_TMP"
+      # The named list is the whole scope; the base only tells a profile what
+      # to diff inside a file (the shell profile's changed functions), resolved
+      # as the `verify.full_run: ci` run does, and empty when nothing resolves.
+      _verify_task_merge_base base_ref mb task_note base_branch
+      base=$mb
+    else
+      _verify_changed_files "$base" > "$JIG_VERIFY_TMP"
+    fi
     nfiles=$(grep -c . < "$JIG_VERIFY_TMP" || true)
+    if [ "$files_given" = 1 ]; then
+      header=$(printf 'verify: scope named files (--files, %d files); a full set is never started here — run jig verify before declaring done' "$nfiles")
+    fi
   fi
 
   [ -z "$header" ] || printf '%s\n' "$header"
@@ -1070,6 +1190,8 @@ EOF
     [ -f "$pdir/verify.sh" ] || continue
     if [ "$explain" = 1 ] && ! profiles_supports "$pdir" explain; then continue; fi
     if [ -n "$RUNENV_EXEC" ] && ! profiles_supports "$pdir" environment; then continue; fi
+    # --files starts no profile that cannot narrow (the loop below skips it).
+    if [ "$files_given" = 1 ] && ! profiles_supports "$pdir" changed; then continue; fi
     run_profiles="${run_profiles:+$run_profiles }$p"
   done
   covers=$(_verify_covers "$installed_dir" "$run_profiles" "$scope" "$stack_edges")
@@ -1246,6 +1368,20 @@ EOF
       fi
     fi
 
+    # A profile that cannot narrow would start its full set, which --files never
+    # does. Scope narrowing, not a missing tool: nothing here needs installing.
+    if [ "$files_given" = 1 ] && [ "$scope_ok" = 0 ]; then
+      files_left=$((files_left + 1))
+      if [ "$explain" = 1 ]; then
+        explained=$((explained + 1))
+        printf "PLAN %s: skip (scope: --files, profile cannot narrow; full set left to the task's jig verify)\n" "$p"
+      else
+        skip=$((skip + 1))
+        printf "RESULT %s: skip (scope: --files, profile cannot narrow; full set left to the task's jig verify)\n" "$p"
+      fi
+      continue
+    fi
+
     if [ "$scope_ok" = 1 ] && [ "$nfiles" -eq 0 ] && [ "$explain" = 0 ]; then
       skip=$((skip + 1))
       printf 'RESULT %s: skip (scope: changed, no changed files)\n' "$p"
@@ -1328,13 +1464,13 @@ EOF
       if [ "$map_ok" = 1 ]; then
         plan_output=$( cd "$JIG_PROJECT" \
           && JIG_VERIFY_EXPLAIN=1 JIG_VERIFY_SCOPE=changed JIG_VERIFY_FILES="$JIG_VERIFY_TMP" \
-             JIG_VERIFY_BASE="$base" JIG_VERIFY_FULL_RUN="$full_run" \
+             JIG_VERIFY_BASE="$base" JIG_VERIFY_FULL_RUN="$profile_full_run" \
              JIG_VERIFY_MAPPED="$JIG_VERIFY_MAP_TMP" JIG_VERIFY_MAPPED_ALL="$JIG_VERIFY_MAP_ALL_TMP" bash "$pdir/verify.sh" )
       elif [ "$scope_ok" = 1 ]; then
         plan_output=$( cd "$JIG_PROJECT" \
           && unset JIG_VERIFY_MAPPED JIG_VERIFY_MAPPED_ALL \
           && JIG_VERIFY_EXPLAIN=1 JIG_VERIFY_SCOPE=changed JIG_VERIFY_FILES="$JIG_VERIFY_TMP" \
-             JIG_VERIFY_BASE="$base" JIG_VERIFY_FULL_RUN="$full_run" \
+             JIG_VERIFY_BASE="$base" JIG_VERIFY_FULL_RUN="$profile_full_run" \
              bash "$pdir/verify.sh" )
       else
         plan_output=$( cd "$JIG_PROJECT" \
@@ -1346,7 +1482,7 @@ EOF
       run_output=$( cd "$JIG_PROJECT" \
         && unset JIG_VERIFY_EXPLAIN \
         && JIG_VERIFY_SCOPE=changed JIG_VERIFY_FILES="$JIG_VERIFY_TMP" \
-             JIG_VERIFY_BASE="$base" JIG_VERIFY_FULL_RUN="$full_run" \
+             JIG_VERIFY_BASE="$base" JIG_VERIFY_FULL_RUN="$profile_full_run" \
            JIG_VERIFY_MAPPED="$JIG_VERIFY_MAP_TMP" JIG_VERIFY_MAPPED_ALL="$JIG_VERIFY_MAP_ALL_TMP" \
            bash "$pdir/verify.sh" 2>&1 )
       rc=$?
@@ -1355,7 +1491,7 @@ EOF
       run_output=$( cd "$JIG_PROJECT" \
         && unset JIG_VERIFY_EXPLAIN JIG_VERIFY_MAPPED JIG_VERIFY_MAPPED_ALL \
         && JIG_VERIFY_SCOPE=changed JIG_VERIFY_FILES="$JIG_VERIFY_TMP" \
-             JIG_VERIFY_BASE="$base" JIG_VERIFY_FULL_RUN="$full_run" \
+             JIG_VERIFY_BASE="$base" JIG_VERIFY_FULL_RUN="$profile_full_run" \
            bash "$pdir/verify.sh" 2>&1 )
       rc=$?
       [ -z "$run_output" ] || printf '%s\n' "$run_output"
@@ -1448,7 +1584,9 @@ EOF
 
   printf 'verify: %d profiles, %d pass, %d fail, %d skip, %d incomplete\n' \
     "$total" "$pass" "$failn" "$skip" "$incomplete"
-  if [ "$ci_left" -gt 0 ]; then
+  if [ "$ci_left" -gt 0 ] && [ "$files_given" = 1 ]; then
+    printf "verify: %d check(s) left their full set to the task's jig verify (--files)\n" "$ci_left"
+  elif [ "$ci_left" -gt 0 ]; then
     printf 'verify: %d check(s) left their full set to CI (verify.full_run: ci); jig verify --full runs it here\n' \
       "$ci_left"
   fi
@@ -1515,6 +1653,10 @@ EOF
     if [ "$covered" = 1 ] && [ "$covered_needs_install" -gt 0 ]; then
       printf 'verify: nothing was checked, so this is not a pass — install the project'"'"'s tools so its profile can run\n'
       return 3
+    fi
+    if [ "$covered" = 1 ] && [ "$files_given" = 1 ] && [ $((ci_left + files_left)) -gt 0 ]; then
+      printf "verify: every check in scope skipped or left its full set to the task's jig verify, so this run verified nothing here\n"
+      return 0
     fi
     if [ "$covered" = 1 ] && [ "$ci_left" -gt 0 ]; then
       printf 'verify: every check in scope skipped or left its full set to CI, so this run verified nothing here\n'

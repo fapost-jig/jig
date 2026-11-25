@@ -4465,3 +4465,228 @@ PLAN shell: tests (tests/run.sh): skip (scope: covered by other, shell:tests)" "
   assert_no_file sc.log
   unset JIG_VERIFY_COVERED
 }
+
+# --- jig verify --files <list>|- ---------------------------------------------
+# The named files replace the computed changed list, and a full set is never
+# started: profiles are told `ci` whatever verify.full_run says.
+
+# _fixture_files_profile <name> <scope-line> — a profile that reports the list,
+# JIG_VERIFY_FULL_RUN and JIG_VERIFY_BASE it received, and says its full set was
+# left to CI the way jp_full_left_to_ci does.
+_fixture_files_profile() {
+  local name="$1" scope_line="$2"
+  mkdir -p ".ai/profiles/$name"
+  {
+    printf 'name: %s\n' "$name"
+    printf 'description: fixture profile reporting what --files hands it.\n'
+    printf 'detect: always\n'
+    [ -z "$scope_line" ] || printf '%s\n' "$scope_line"
+  } > ".ai/profiles/$name/profile.yaml"
+  cat > ".ai/profiles/$name/verify.sh" <<EOT
+#!/usr/bin/env bash
+if [ -n "\${JIG_VERIFY_EXPLAIN:-}" ]; then
+  echo "PLAN $name: tests: filtered (named files)"
+  exit 0
+fi
+touch "$name.ran"
+echo "$name: full-run=\${JIG_VERIFY_FULL_RUN:-<unset>} base=[\${JIG_VERIFY_BASE:-}]"
+if [ -n "\${JIG_VERIFY_FILES:-}" ]; then
+  sed 's/^/$name: file /' "\$JIG_VERIFY_FILES"
+fi
+echo "$name: tests: pass (scope: 1 filters, full set left to CI)"
+exit 0
+EOT
+  chmod +x ".ai/profiles/$name/verify.sh"
+}
+
+_fixture_files_repo() {
+  fixture_jig_repo
+  _fixture_files_profile probe "scope: [changed, explain]"
+  git add -A
+  git commit -q -m "add probe profile"
+}
+
+test_verify_files_hands_the_profile_exactly_the_named_files() {
+  _fixture_files_repo
+  echo x >> README.md
+  echo y > untracked.txt
+
+  run jig verify --files src/a.sh --profile probe
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "probe: file src/a.sh"
+  assert_not_contains "$OUT" "README.md"
+  assert_not_contains "$OUT" "untracked.txt"
+  assert_contains "$OUT" "RESULT probe: pass (scope: changed, 1 files)"
+}
+
+test_verify_files_header_and_summary_wording() {
+  _fixture_files_repo
+
+  run jig verify --files a.sh,b.sh --profile probe
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "verify: scope named files (--files, 2 files); a full set is never started here — run jig verify before declaring done"
+  assert_contains "$OUT" "verify: 1 check(s) left their full set to the task's jig verify (--files)"
+  assert_not_contains "$OUT" "verify.full_run: ci"
+  assert_not_contains "$OUT" "jig verify --full runs it here"
+}
+
+test_verify_files_stdin_reads_one_path_per_line() {
+  _fixture_files_repo
+
+  run bash -c 'printf "b.sh\n\n  a.sh  \nb.sh\n" | "$JIG_BIN" verify --files - --profile probe'
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "probe: file a.sh"
+  assert_contains "$OUT" "probe: file b.sh"
+  assert_contains "$OUT" "RESULT probe: pass (scope: changed, 2 files)"
+}
+
+test_verify_files_normalises_dot_slash_and_absolute_paths() {
+  _fixture_files_repo
+
+  run jig verify --files "./a.sh,$PWD/dir/b.sh, ././c.sh ,a.sh,,gone-file.sh" --profile probe
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "probe: file a.sh"
+  assert_contains "$OUT" "probe: file dir/b.sh"
+  assert_contains "$OUT" "probe: file c.sh"
+  assert_contains "$OUT" "probe: file gone-file.sh"
+  assert_contains "$OUT" "RESULT probe: pass (scope: changed, 4 files)"
+}
+
+test_verify_files_refuses_a_path_outside_the_project() {
+  _fixture_files_repo
+
+  run jig verify --files /etc/hosts --profile probe
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "outside the project"
+  assert_no_file probe.ran
+}
+
+test_verify_files_refuses_a_dotdot_path() {
+  _fixture_files_repo
+
+  run jig verify --files "a.sh,../x.sh" --profile probe
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "outside the project"
+  run jig verify --files "dir/../x.sh" --profile probe
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "outside the project"
+  assert_no_file probe.ran
+}
+
+test_verify_files_refuses_an_empty_list() {
+  _fixture_files_repo
+
+  run jig verify --files " , ," --profile probe
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "verify: --files is empty"
+  run bash -c 'printf "\n\n" | "$JIG_BIN" verify --files - --profile probe'
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "verify: --files is empty"
+  assert_no_file probe.ran
+}
+
+test_verify_files_refuses_full_changed_and_base() {
+  _fixture_files_repo
+
+  run jig verify --files a.sh --full
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "--files cannot be combined with --full"
+  run jig verify --files a.sh --changed
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "--files cannot be combined with --changed"
+  run jig verify --files a.sh --base HEAD
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "--files cannot be combined with --base"
+  run jig verify --base HEAD --files a.sh
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "--files cannot be combined with --base"
+  assert_no_file probe.ran
+}
+
+test_verify_files_requires_a_value() {
+  _fixture_files_repo
+
+  run jig verify --files
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "verify: --files requires a value"
+}
+
+test_verify_files_tells_the_profile_a_full_set_is_left_to_ci_in_local_mode() {
+  _fixture_files_repo
+  cat >> .ai/config.yaml <<'CFG'
+verify.full_run: local
+CFG
+
+  run jig verify --files a.sh --profile probe
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "probe: full-run=ci"
+}
+
+test_verify_files_base_is_the_merge_base_with_the_default_branch() {
+  _fixture_files_repo
+  local mb
+  mb=$(git rev-parse HEAD)
+  git checkout -q -b work
+  echo c > c.txt
+  git add c.txt
+  git commit -q -m work
+
+  run jig verify --files a.sh --profile probe
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "base=[$mb]"
+  # The base never widens the list.
+  assert_not_contains "$OUT" "c.txt"
+}
+
+test_verify_files_skips_a_profile_that_cannot_narrow() {
+  _fixture_files_repo
+  _fixture_files_profile wide ""
+  git add -A
+  git commit -q -m "add wide profile"
+
+  run jig verify --files a.sh --profile wide
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "RESULT wide: skip (scope: --files, profile cannot narrow; full set left to the task's jig verify)"
+  assert_contains "$OUT" "verify: every check in scope skipped or left its full set to the task's jig verify, so this run verified nothing here"
+  assert_not_contains "$OUT" "install the project's tools"
+  assert_no_file wide.ran
+}
+
+test_verify_files_explain_plans_the_named_files() {
+  _fixture_files_repo
+
+  run jig verify --explain --files a.sh --profile probe
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "verify: scope named files (--files, 1 files)"
+  assert_contains "$OUT" "verify: 1 profiles explained"
+  assert_no_file probe.ran
+}
+
+test_verify_files_cover_does_not_stand_down_for_a_profile_that_cannot_narrow() {
+  fixture_jig_repo
+  _fixture_files_profile low "scope: [changed, explain]"
+  _fixture_files_profile top "covers: [low:tests]"
+  printf 'checks: [tests]\n' >> .ai/profiles/low/profile.yaml
+  git add -A
+  git commit -q -m "add profiles"
+
+  run jig verify --files a.sh --profile low,top
+  assert_file low.ran
+  assert_no_file top.ran
+  assert_contains "$OUT" "RESULT low: pass"
+  assert_contains "$OUT" "RESULT top: skip (scope: --files, profile cannot narrow"
+  assert_not_contains "$OUT" "covered by"
+}
+
+test_verify_files_backslash_and_drive_paths() {
+  _fixture_files_repo
+
+  run jig verify --files 'src\a.sh' --profile probe
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "probe: file src/a.sh"
+  rm -f probe.ran
+  run jig verify --files 'C:\x\a.sh,c:/y/b.sh' --profile probe
+  assert_eq 1 "$RC"
+  assert_contains "$OUT" "outside the project"
+  assert_no_file probe.ran
+}

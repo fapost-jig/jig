@@ -566,6 +566,33 @@ could not explain its plan, and exit 1 means the preview failed.
 or ran the full check. A plain `jig verify` follows the project's `verify.full_run` setting.
 [Configure verification](/configuration#verification).
 
+`--files` runs the checks on the files you name, for a quick check while a change is being
+written:
+
+```bash
+jig verify --files src/a.php,src/b.php
+git diff --name-only | jig verify --files -
+```
+
+The list is comma-separated, or `-` reads one path per line from standard input, as
+`jig context --files` does. Relative paths are relative to the project root, not the current directory. Paths are made relative to the project; one outside the project, or
+with a `..` segment, is refused, and so is an empty list. A path that no longer exists is fine,
+for a file you deleted. The named files replace the list of changed files, and `--files` cannot be
+combined with `--full`, `--changed` or `--base`; it does work with `--profile` and `--explain`.
+
+A run with `--files` never starts a full set. Profiles are told the full set is left to CI, as with
+`verify.full_run: ci`, and a profile that cannot narrow to changed files, because it does not
+declare `scope: [changed]`, is skipped:
+
+```text
+RESULT php: skip (scope: --files, profile cannot narrow; full set left to the task's jig verify)
+verify: 1 check(s) left their full set to the task's jig verify (--files)
+```
+
+This is not the verification of a task. Run a plain `jig verify` before declaring work done.
+A project's own profile that declares `changed` but ignores the rule that leaves the full set to
+CI may still start a full set.
+
 <Warning>
   **Skipped is not passed.** Read the report even when the command exits successfully. Missing
   tools or dependencies can leave checks unrun.

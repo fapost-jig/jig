@@ -185,3 +185,22 @@ never be checked on `main` (it happened on the first day, to the change that int
 > their base only when they agree on it. No task, tasks that disagree, or a recorded base this clone
 > cannot resolve (an epic deleted after its merge, never fetched) keep `git.base_branch`, never the
 > working tree alone; `--base <ref>` still overrides. Projects without tasks are unchanged.
+
+> **Amendment (2026-11-25): a run the caller names, for the implement stage.** `--changed` narrows to
+> the whole diff since the task's base, so on a long task every small run during implementation paid
+> for the whole task (a Laravel project: 200 changed files, 116 test files, 18 minutes in one
+> process), and in `local` mode a path mapped to ALL started the full set. Agents answered with rituals
+> of their own around the stack's runner (`docker exec … artisan test`), outside the run environment,
+> the check table and the clone's run record. `jig verify --files <list>|-` takes the list from the
+> caller instead of from git: the named paths, root-relative and normalised in `_verify_named_files`,
+> **replace** the changed-file list (they are the run's one list, handed to every profile as always).
+> Such a run never starts a full set, whatever the project's `verify.full_run`: profiles are told `ci`
+> (`JIG_VERIFY_FULL_RUN`), so an ALL is left — the check's line keeps the existing `full set left to
+> CI` wording, the header and the summary say the full set is left to the task's own `jig verify`. A
+> profile that does not declare `scope: [changed]` is not run at all (it would run its full set) and
+> holds no cover for that run, so a check it covers runs in its own profile. `JIG_VERIFY_BASE` is the
+> merge base with the task's base, for profiles that diff inside a file; it never widens the list.
+> `--files` cannot be combined with `--full`, `--changed` or `--base`. It is never a task's
+> verification: `jig-verify` runs plain `jig verify`; `jig-implement` uses `--files`. Nothing in
+> `task.sh` reads either run, so that line is held by the skills. A profile of the project's own that
+> declares `changed` but starts a full set without `jp_full_left_to_ci` still can.
