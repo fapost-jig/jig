@@ -8,6 +8,18 @@ Update the tool with `jig self-update`, then run `jig upgrade` in each project; 
 as far as your settings allow ([Install](/install#keep-jig-up-to-date)). Releases are tagged on
 [GitHub](https://github.com/fapost-jig/jig/tags).
 
+## 0.51.2
+
+A narrowed `jig verify` shows the tests as they run. Nothing to do by hand
+([From 0.51.1 to 0.51.2](/upgrading#from-0511-to-0512)).
+
+- **A narrowed run prints its output as it comes.** Under `verify.full_run: ci`, `--changed` or
+  `--files`, `jig verify` held a profile's output until the profile finished, so a long test run
+  showed nothing until its end — no progress line such as phpunit's `63 / 287 ( 21%)`, and nothing
+  to say where a stopped run had got to. It now prints each line as the profile writes it; the
+  summary reads the same output as before. A full run already streamed. Proven by a test with a
+  stand-in profile that prints a progress line and waits to be seen, not yet on a real test suite.
+
 ## 0.51.1
 
 Runs in a shared container now wait for each other whatever way you write an option of

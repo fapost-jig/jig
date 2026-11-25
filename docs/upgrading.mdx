@@ -604,6 +604,12 @@ the change staged, and `jig upgrade` run again on it finishes the run.
 merged yourself, and for a base that did not move; run by an older copy of Jig in the project
 (0.47.0 or later), it is handed to the newer `jig` on your machine, as an upgrade is.
 
+## From 0.51.1 to 0.51.2
+
+Nothing to do by hand. Run `jig self-update`, then `jig upgrade` in each project: the change is in
+the project's scripts, so it reaches a project only after its `jig upgrade`. No skill, setting or
+installer changed.
+
 ## From 0.51.0 to 0.51.1
 
 Nothing to do by hand. Run `jig self-update`, then `jig upgrade` in each project: the fix is in the
