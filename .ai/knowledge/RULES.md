@@ -45,7 +45,13 @@
   `_verify_env_dir`, and the path is checked to have exactly that shape before anything is removed
   — on its own release, and when it takes over a record whose holder is dead or expired. Nothing
   else under the cache is touched. (adr-20260925-one-test-run-per-clone-and-a-dead-run-is-not-a-pass,
-  amendment 2026-11-25) The carry into a task worktree adds a third shape rather than a
+  amendment 2026-11-25) `jig verify` ends processes only in the environment its checks run in
+  (`JIG_RUN_EXEC`), and only those whose environment holds exactly `JIG_VERIFY_RUN=<token>`, a token it
+  made: its own run's, when that run is interrupted; and a token naming this machine whose host
+  process no longer answers `kill -0`, when a later run starts. It sends `TERM`, then `KILL` to what
+  is left two seconds later. It never ends a process by name, pattern or user, never one whose environment
+  it cannot read, and never one carrying a live run's token.
+  (adr-20261125-verify-ends-the-processes-it-started) The carry into a task worktree adds a third shape rather than a
   sixth exception: `jig task start --worktree` and `jig task bootstrap` delete nothing outside a
   worktree's `.ai/runtime/bootstrap`, the staging directory where they build a declared path
   before renaming it into place. Two deletions, guarded two ways. The staging directory itself

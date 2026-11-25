@@ -4901,3 +4901,270 @@ test_verify_env_never_releases_a_record_it_did_not_take() {
   kill "$holder_pid" 2>/dev/null || true
   wait 2>/dev/null || true
 }
+
+# --- processes a run leaves in the container (adr-20261125-verify-ends-the-processes-it-started) ---
+# Stopping `jig verify` does not stop what `docker exec` started in the
+# container. Every command a profile runs under a prefix carries
+# JIG_VERIFY_RUN=<token>; an interrupted run ends its own token's processes, a
+# later run ends those of a token whose host pid is gone. The `docker` stub
+# runs the command on this machine, so the "container" is this machine's
+# /proc: the tests that read it skip where there is none (macOS).
+
+_verify_orphans_need_proc() {
+  case "$(uname -s)" in
+    MINGW* | CYGWIN* | MSYS*) skip "Windows shells have no /proc environ of processes started through a stub" ;;
+  esac
+  [ -r "/proc/$$/environ" ] || skip "no readable /proc here (macOS): the processes of a container cannot be walked"
+}
+
+# _verify_orphans_gone <pid> — true when the process is gone or only a zombie.
+_verify_orphans_gone() {
+  [ -d "/proc/$1" ] || return 0
+  grep '^State:[[:space:]]*Z' "/proc/$1/status" >/dev/null 2>&1
+}
+
+# _verify_orphans_wait_gone <pid> — wait up to 20 s for it to be gone.
+_verify_orphans_wait_gone() {
+  local until=$((SECONDS + 20))
+  while [ "$SECONDS" -lt "$until" ]; do
+    ! _verify_orphans_gone "$1" || return 0
+    sleep 0.2
+  done
+  return 1
+}
+
+# _verify_orphans_detaching_stub — a `docker` whose client dies without taking
+# the command with it, as `docker exec` without a TTY behaves: a command that
+# carries the token (jp_exec's `env JIG_VERIFY_RUN=…`) runs in its own session,
+# its pid in container.pid, and the stub waits for it like the client does.
+_verify_orphans_detaching_stub() {
+  command -v setsid >/dev/null 2>&1 || skip "no setsid here"
+  cat > stub-bin/docker <<STUB
+#!/usr/bin/env bash
+shift
+while [ \$# -gt 0 ]; do
+  case "\$1" in
+    -u|-w) shift 2 ;;
+    -*) shift ;;
+    *) break ;;
+  esac
+done
+shift
+if [ "\$1" = env ]; then
+  ( setsid "\$@" </dev/null >/dev/null 2>&1 & echo \$! > "$PWD/container.pid" )
+  until [ -s "$PWD/container.pid" ]; do sleep 0.1; done
+  pid=\$(cat "$PWD/container.pid")
+  while kill -0 "\$pid" 2>/dev/null; do sleep 0.2; done
+  exit 0
+fi
+exec "\$@"
+STUB
+  chmod +x stub-bin/docker
+}
+
+test_verify_orphans_jp_exec_adds_the_token_only_under_a_prefix_and_with_a_token() {
+  mkdir -p stub-bin
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "%s/wrap.log"\nshift\nexec "$@"\n' "$PWD" > stub-bin/wrap
+  chmod +x stub-bin/wrap
+  run bash -c '
+    PATH="$(pwd)/stub-bin:$PATH"
+    . "$JIG_HOME/scripts/lib/profile.sh"
+    JIG_RUN_EXEC="wrap box" JIG_VERIFY_RUN_TOKEN=123-456 jp_exec echo with-token
+    JIG_RUN_EXEC="wrap box" JIG_VERIFY_RUN_TOKEN="" jp_exec echo without-token
+    unset JIG_RUN_EXEC
+    f() { echo "ran on the host: $*"; }
+    JIG_VERIFY_RUN_TOKEN=123-456 jp_exec f no-prefix
+  '
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "with-token"
+  assert_contains "$OUT" "ran on the host: no-prefix"
+  assert_eq "box env JIG_VERIFY_RUN=123-456 echo with-token
+box echo without-token" "$(cat wrap.log)"
+}
+
+test_verify_orphans_only_a_profile_with_environment_gets_the_token() {
+  _verify_env_fixture shared-php
+  _fixture_probe_profile bare ""
+  cat > .ai/profiles/probe/verify.sh <<'PROBE'
+#!/usr/bin/env bash
+echo "probe: token=${JIG_VERIFY_RUN_TOKEN:-<unset>}"
+exit 0
+PROBE
+  run env JIG_VERIFY_RUN_TOKEN=leaked "$JIG_BIN" verify --profile probe,bare
+  assert_eq 0 "$RC" "$OUT"
+  assert_not_contains "$OUT" "leaked"
+  assert_contains "$OUT" "RESULT bare: skip (not adapted to run in"
+  case "$OUT" in
+    *"probe: token=$JIG_VERIFY_RUN_HOST-"[0-9]*-[0-9]*) ;;
+    *) fail "the profile with environment got no <host>-<pid>-<random> token: $OUT" ;;
+  esac
+  assert_no_file bare.ran
+
+  # On the host there is no prefix, so no token either, whatever the caller had.
+  jig config set run.exec host --local >/dev/null
+  run env JIG_VERIFY_RUN_TOKEN=leaked "$JIG_BIN" verify --profile probe
+  assert_contains "$OUT" "probe: token=<unset>"
+}
+
+test_verify_orphans_the_helper_ends_only_the_exact_token() {
+  _verify_orphans_need_proc
+  run bash -c '
+    JIG_LIB="$JIG_HOME/scripts/lib"; JIG_PROJECT=$PWD
+    . "$JIG_LIB/common.sh"; . "$JIG_LIB/runenv.sh"
+    RUNENV_EXEC="env"; RUNENV_WHERE="the test"
+    h=$JIG_VERIFY_RUN_HOST
+    env JIG_VERIFY_RUN=$h-111-222 sleep 120 & a=$!
+    env JIG_VERIFY_RUN=$h-111-2222 sleep 120 & b=$!
+    env JIG_VERIFY_RUN_TOKEN=$h-111-222 sleep 120 & c=$!
+    env X=JIG_VERIFY_RUN=$h-111-222 sleep 120 & d=$!
+    sleep 120 & e=$!
+    sleep 1
+    runenv_list_tokens_v listed
+    printf "listed: %s \n" "$(printf "%s" "$listed" | tr "\n" " ")"
+    runenv_end_token_v n $h-111-222
+    echo "ended=$n"
+    wait "$a" 2>/dev/null; kill -0 "$a" 2>/dev/null && echo "a=alive" || echo "a=gone"
+    for p in b c d e; do eval "pp=\$$p"; kill -0 "$pp" 2>/dev/null && echo "$p=alive" || echo "$p=gone"; done
+    kill "$b" "$c" "$d" "$e" 2>/dev/null; wait 2>/dev/null; true'
+  assert_eq 0 "$RC" "$OUT"
+  # Each listed token stands between blanks, so 111-222 cannot match inside 111-2222.
+  assert_contains "$OUT" " $JIG_VERIFY_RUN_HOST-111-222 "
+  assert_contains "$OUT" " $JIG_VERIFY_RUN_HOST-111-2222 "
+  assert_contains "$OUT" "ended=1"
+  assert_contains "$OUT" "a=gone"
+  assert_contains "$OUT" "b=alive"
+  assert_contains "$OUT" "c=alive"
+  assert_contains "$OUT" "d=alive"
+  assert_contains "$OUT" "e=alive"
+}
+
+test_verify_orphans_the_helper_kills_what_ignores_term() {
+  _verify_orphans_need_proc
+  run bash -c '
+    JIG_LIB="$JIG_HOME/scripts/lib"; JIG_PROJECT=$PWD
+    . "$JIG_LIB/common.sh"; . "$JIG_LIB/runenv.sh"
+    RUNENV_EXEC="env"; RUNENV_WHERE="the test"
+    h=$JIG_VERIFY_RUN_HOST
+    env JIG_VERIFY_RUN=$h-333-444 sh -c "trap \"\" TERM; sleep 120; sleep 120" & a=$!
+    sleep 1
+    runenv_end_token_v n $h-333-444 1
+    echo "ended=$n"
+    runenv_list_tokens_v listed
+    case "$listed" in *-333-444*) echo still-listed ;; *) echo not-listed ;; esac
+    kill -9 "$a" 2>/dev/null; wait 2>/dev/null; true'
+  assert_eq 0 "$RC" "$OUT"
+  assert_not_contains "$OUT" "ended=0"
+  assert_contains "$OUT" "not-listed"
+}
+
+test_verify_orphans_an_interrupted_run_ends_what_it_started_in_the_container() {
+  _verify_orphans_need_proc
+  _verify_env_fixture shared-php
+  _verify_orphans_detaching_stub
+  cat > .ai/profiles/probe/verify.sh <<PROBE
+#!/usr/bin/env bash
+. "$JIG_HOME/scripts/lib/profile.sh"
+jp_begin probe
+jp_exec sleep 300
+exit 0
+PROBE
+  "$JIG_BIN" verify --profile probe > verify-out.log 2>&1 &
+  local verify_pid=$! until=$((SECONDS + 60))
+  until [ -s container.pid ]; do
+    if [ "$SECONDS" -ge "$until" ] || ! kill -0 "$verify_pid" 2>/dev/null; then
+      kill "$verify_pid" 2>/dev/null || true
+      fail "the check never started in the container: $(cat verify-out.log)"
+    fi
+    sleep 0.2
+  done
+  local child
+  child=$(cat container.pid)
+  tr '\0' '\n' < "/proc/$child/environ" | grep -x "JIG_VERIFY_RUN=$JIG_VERIFY_RUN_HOST-$verify_pid-[0-9]*" >/dev/null \
+    || fail "the process in the container carries no token of this run: $(tr '\0' '\n' < "/proc/$child/environ" | grep JIG || true)"
+
+  kill -TERM "$verify_pid"
+  until=$((SECONDS + 60))
+  while kill -0 "$verify_pid" 2>/dev/null; do
+    [ "$SECONDS" -lt "$until" ] || { kill -KILL "$verify_pid" 2>/dev/null || true; fail "verify did not end after TERM: $(cat verify-out.log)"; }
+    sleep 0.2
+  done
+  local rc=0
+  wait "$verify_pid" || rc=$?
+  assert_eq 143 "$rc" "$(cat verify-out.log)"
+  _verify_orphans_wait_gone "$child" || { kill -KILL "$child" 2>/dev/null || true; fail "the process in the container outlived the run: $(cat verify-out.log)"; }
+  assert_file_contains verify-out.log "verify: ended 1 processes this run left in docker exec -i -w /srv/app shared-php"
+  assert_no_file .ai/runtime/verify/busy
+  assert_no_file cache/jig/verify-env/shared-php/busy
+}
+
+test_verify_orphans_a_finished_run_ends_nothing() {
+  _verify_env_fixture shared-php
+  run jig verify --profile probe
+  assert_eq 0 "$RC" "$OUT"
+  assert_not_contains "$OUT" "verify: ended"
+  assert_not_contains "$OUT" "could not check"
+}
+
+test_verify_orphans_a_later_run_ends_a_dead_runs_processes_and_spares_a_live_ones() {
+  _verify_orphans_need_proc
+  _verify_env_fixture shared-php
+  local dead_pid live_pid
+  ( exit 0 ) &
+  dead_pid=$!
+  wait "$dead_pid" 2>/dev/null || true
+  sleep 120 &
+  live_pid=$!
+  env "JIG_VERIFY_RUN=$JIG_VERIFY_RUN_HOST-$dead_pid-777" sleep 120 &
+  local orphan=$!
+  env "JIG_VERIFY_RUN=$JIG_VERIFY_RUN_HOST-$live_pid-888" sleep 120 &
+  local livechild=$!
+  # A token of another machine's name, its pid dead here: not ours to judge.
+  env "JIG_VERIFY_RUN=elsewhere-$dead_pid-999" sleep 120 &
+  local foreign=$!
+  sleep 1
+
+  run jig verify --profile probe
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "verify: ended 1 processes a dead run (pid $dead_pid) left in docker exec -i -w /srv/app shared-php"
+  assert_not_contains "$OUT" "(pid $live_pid)"
+  assert_contains "$OUT" "RESULT probe: pass"
+  wait "$orphan" 2>/dev/null || true
+  local alive=1
+  kill -0 "$orphan" 2>/dev/null || alive=0
+  local spared=1
+  kill -0 "$livechild" 2>/dev/null || spared=0
+  local foreign_alive=1
+  kill -0 "$foreign" 2>/dev/null || foreign_alive=0
+  kill "$live_pid" "$livechild" "$orphan" "$foreign" 2>/dev/null || true
+  wait 2>/dev/null || true
+  assert_eq 1 "$foreign_alive" "a token of another host was ended"
+  assert_eq 0 "$alive" "the dead run's process is still there"
+  assert_eq 1 "$spared" "the live run's process was ended"
+}
+
+test_verify_orphans_a_check_that_cannot_run_says_one_line_and_changes_nothing() {
+  _verify_env_fixture shared-php
+  cat > stub-bin/docker <<'STUB'
+#!/usr/bin/env bash
+shift
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -u|-w) shift 2 ;;
+    -*) shift ;;
+    *) break ;;
+  esac
+done
+shift
+case "$*" in
+  *'mode=$1'*) echo "container went away" >&2; exit 1 ;;
+esac
+exec "$@"
+STUB
+  run jig verify --profile probe
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "RESULT probe: pass"
+  assert_contains "$OUT" ": container went away"
+  local n
+  n=$(printf '%s\n' "$OUT" | grep -c "could not check" || true)
+  assert_eq 1 "$n" "$OUT"
+}

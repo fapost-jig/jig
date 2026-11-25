@@ -62,11 +62,18 @@ _pe_install() {
   jig config set run.exec "docker compose exec -T -w /app app" --local >/dev/null
 }
 
+# _pe_log — docker.log with the run token jp_exec puts before every command
+# (`env JIG_VERIFY_RUN=<token>`, adr-20261125-verify-ends-the-processes-it-started)
+# taken out, so an assertion reads the command the profile asked for.
+_pe_log() {
+  sed 's/ env JIG_VERIFY_RUN=[^ ]* / /' docker.log
+}
+
 # _pe_assert_ran <tool>... — each tool ran through the prefix, never beside it.
 _pe_assert_ran() {
   local t
   for t in "$@"; do
-    assert_contains "$(cat docker.log)" "compose exec -T -w /app app $t"
+    assert_contains "$(_pe_log)" "compose exec -T -w /app app $t"
   done
 }
 
@@ -83,6 +90,8 @@ test_profile_environment_shell_runs_shellcheck_and_tests_through_the_prefix() {
   assert_contains "$OUT" "shell: lint (shellcheck): pass"
   assert_contains "$OUT" "shell: tests (tests/run.sh): pass"
   _pe_assert_ran "shellcheck -s bash" "tests/run.sh"
+  # jig verify marks what it runs in the environment with its run's token.
+  assert_contains "$(cat docker.log)" "compose exec -T -w /app app env JIG_VERIFY_RUN="
 }
 
 test_profile_environment_python_takes_tools_from_the_environment_path() {
@@ -106,7 +115,7 @@ test_profile_environment_python_ignores_a_host_virtualenv_it_cannot_run() {
   run jig verify --profile python
   assert_eq 0 "$RC" "$OUT"
   assert_contains "$OUT" "python: tests (pytest): pass"
-  assert_eq 0 "$(grep -c 'app \.venv/bin/pytest$' docker.log || true)" "the host's virtualenv ran in the environment"
+  assert_eq 0 "$(_pe_log | grep -c 'app \.venv/bin/pytest$' || true)" "the host's virtualenv ran in the environment"
 }
 
 test_profile_environment_go_runs_vet_and_test_through_the_prefix() {
