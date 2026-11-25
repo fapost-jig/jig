@@ -48,7 +48,7 @@
   amendment 2026-11-25) `jig verify` ends processes only in the environment its checks run in
   (`JIG_RUN_EXEC`), and only those whose environment holds exactly `JIG_VERIFY_RUN=<token>`, a token it
   made: its own run's, when that run is interrupted; and a token naming this machine whose host
-  process no longer answers `kill -0`, when a later run starts. It sends `TERM`, then `KILL` to what
+  process answers neither `kill -0` nor `ps -p`, when a later run starts. It sends `TERM`, then `KILL` to what
   is left two seconds later. It never ends a process by name, pattern or user, never one whose environment
   it cannot read, and never one carrying a live run's token.
   (adr-20261125-verify-ends-the-processes-it-started) The carry into a task worktree adds a third shape rather than a

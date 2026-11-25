@@ -575,8 +575,9 @@ git diff --name-only | jig verify --files -
 ```
 
 The list is comma-separated, or `-` reads one path per line from standard input, as
-`jig context --files` does. Relative paths are relative to the project root, not the current directory. Paths are made relative to the project; one outside the project, or
-with a `..` segment, is refused, and so is an empty list. A path that no longer exists is fine,
+`jig context --files` does. Relative paths are relative to the project root, not the current directory. Paths are made relative to the project, with `/./` and repeated `/` collapsed and a
+trailing `/` (a directory) dropped; one outside the project, with a `..` segment, or naming the
+project root itself is refused, and so is an empty list. A path that no longer exists is fine,
 for a file you deleted. The named files replace the list of changed files, and `--files` cannot be
 combined with `--full`, `--changed` or `--base`; it does work with `--profile` and `--explain`.
 
@@ -585,8 +586,10 @@ A run with `--files` never starts a full set. Profiles are told the full set is 
 declare `scope: [changed]`, is skipped:
 
 ```text
-RESULT php: skip (scope: --files, profile cannot narrow; full set left to the task's jig verify)
-verify: 1 check(s) left their full set to the task's jig verify (--files)
+verify: scope named files (--files, 1 files); a full set is never started here — run jig verify before declaring done
+RESULT lint: skip (scope: --files, profile cannot narrow; full set left to the task's jig verify)
+verify: 1 profiles, 0 pass, 0 fail, 1 skip, 0 incomplete
+verify: every check in scope skipped or left its full set to the task's jig verify, so this run verified nothing here
 ```
 
 This is not the verification of a task. Run a plain `jig verify` before declaring work done.

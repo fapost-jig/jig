@@ -4552,6 +4552,30 @@ test_verify_files_normalises_dot_slash_and_absolute_paths() {
   assert_contains "$OUT" "RESULT probe: pass (scope: changed, 4 files)"
 }
 
+test_verify_files_collapses_slashes_and_drops_a_trailing_slash() {
+  _fixture_files_repo
+
+  run jig verify --files "dir//b.sh,dir/./a.sh,$PWD/dir//./c.sh,sub/,sub//,./sub/./" --profile probe
+  assert_eq 0 "$RC" "$OUT"
+  assert_contains "$OUT" "probe: file dir/b.sh"
+  assert_contains "$OUT" "probe: file dir/a.sh"
+  assert_contains "$OUT" "probe: file dir/c.sh"
+  assert_contains "$OUT" "probe: file sub"
+  assert_contains "$OUT" "RESULT probe: pass (scope: changed, 4 files)"
+}
+
+test_verify_files_refuses_the_project_root_itself() {
+  _fixture_files_repo
+
+  local spelling
+  for spelling in . ./ ./. "$PWD" "$PWD/" "$PWD/." "$PWD//"; do
+    run jig verify --files "$spelling" --profile probe
+    assert_eq 1 "$RC" "$spelling: $OUT"
+    assert_contains "$OUT" "--files names the project root"
+  done
+  assert_no_file probe.ran
+}
+
 test_verify_files_refuses_a_path_outside_the_project() {
   _fixture_files_repo
 
@@ -5079,8 +5103,17 @@ PROBE
   done
   local child
   child=$(cat container.pid)
-  tr '\0' '\n' < "/proc/$child/environ" | grep -x "JIG_VERIFY_RUN=$JIG_VERIFY_RUN_HOST-$verify_pid-[0-9]*" >/dev/null \
-    || fail "the process in the container carries no token of this run: $(tr '\0' '\n' < "/proc/$child/environ" | grep JIG || true)"
+  # The stub writes the pid of `setsid` before it execs `env JIG_VERIFY_RUN=… sleep`,
+  # so the token can appear a moment after the pid does: wait for it, bounded.
+  until=$((SECONDS + 30))
+  until tr '\0' '\n' < "/proc/$child/environ" 2>/dev/null \
+      | grep -x "JIG_VERIFY_RUN=$JIG_VERIFY_RUN_HOST-$verify_pid-[0-9]*" >/dev/null; do
+    if [ "$SECONDS" -ge "$until" ]; then
+      kill "$verify_pid" 2>/dev/null || true
+      fail "the process in the container carries no token of this run: $(tr '\0' '\n' < "/proc/$child/environ" 2>/dev/null | grep JIG || true)"
+    fi
+    sleep 0.2
+  done
 
   kill -TERM "$verify_pid"
   until=$((SECONDS + 60))

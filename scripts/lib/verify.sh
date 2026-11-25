@@ -140,12 +140,15 @@ _verify_task_merge_base() {
 
 # _verify_named_files <raw> — the --files list, normalised: one repo-relative
 # path per line, sorted and unique. Each entry is trimmed and loses a leading
-# ./; an absolute path inside the project becomes repo-relative. A path outside
-# the project, or with a .. segment, is refused (exit 1), as is a list with
-# nothing in it. A path that does not exist on disk is fine: it may be a file
-# the change deleted, and the profile decides what that means.
+# ./; an absolute path inside the project becomes repo-relative; /./ and
+# repeated / inside a path collapse and a trailing / (a directory) is dropped.
+# A path outside the project, with a .. segment, or naming the project root
+# itself is refused (exit 1), as is a list with nothing in it. A path that
+# does not exist on disk is fine: it may be a file the change deleted, and the
+# profile decides what that means.
 _verify_named_files() {
   local raw="$1" line root root_p out="" drive
+  local root_msg="verify: --files names the project root; name files or a directory inside it"
   root="${JIG_PROJECT%/}"
   root_p=$(cd "$JIG_PROJECT" && pwd -P)
   while IFS= read -r line || [ -n "$line" ]; do
@@ -163,11 +166,27 @@ _verify_named_files() {
         esac
         ;;
     esac
+    # Collapse repeated / and /./, and drop a trailing / or /. (a directory).
+    while :; do
+      case "$line" in
+        *//*) line=${line//\/\//\/} ;;
+        */./*) line=${line//\/.\//\/} ;;
+        / ) break ;;
+        */. | */)
+          line=${line%/*}
+          if [ -z "$line" ]; then line=/; fi
+          ;;
+        *) break ;;
+      esac
+    done
     case "/$line/" in
       */../*) jig_die "verify: --files path is outside the project (.. segment): $line" ;;
     esac
     case "$line" in
       /*)
+        case "$line" in
+          "$root" | "$root_p") jig_die "$root_msg" ;;
+        esac
         case "$line" in
           "$root"/*) line=${line#"$root"/} ;;
           "$root_p"/*) line=${line#"$root_p"/} ;;
@@ -181,6 +200,7 @@ _verify_named_files() {
             done
             [ -z "$dir" ] || dir=$(cd "$dir" && pwd -P)
             case "$dir/$rest" in
+              "$root_p") jig_die "$root_msg" ;;
               "$root_p"/*) line=${dir#"$root_p"}/$rest; line=${line#/} ;;
               *) jig_die "verify: --files path is outside the project: $line" ;;
             esac
@@ -194,7 +214,11 @@ _verify_named_files() {
         *) break ;;
       esac
     done
-    [ -n "$line" ] && [ "$line" != "." ] || continue
+    if [ -z "$line" ]; then
+      continue
+    elif [ "$line" = "." ]; then
+      jig_die "$root_msg"
+    fi
     out="$out$line
 "
   done <<EOF
@@ -430,21 +454,15 @@ _verify_busy_wait() {
 }
 
 # _verify_env_base — the machine's cache directory, or fail without one.
+_verify_env_base() {
+  jig_machine_cache_dir
+}
+
 # _verify_env_dir <key> — where the record of a shared environment lives, or
 # nothing: the machine's cache directory (the one `jig_machine_latest_file`
 # uses), under `jig/verify-env/`, named for the key made safe as a path
 # component. A container is shared between clones, so no clone's `.ai/runtime`
 # can hold it; without a cache directory there is no place and no record.
-_verify_env_base() {
-  if [ -n "${XDG_CACHE_HOME:-}" ]; then
-    printf '%s\n' "$XDG_CACHE_HOME"
-  elif [ -n "${HOME:-}" ]; then
-    printf '%s\n' "$HOME/.cache"
-  else
-    return 1
-  fi
-}
-
 _verify_env_dir() {
   local base safe
   base=$(_verify_env_base) || return 1
@@ -558,8 +576,8 @@ EOF
 #
 # Under a prefix (`docker exec …`) the checks run in a container, and stopping
 # `jig verify` does not stop them there. Each command a profile runs through
-# jp_exec carries `JIG_VERIFY_RUN=<token>`; the token is `<host pid>-<random>`,
-# made once per run, `<host>-<pid>-<random>`: the host is this machine's name
+# jp_exec carries `JIG_VERIFY_RUN=<token>`; the token is `<host>-<pid>-<random>`,
+# made once per run: the host is this machine's name
 # (letters, digits and dots, so the dashes split the token), because two
 # machines may share one container (a jig on the host and one in a devcontainer,
 # two machines on one DOCKER_HOST) and a pid means something only where it was
