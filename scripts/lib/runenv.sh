@@ -551,7 +551,8 @@ runenv_resolve() {
 # environment per project, where a service name like `laravel.test` repeats
 # across projects without meaning one container.
 runenv_shared_key() {
-  local rest word skip=0
+  local rest word group skip=0
+  local IFS=$' \t\n'
   case "$RUNENV_EXEC" in
     "docker exec "*) rest=${RUNENV_EXEC#docker exec } ;;
     "docker container exec "*) rest=${RUNENV_EXEC#docker container exec } ;;
@@ -570,10 +571,15 @@ runenv_shared_key() {
     case "$word" in
       -e | -u | -w | --env | --user | --workdir | --env-file | --detach-keys) skip=1 ;;
       --* | *=*) ;;
-      # A grouped short flag ending in a value-taking letter (-iu, -iw) takes
-      # the next word as its value.
-      -*[euw]) skip=1 ;;
-      -*) ;;
+      # In a group of short flags the first value-taking letter takes the rest
+      # of the word as its value (-w/var/www, -uwww), or the next word when it
+      # is the group's last letter (-iu, -iw).
+      -*)
+        group=${word#-}
+        case "${group%%[euw]*}" in
+          "${group%?}") skip=1 ;;
+        esac
+        ;;
       *)
         word=${word#\'}
         word=${word#\"}

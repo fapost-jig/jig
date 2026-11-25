@@ -5214,6 +5214,11 @@ test_verify_env_key_skips_options_and_quotes() {
     RUNENV_EXEC="docker exec --user=x --workdir=/y c"; runenv_shared_key
     RUNENV_EXEC="docker exec -iu devilbox php"; runenv_shared_key
     RUNENV_EXEC="docker exec -iw /a php"; runenv_shared_key
+    RUNENV_EXEC="docker exec -w/var/www php"; runenv_shared_key
+    RUNENV_EXEC="docker exec -uwww php"; runenv_shared_key
+    RUNENV_EXEC="docker exec -iuwww -eFOO=bare php"; runenv_shared_key
+    RUNENV_EXEC="docker exec -w/var/app php"; runenv_shared_key
+    IFS=$'"'"'\n'"'"' RUNENV_EXEC="docker exec -i ifs-php env A=b"; IFS=$'"'"'\n'"'"' runenv_shared_key
     RUNENV_EXEC="docker container exec -e A=b --env-file f --privileged d"; runenv_shared_key
     RUNENV_EXEC="docker exec -i -w /x"; runenv_shared_key
     RUNENV_EXEC="docker compose exec -T app"; runenv_shared_key
@@ -5227,13 +5232,17 @@ devilbox-php-1
 c
 php
 php
+php
+php
+php
+php
+ifs-php
 d" "$OUT"
 }
 
 # _verify_ttl_age_stamp <seconds> — a `touch -t` stamp that many seconds ago.
 _verify_ttl_age_stamp() {
-  local at=$(( $(date +%s) - $1 ))
-  date -d "@$at" +%Y%m%d%H%M.%S 2>/dev/null || date -r "$at" +%Y%m%d%H%M.%S
+  date -v-"$1"S +%Y%m%d%H%M.%S 2>/dev/null || date -d "$1 seconds ago" +%Y%m%d%H%M.%S
 }
 
 test_verify_env_waiter_believes_the_holders_ttl_in_the_record() {
