@@ -150,8 +150,12 @@ _run_release_busy() {
     */.ai/runtime/verify) ;;
     *) return 0 ;;
   esac
-  rm -f "$JIG_RUN_BUSY/busy/run" 2>/dev/null || true
-  rmdir "$JIG_RUN_BUSY/busy" 2>/dev/null || true
+  # Only this runner's own record: one a `jig verify` took over after the ttl
+  # ran out carries that run's pid and is its to give back.
+  if [ "$(sed -n 's/^pid: //p' "$JIG_RUN_BUSY/busy/run" 2>/dev/null | head -n 1)" = "$$" ]; then
+    rm -f "$JIG_RUN_BUSY/busy/run" 2>/dev/null || true
+    rmdir "$JIG_RUN_BUSY/busy" 2>/dev/null || true
+  fi
   JIG_RUN_BUSY=""
   return 0
 }
