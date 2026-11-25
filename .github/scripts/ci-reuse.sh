@@ -50,10 +50,11 @@
 # change reaches (adr-20261110-a-pull-request-runs-the-tests-its-change-reaches),
 # never a mix, and a share of neither kind does not count —, no other job
 # skipped but those in CR_PR_SKIPS, which never run on a pull request into
-# main, and at least one Linux or macOS share and at least one Windows Git Bash
-# share passed —
-# a pull request that skipped Windows covers Linux and macOS only, and main
-# releases for Windows too. The name prefix below is the second copy of the
+# main, and at least one Linux, one macOS and one Windows Git Bash share
+# passed — a pull request that skipped Windows, or ran the whole suite on
+# Linux alone (the 2026-11-25 amendment of
+# adr-20261110-a-pull-request-runs-the-tests-its-change-reaches), is no run of
+# every platform, and main tests everything and releases for all of them. The name prefix below is the second copy of the
 # `test-windows` job's name; tests/ci-workflow.t.sh holds the two together,
 # and a rename that slipped past it would only make main test everything.
 #
@@ -127,8 +128,6 @@ CR_PR_SKIPS="release epic-pr red-main"
 # in ci.yml carry the suite, and tests/ci-workflow.t.sh holds them to it.
 CR_ALL_SUFFIX=" (all)"
 CR_SELECTED_SUFFIX=" (selected)"
-# Test shares, by the start of their names: Linux, macOS and Windows.
-CR_TEST_PREFIXES="ubuntu-latest macos-latest"
 
 _cr_line() {
   printf '%s (%s)\n' "$1" "$2"
@@ -182,7 +181,7 @@ _cr_covers() {
 # when it did not or the jobs cannot be read; the reason goes to stdout. On
 # status 0 stdout says what the run ran, `all` or `selected`.
 _cr_full() {
-  local jobs line conclusion name knowledge="" windows=0 unix=0 p q nall=0 nsel=0
+  local jobs line conclusion name knowledge="" windows=0 linux=0 macos=0 p nall=0 nsel=0
   jobs=$(gh api -X GET "repos/$CR_SLUG/actions/runs/$1/jobs" -f per_page=100 \
     --jq '.jobs[] | "\(.conclusion) \(.name)"' 2>/dev/null) || {
     echo "its jobs cannot be read"
@@ -204,11 +203,8 @@ _cr_full() {
     p=""
     case "$name" in
       "$CR_WINDOWS_PREFIX"*) p=windows ;;
-      *)
-        for q in $CR_TEST_PREFIXES; do
-          case "$name" in "$q "*) p=unix ;; esac
-        done
-        ;;
+      "ubuntu-latest "*) p=linux ;;
+      "macos-latest "*) p=macos ;;
     esac
     [ -n "$p" ] || continue
     case "$name" in
@@ -222,7 +218,11 @@ _cr_full() {
         ;;
       *) echo "share '$name' did not run the whole suite"; return 1 ;;
     esac
-    if [ "$p" = windows ]; then windows=$((windows + 1)); else unix=$((unix + 1)); fi
+    case "$p" in
+      windows) windows=$((windows + 1)) ;;
+      linux) linux=$((linux + 1)) ;;
+      macos) macos=$((macos + 1)) ;;
+    esac
   done <<EOF
 $jobs
 EOF
@@ -230,8 +230,12 @@ EOF
     echo "its scope was light"
     return 1
   fi
-  if [ "$unix" -eq 0 ]; then
-    echo "it ran no Linux or macOS share of the suite"
+  if [ "$linux" -eq 0 ]; then
+    echo "it ran no Linux share of the suite"
+    return 1
+  fi
+  if [ "$macos" -eq 0 ]; then
+    echo "it ran no macOS share of the suite"
     return 1
   fi
   if [ "$windows" -eq 0 ]; then

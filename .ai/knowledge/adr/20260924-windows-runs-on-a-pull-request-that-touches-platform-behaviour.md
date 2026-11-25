@@ -7,10 +7,10 @@ domains:
   - verify
 paths:
   - .github/workflows/ci.yml
-  - .github/scripts/ci-windows-scope.sh
-  - tests/ci-windows-scope.t.sh
   - .github/scripts/main-green-check.sh
-summary: "Why the full Windows suite runs on a pull request whose diff touches line endings, MSYS paths, directory links, a Windows-only file, a CI workflow or JIG_VERSION, and passes over the rest: the signal, the numbers behind it, why it matches no literal carriage return, and why a release also waits for a green main."
+  - .github/scripts/ci-windows.sh
+  - tests/ci-windows.t.sh
+summary: "Why the Windows suite ran on a pull request whose diff touched line endings, MSYS paths, directory links, a Windows-only file, a CI workflow or JIG_VERSION, and why since 2026-11-25 no pull request or epic push runs it: main, the nightly run and a dispatch run Windows, and a release waits for a whole main run."
 reviewed_at: 2026-11-18
 ---
 # Windows runs on a pull request whose diff touches platform behaviour
@@ -228,3 +228,18 @@ already skip the tests those two guard by capability (`skip_unless_symlinks`,
 > it is given the branch and refuses `windows=false` on every run but a pull request and a push
 > to `epic/**`, so a `scope` that skipped Windows on `main`, the nightly run or a dispatch
 > fails the gate instead of reading as decided.
+
+> **Amendment (2026-11-25): a pull request never runs the Windows shards.** The signal above is
+> gone, with `ci-windows-scope.sh` and its tests. `test-windows` runs on a push to `main`, the
+> nightly run and a manual dispatch, and on nothing else: a pull request and a push to `epic/**`
+> skip it, whatever the diff touches and a change to `JIG_VERSION` included
+> (`.github/scripts/ci-windows.sh` decides, from the event and the branch; `smoke-windows` is
+> unchanged). Why: #647 waited about 45 minutes for ten Windows shards and a full suite that the
+> push to `main` then repeated, because `ci-reuse.sh` reuses a pull request's run only if it ran
+> Windows too, and the signal fired on about 29% of pull requests, on this one for a fix already
+> proved by a unit test on Linux. What still holds: `main`, the nightly run and a dispatch run every
+> platform, and `release` tags only on a whole run of `main`, so every release is tested on Windows
+> before its tag. The accepted cost is the one this ADR already took for every pull request the
+> signal passed over, now for all of them: a break only Windows shows reaches `main` and is
+> reported by `red-main`, and the next pull request repairs it. A release pull request is no
+> exception; the whole run on `main` before the tag is its Windows proof.

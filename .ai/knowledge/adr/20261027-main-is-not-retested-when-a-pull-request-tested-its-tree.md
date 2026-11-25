@@ -131,3 +131,11 @@ after the fact, which tree a pull-request run tested.
 > **Amendment (2026-11-19): the nightly is light only while no `red-main` issue is open.** A green push run may have run only selected tests, or been light, so it says nothing about what broke `main`, and the `red-main` issue is closed only by a green run of the whole suite. Without this rule a revert to a tree an earlier nightly tested, followed by a green selected push, passed both conditions: the nightly went light every night and the issue stayed open until `main` moved. Now the nightly asks for open `red-main` issues and runs everything while one is open; an unreadable query keeps it full, as every unmeasurable answer does.
 
 > **Amendment (2026-11-18): a pull request that was behind `main` narrows instead of retesting everything.** When no run tested the pushed tree exactly, `ci-reuse.sh` may answer `narrow <commit>`: a whole-suite pull-request run recorded the merge it tested (`tested` in its `plan` artifact), the record is reproduced by `git merge-tree`, and `main` then tests only what differs from that tree. `scope` outputs `whole` and `release` reads it in place of `suite == all` (adr-20261118-main-tests-what-changed-since-a-full-pull-request-run).
+
+> **Amendment (2026-11-25): inert while no pull request runs Windows.** Since the 2026-11-25
+> amendments of adr-20260924-windows-runs-on-a-pull-request-that-touches-platform-behaviour and
+> adr-20261110-a-pull-request-runs-the-tests-its-change-reaches, a pull request runs no Windows
+> shards and a full-scope one runs Linux alone. `ci-reuse.sh` counts a run only when it passed a
+> Linux, a macOS and a Windows share, so it always answers `test`: every push to `main` tests what
+> its own scope says, on every platform, and the tag waits for that run. The mechanism is kept, not
+> removed, for the day a pull request runs every platform again.

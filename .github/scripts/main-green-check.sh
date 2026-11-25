@@ -22,8 +22,8 @@
 # push, nightly or manual alike. A run still in progress is not waited for and
 # does not refuse: its answer is unknown, a refusal on it would clear only by
 # someone re-running this job by hand, and the code this pull request carries
-# is tested by its own run, Windows included (ci-windows-scope.sh runs the
-# Windows shards on any change to JIG_VERSION). A light run counts as a run: on
+# is tested by its own run (on Linux alone; main tests the release on every
+# platform before it is tagged). A light run counts as a run: on
 # a push, ci-scope.sh measures from the last successful run, so a light run
 # can only follow a green one.
 #

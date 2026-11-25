@@ -116,3 +116,11 @@ and the pull request's head `P`. GitHub forgets `B` and `refs/pull/N/merge` afte
   merge fail and the answer `test`.
 - Reverting is the revert of the pull request: only this repository's CI is affected, and the worst
   outcome is an unverified combination on `main` until the nightly run.
+
+> **Amendment (2026-11-25): inert while no pull request runs Windows.** Since the 2026-11-25
+> amendments of adr-20260924-windows-runs-on-a-pull-request-that-touches-platform-behaviour and
+> adr-20261110-a-pull-request-runs-the-tests-its-change-reaches, a pull request runs no Windows
+> shards and a full-scope one runs Linux alone. `ci-reuse.sh` counts a run only when it passed a
+> Linux, a macOS and a Windows share, so it always answers `test`: every push to `main` tests what
+> its own scope says, on every platform, and the tag waits for that run. The mechanism is kept, not
+> removed, for the day a pull request runs every platform again.

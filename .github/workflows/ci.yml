@@ -238,28 +238,15 @@ jobs:
           if [ -s "$plan/filters.narrow" ]; then mv "$plan/filters.narrow" "$plan/filters"; else rm -f "$plan/filters.narrow"; fi
           printf '%s\n' "$outputs" | grep -v '^filters=' >> "$GITHUB_OUTPUT"
 
-          # Whether the Windows shards run, per
+          # Whether the Windows shards run, per the 2026-11-25 amendment of
           # adr-20260924-windows-runs-on-a-pull-request-that-touches-platform-behaviour.
-          # A pull request asks, and so does a push to an epic branch, with
-          # the base the scope was measured from: every change reaches an epic
-          # as a push (a merged phase, a sync with main), and that push would
-          # otherwise run ten Windows shares each time (the concurrent-job
-          # limit of the organisation this repository lives in is small on
-          # the Free plan). Main, the nightly run
-          # and a manual dispatch run every platform whatever changed. The
-          # event check lives here rather than on the job, which reads one
-          # output.
-          case "$EVENT:$BRANCH" in
-            pull_request:*) win=$(.github/scripts/ci-windows-scope.sh "$pr_base") ;;
-            push:epic/*)
-              if [ -n "$push_empty" ]; then
-                win="skip (epic holds nothing beyond its base: $push_empty)"
-              else
-                win=$(.github/scripts/ci-windows-scope.sh "$push_base")
-              fi
-              ;;
-            *) win="windows ($EVENT runs every platform)" ;;
-          esac
+          # A pull request and a push to an epic branch never run them (they
+          # wait ~45 minutes, and main repeats the work); main, the nightly
+          # run and a manual dispatch run every platform whatever changed.
+          # The decision is .github/scripts/ci-windows.sh, which has tests;
+          # the job reads one output.
+          win=$(.github/scripts/ci-windows.sh "$EVENT" "$BRANCH") \
+            || win="windows (ci-windows.sh failed; testing everything)"
           echo "windows: $win"
           case "$win" in
             skip*) echo "windows=false" >> "$GITHUB_OUTPUT" ;;
@@ -282,6 +269,7 @@ jobs:
           REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
           SUITE: ${{ steps.scope.outputs.suite }}
+          EVENT: ${{ github.event_name }}
         run: |
           plan="$RUNNER_TEMP/plan"
           mkdir -p "$plan/durations"
@@ -310,7 +298,9 @@ jobs:
             done
           fi
           case "$SUITE" in
-            selected | all) .github/scripts/ci-matrix.sh "$SUITE" "$plan/filters" "$plan/durations" >> "$GITHUB_OUTPUT" ;;
+            # The event decides whether a pull request's whole suite leaves
+            # macOS out (ci-matrix.sh has the rule and its tests).
+            selected | all) .github/scripts/ci-matrix.sh "$SUITE" "$plan/filters" "$plan/durations" "$EVENT" >> "$GITHUB_OUTPUT" ;;
             *)
               echo 'matrix_unix={"include":[{"os":"ubuntu-latest","shard":"1/1"}]}' >> "$GITHUB_OUTPUT"
               echo 'matrix_windows={"shard":["1/1"]}' >> "$GITHUB_OUTPUT"
@@ -480,15 +470,12 @@ jobs:
   # names its share as <i>/<n>; ci-matrix.sh's tests hold the list to
   # 1/n .. n/n.
   #
-  # It runs on main (a release waits for every share), by hand, nightly, and on
-  # a pull request or an epic-branch push whose diff touches something Windows decides differently —
-  # line endings, MSYS path translation, directory links, a file that exists
-  # only for Windows, a change that names the platform itself, or a release
-  # (a change to JIG_VERSION), so a version is tested here before it merges. That
-  # decision is .github/scripts/ci-windows-scope.sh, which has tests and a
-  # header explaining the rules; the `scope` job runs it and this job reads
-  # one output. Every other pull request is covered by smoke-windows below,
-  # as every pull request was before.
+  # It runs on main (a release waits for every share), by hand and nightly,
+  # and never on a pull request or an epic-branch push: ten shares held a pull
+  # request for ~45 minutes, and main repeats them after the merge. That
+  # decision is .github/scripts/ci-windows.sh, which has tests; the `scope`
+  # job runs it and this job reads one output. A pull request still gets
+  # smoke-windows below.
   test-windows:
     name: windows-latest (Git Bash) ${{ matrix.shard }} (${{ needs.scope.outputs.suite }})
     needs: scope

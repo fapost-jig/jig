@@ -20,10 +20,21 @@
 # The same table then partitions the tests (tests/run.sh JIG_TEST_DURATIONS),
 # so the shares come out even; the count only has to be right on average.
 #
-# Usage: ci-matrix.sh <suite> <filters-file> <durations-dir>
+# A pull request that runs the whole suite runs it on Linux alone: macOS (and
+# Windows, whose own rule is .github/scripts/ci-windows.sh) is left to main,
+# which tests the whole suite everywhere before a release is tagged
+# (the 2026-11-25 amendment of
+# adr-20261110-a-pull-request-runs-the-tests-its-change-reaches). The rule is
+# here and not in the workflow so that it has tests; selected tests keep both
+# Linux and macOS.
+#
+# Usage: ci-matrix.sh <suite> <filters-file> <durations-dir> [<event>]
 #   <suite>          `all` or `selected`
 #   <filters-file>   tests/run.sh filters, one per line (read when selected)
 #   <durations-dir>  holds linux.tsv, macos.tsv, windows.tsv; any may be absent
+#   <event>          the workflow's event name; `pull_request` with suite `all`
+#                    leaves macOS out of matrix_unix. Omitted, or any other
+#                    event, keeps every platform.
 #
 # Prints two lines for $GITHUB_OUTPUT:
 #   matrix_unix={"include":[{"os":"ubuntu-latest","shard":"1/2"},...]}
@@ -133,8 +144,8 @@ _cm_list() {
 }
 
 main() {
-  local suite="${1:-}" filters="${2:-}" dir="${3:-}" tests linux macos windows
-  [ $# -eq 3 ] || _cm_die "usage: ci-matrix.sh <suite> <filters-file> <durations-dir>"
+  local suite="${1:-}" filters="${2:-}" dir="${3:-}" event="${4:-}" tests linux macos windows unix
+  { [ $# -eq 3 ] || [ $# -eq 4 ]; } || _cm_die "usage: ci-matrix.sh <suite> <filters-file> <durations-dir> [<event>]"
   case "$suite" in
     all) ;;
     selected) [ -s "$filters" ] || _cm_die "a selected suite needs a non-empty filters file" ;;
@@ -153,8 +164,13 @@ main() {
   macos=$(_cm_shares "$tests" "$dir/macos.tsv" "$CM_AVG_MACOS" "$CM_CPUS_MACOS" "$CM_CAP_MACOS" macos)
   windows=$(_cm_shares "$tests" "$dir/windows.tsv" "$CM_AVG_WINDOWS" "$CM_CPUS_WINDOWS" "$CM_CAP_WINDOWS" windows)
 
-  printf 'matrix_unix={"include":[%s,%s]}\n' \
-    "$(_cm_list "$linux" ubuntu-latest)" "$(_cm_list "$macos" macos-latest)"
+  unix=$(_cm_list "$linux" ubuntu-latest)
+  if [ "$event:$suite" = pull_request:all ]; then
+    echo 'ci-matrix: a pull request runs the whole suite on Linux only' >&2
+  else
+    unix="$unix,$(_cm_list "$macos" macos-latest)"
+  fi
+  printf 'matrix_unix={"include":[%s]}\n' "$unix"
   printf 'matrix_windows={"shard":[%s]}\n' "$(_cm_list "$windows" -)"
 }
 

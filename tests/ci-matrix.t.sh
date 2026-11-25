@@ -99,6 +99,41 @@ test_ci_matrix_refuses_what_it_cannot_plan() {
   assert_eq 2 "$RC"
   cm_run all /dev/null
   assert_eq 2 "$RC"
+  cm_run all /dev/null durations pull_request extra
+  assert_eq 2 "$RC"
+}
+
+# The 2026-11-25 amendment of adr-20261110: a pull request that runs the whole
+# suite runs it on Linux alone; selected tests, and every other event, keep
+# macOS.
+test_ci_matrix_a_pull_request_runs_the_whole_suite_on_linux_only() {
+  cm_suite 4000
+  cm_run all /dev/null durations pull_request
+  assert_eq 0 "$RC"
+  assert_eq 4 "$(cm_count ubuntu-latest)"
+  assert_eq 0 "$(cm_count macos-latest)"
+  assert_contains "$OUT" 'matrix_unix={"include":[{"os":"ubuntu-latest","shard":"1/4"}'
+  assert_not_contains "$OUT" macos-latest
+  # Windows is not this script's to drop: the list is still printed.
+  assert_eq 10 "$(cm_count windows)"
+}
+
+test_ci_matrix_a_pull_request_keeps_macos_for_selected_tests() {
+  cm_suite 3
+  printf 'b::\n' > filters
+  cm_run selected filters durations pull_request
+  assert_eq 0 "$RC"
+  assert_contains "$OUT" 'matrix_unix={"include":[{"os":"ubuntu-latest","shard":"1/1"},{"os":"macos-latest","shard":"1/1"}]}'
+}
+
+test_ci_matrix_other_events_keep_macos_for_the_whole_suite() {
+  local ev
+  cm_suite 4000
+  for ev in push schedule workflow_dispatch; do
+    cm_run all /dev/null durations "$ev"
+    assert_eq 0 "$RC"
+    assert_eq 4 "$(cm_count macos-latest)"
+  done
 }
 
 test_ci_matrix_reads_test_names_as_the_runner_discovers_them() {
