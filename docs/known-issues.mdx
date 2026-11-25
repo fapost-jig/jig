@@ -23,21 +23,6 @@ them, see [What's next](/roadmap).
 
 {/* Each entry names the Jig task that closes it. The entry is removed by that task's own pull request, the one that merges the fix. Rule: .ai/knowledge/conventions/documentation.md */}
 
-{/* Closed by task verify-env-record-ttl-findings: removed once a value attached to a docker exec option is read as that option's value, whatever its last letter. */}
-### A shared container is not waited for when an attached `docker exec` option value ends in e, u or w
-
-**What you see.** With a `run.exec` such as `docker exec -w/var/www php` or `docker exec -uwww php`
-— an option and its value written as one word, the value ending in `e`, `u` or `w` — two projects' `jig verify` runs in the same
-container start at once instead of one waiting for the other. Jig reads such a value as more
-grouped flags and takes the next word, the container's name, as their value, so it finds no
-container to share.
-
-**What it costs.** Two test suites compete for one container's memory and test database, as they
-did before 0.51.0: slower runs, or failures that are not yours.
-
-**What to do instead.** Write the value as its own word: `docker exec -w /var/www php`,
-`docker exec -u www php`, or `--workdir=/var/www`.
-
 {/* Closed by task staging-drift-report-findings: removed once a squash promotion is told from drift. */}
 ### A task promoted by a squash merge reads as staging work nobody owns
 
