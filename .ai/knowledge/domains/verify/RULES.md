@@ -143,6 +143,13 @@ the global `RULES.md` (ADR-0013). What follows binds changes inside this domain.
   go ahead. The rule this replaces — "avoid simultaneous duplicate full runs" — was obeyed by
   every one of the eight agents that between them produced load average 364; it was written for
   one actor and said nothing about a population.
+  When the checks run through a `docker exec … <container>` prefix (`runenv_shared_key`: Devilbox,
+  or a `run.exec` of that form), the run also claims a record per container in the machine cache,
+  `<cache>/jig/verify-env/<key>/busy/run`, by the same mechanics, so two clones sharing one
+  container wait for each other. The clone record is always taken first, then the container's;
+  `JIG_VERIFY_ENV_HELD` keeps a nested run from waiting for its own. Compose, Sail, DDEV and the
+  host get no key: their container belongs to one project (amendment 2026-11-25 of
+  adr-20260925-one-test-run-per-clone-and-a-dead-run-is-not-a-pass).
 - **A profile answers `pass` only for a check that could have come out false on this
   project.** A test that is true wherever the profile can run at all is not a check — it is
   an entry in a tally, and a tally entry is indistinguishable from evidence to everything

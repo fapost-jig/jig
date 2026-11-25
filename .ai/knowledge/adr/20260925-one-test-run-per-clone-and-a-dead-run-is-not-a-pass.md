@@ -337,3 +337,21 @@ produces such artefacts; the second makes legible the part the machine can actua
 - The mechanism is scoped to one clone. Two clones of the same repository on one machine
   still compete; that is the boundary `jig_config_clone_root` can see, and naming it is
   better than pretending the record covers the machine.
+
+> **Amendment (2026-11-25): one record per shared container too.** "The mechanism is scoped to one
+> clone" left two projects whose checks run in one container (ShipRelay's Warehouse and Console in
+> one Devilbox `php` container) running their suites at once in it, fighting for memory and the
+> database; their agents answered with `ps` rituals inside the container. When the checks run
+> through a `docker exec … <container>` prefix (`runenv_shared_key`: the last word of a
+> `docker exec` or `docker container exec` prefix, from Devilbox or `run.exec`), `jig verify` also
+> claims `<cache>/jig/verify-env/<key>/busy/run`, `<cache>` being `XDG_CACHE_HOME` or `~/.cache`,
+> by the same exclusive create, holder, ttl and give-up as the clone record. The clone record is
+> always taken first, then the container's, so two plain runs cannot deadlock;
+> `JIG_VERIFY_ENV_HELD` keeps a nested run from waiting for its own. Compose, Sail, DDEV and the host
+> get no key: a compose service name (`laravel.test`) repeats across projects without being one
+> container. The record lives outside `.ai/` because no clone can hold it for another, which is the
+> home this ADR once rejected: the deletion is therefore named as an exception in `RULES.md` —
+> one named file and an `rmdir`, only at the exact path `_verify_env_dir` builds, on release and on
+> taking over a dead or expired record. Without a cache directory there is no record and the run
+> goes on. Known limit: a record's expiry is judged by the waiting run's `verify.busy_ttl`, so a
+> holder whose suite outlives the waiter's ttl can be run over.
