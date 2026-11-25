@@ -554,6 +554,88 @@ EOF
   printf '%s\n' "$n"
 }
 
+# --- processes a run leaves in the environment --------------------------------
+#
+# Under a prefix (`docker exec …`) the checks run in a container, and stopping
+# `jig verify` does not stop them there. Each command a profile runs through
+# jp_exec carries `JIG_VERIFY_RUN=<token>`; the token is `<host pid>-<random>`,
+# made once per run, `<host>-<pid>-<random>`: the host is this machine's name
+# (letters, digits and dots, so the dashes split the token), because two
+# machines may share one container (a jig on the host and one in a devcontainer,
+# two machines on one DOCKER_HOST) and a pid means something only where it was
+# taken. A run that is interrupted ends its own token's processes
+# on the way out; a run killed with SIGKILL cannot, so the next run ends the
+# processes of every token whose host pid no longer answers on this machine.
+# Never by name, pattern or user, and never a live run's token
+# (adr-20261125-verify-ends-the-processes-it-started). Nothing here may fail
+# `jig verify` or change its exit code: what cannot be asked is said in one line
+# and the run goes on (runenv.sh, _runenv_sweep_v).
+
+_VERIFY_RUN_TOKEN=""
+_VERIFY_RUN_HOST=""
+_VERIFY_LOOP_DONE=0
+
+# _verify_run_host_v <var> — this machine's name for a run token: `uname -n`
+# (else `hostname`) kept to letters, digits and dots. JIG_VERIFY_RUN_HOST
+# replaces it when set: a test seam only (tests/run.sh gives every test a name
+# of its own), never documented for users.
+_verify_run_host_v() {
+  local __h="${JIG_VERIFY_RUN_HOST:-}"
+  [ -n "$__h" ] || __h=$(uname -n 2>/dev/null || hostname 2>/dev/null || true)
+  __h=$(printf '%s' "$__h" | tr -cd 'A-Za-z0-9.')
+  [ -n "$__h" ] || __h=host
+  printf -v "$1" '%s' "$__h"
+}
+
+# _verify_end_own_run — the EXIT part: end this run's processes in the
+# environment unless every profile ran to the end. Script-global state, because
+# the EXIT trap runs after cmd_verify returned.
+_verify_end_own_run() {
+  local n
+  [ -n "${_VERIFY_RUN_TOKEN:-}" ] || return 0
+  if [ "${_VERIFY_LOOP_DONE:-0}" = 1 ]; then
+    _VERIFY_RUN_TOKEN=""
+    return 0
+  fi
+  n=0
+  runenv_end_token_v n "$_VERIFY_RUN_TOKEN" || n=0
+  _VERIFY_RUN_TOKEN=""
+  if [ "$n" -gt 0 ]; then
+    printf 'verify: ended %s processes this run left in %s\n' "$n" "$RUNENV_WHERE"
+  fi
+  return 0
+}
+
+# _verify_end_dead_runs — the start part: end the processes of every run token
+# in the environment whose host process is gone from this machine. Only tokens
+# made on this machine are judged: a pid of another host says nothing here, so
+# its processes are never ended. A token of this run, or of a host pid that still answers (`kill -0`, and `ps -p` for a
+# process of another user, which `kill -0` refuses), is left alone.
+_verify_end_dead_runs() {
+  local tokens tok pid n
+  tokens=""
+  runenv_list_tokens_v tokens || return 0
+  while IFS= read -r tok; do
+    [ -n "$tok" ] || continue
+    [ "$tok" != "$_VERIFY_RUN_TOKEN" ] || continue
+    [ "${tok%%-*}" = "$_VERIFY_RUN_HOST" ] || continue
+    pid=${tok#*-}
+    pid=${pid%%-*}
+    case "$pid" in '' | *[!0-9]*) continue ;; esac
+    if kill -0 "$pid" 2>/dev/null || ps -p "$pid" >/dev/null 2>&1; then
+      continue
+    fi
+    n=0
+    runenv_end_token_v n "$tok" || n=0
+    if [ "$n" -gt 0 ]; then
+      printf 'verify: ended %s processes a dead run (pid %s) left in %s\n' "$n" "$pid" "$RUNENV_WHERE"
+    fi
+  done <<EOF_TOKENS
+$tokens
+EOF_TOKENS
+  return 0
+}
+
 # _verify_cleanup — the one EXIT trap: temporary files and the run record. Its
 # variables are script-global, never `local`, because the trap runs after the
 # function that set them has returned (conventions/shell.md).
@@ -573,6 +655,12 @@ _verify_cleanup() {
     _verify_busy_release "$JIG_VERIFY_ENV"
     JIG_VERIFY_ENV=""
   fi
+  # Last, and after the records are given back: a run that did not reach the
+  # end of its profiles was stopped (a signal, a die), and what it started in
+  # the environment is still running there. The signal supervisor allows this
+  # cleanup about 5 s before it kills it, so nothing a kill could cut short is
+  # left to do after the sweep.
+  _verify_end_own_run
   return 0
 }
 
@@ -1234,7 +1322,9 @@ EOF
   # was checked: exit 3, before anyone waits for the clone.
   # shellcheck source=lib/runenv.sh
   . "$JIG_LIB/runenv.sh"
-  unset JIG_RUN_EXEC
+  unset JIG_RUN_EXEC JIG_VERIFY_RUN_TOKEN
+  _VERIFY_RUN_TOKEN=""
+  _VERIFY_LOOP_DONE=0
   runenv_resolve
   if [ -n "$RUNENV_REFUSAL" ]; then
     printf 'verify: refused: %s\n' "$RUNENV_REFUSAL"
@@ -1267,6 +1357,14 @@ EOF
   # wait for the clone only to be told their arguments were wrong.
   if [ "$explain" = 0 ]; then
     _verify_busy_acquire
+    # The run's token, and the leftovers of runs that died: only once the
+    # records are ours, so a live run of another clone is never mistaken for a
+    # dead one while it is being waited for.
+    if [ -n "$RUNENV_EXEC" ]; then
+      _verify_run_host_v _VERIFY_RUN_HOST
+      _VERIFY_RUN_TOKEN="$_VERIFY_RUN_HOST-$$-${RANDOM}${RANDOM}"
+      _verify_end_dead_runs
+    fi
   else
     printf 'verify: plan only — no checks have run\n'
   fi
@@ -1401,8 +1499,16 @@ EOF
     if [ -n "$RUNENV_EXEC" ]; then
       JIG_RUN_EXEC="$RUNENV_EXEC"
       export JIG_RUN_EXEC
+      # Beside the prefix and nowhere else: a profile that never declared
+      # `environment` never gets either (jp_exec reads it).
+      if [ -n "$_VERIFY_RUN_TOKEN" ]; then
+        JIG_VERIFY_RUN_TOKEN="$_VERIFY_RUN_TOKEN"
+        export JIG_VERIFY_RUN_TOKEN
+      else
+        unset JIG_VERIFY_RUN_TOKEN
+      fi
     else
-      unset JIG_RUN_EXEC
+      unset JIG_RUN_EXEC JIG_VERIFY_RUN_TOKEN
     fi
     # Set for a profile whose check another covers, cleared for every other:
     # a caller's own JIG_VERIFY_COVERED must never stand a check down.
@@ -1667,6 +1773,9 @@ EOF
         ;;
     esac
   done
+  # Every profile ran to its end: nothing of this run is left to end.
+  _VERIFY_LOOP_DONE=1
+  unset JIG_VERIFY_RUN_TOKEN
 
   if [ "$explain" = 1 ]; then
     printf 'verify: %d profiles explained, %d unknown, %d error; no checks ran\n' \

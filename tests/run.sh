@@ -311,6 +311,12 @@ enter_test_env() {
   cd "$1" || exit 1
   export HOME="$1"
   export JIG_TEST_TMP="$1"
+  # No test ever uses this machine's name in a run token: the dead-run sweep of
+  # one test would end the planted or live processes of another that runs beside
+  # it. A name of its own per test keeps every sweep inside its own test
+  # (scripts/lib/verify.sh, _verify_run_host reads it).
+  JIG_VERIFY_RUN_HOST="t$(printf '%s' "$1" | cksum | tr -d ' ')"
+  export JIG_VERIFY_RUN_HOST
   # A test's `mktemp "${TMPDIR:-/tmp}/..."` — and jig's own — lands beside the test's
   # directory, not in the machine's $TMPDIR: hundreds of call sites in tests/ made a
   # directory there and never removed it (4600+ `jig-*` directories at once, each a

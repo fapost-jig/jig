@@ -552,8 +552,10 @@ test_runenv_verify_runs_laravel_through_sail() {
   assert_contains "$OUT" "verify: checks run in docker compose exec -T -u sail -w /var/www/html laravel.test (Laravel Sail, detected)"
   assert_contains "$OUT" "verify: php:tests: command from laravel"
   assert_contains "$OUT" "php: tests (phpunit): pass (PHPUnit 11.0.0)"
-  assert_contains "$(cat docker.log)" "compose exec -T -u sail -w /var/www/html laravel.test php artisan test"
-  assert_contains "$(cat docker.log)" "compose exec -T -u sail -w /var/www/html laravel.test vendor/bin/phpunit --version"
+  # Each command carries the run's token (adr-20261125-verify-ends-the-processes-it-started).
+  assert_contains "$(cat docker.log)" "compose exec -T -u sail -w /var/www/html laravel.test env JIG_VERIFY_RUN="
+  assert_contains "$(cat docker.log)" " php artisan test"
+  assert_contains "$(cat docker.log)" " vendor/bin/phpunit --version"
 }
 
 test_runenv_verify_refuses_with_exit_3_and_runs_nothing() {

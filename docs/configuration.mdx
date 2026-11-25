@@ -537,6 +537,10 @@ jig config set run.exec "docker compose exec -T -w /app app" --local
 jig config set run.exec host --local   # this machine is right after all
 ```
 
+When a run in a container is stopped, Jig also ends the processes it started there, found by a mark
+only that run put on them, so nothing keeps running after `jig verify` is gone; see
+[Troubleshooting](/troubleshooting).
+
 Before the first check, Jig asks the environment for one thing: is it running, and does it see
 this checkout? A container that is stopped is a refusal with the command that starts it
 (`./vendor/bin/sail up -d`, `docker compose up -d`, `ddev start`, `lando start`, `devcontainer up`;
