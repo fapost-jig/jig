@@ -1,7 +1,7 @@
 # Roadmap — Stack migration
 
 Destination: Jig 1.0 runs with no bash except the installer and the compatibility path for a user's
-own `verify.sh`, its full test suite takes 10 minutes or less on Windows, and a project on 0.48.x
+own `verify.sh`, its full test suite takes 10 minutes or less on Windows, and a project on 0.51.2
 reaches it through `jig upgrade` with no manual steps, open tasks included.
 
 Epic: epic/stack-migration
@@ -64,8 +64,8 @@ Goal: the new code is Jig. Done when: no bash is left outside the installer and 
 path, the suite runs on Windows in 10 minutes or less, and the owner has upgraded two projects.
 
 - [ ] The launcher and the files in a project are the new code, and the bash code and its tests are gone (after: Phase 5 — every command must be ported first)
-- [ ] The installer places the runtime, the machine-wide install is in versioned directories switched atomically, and rollback to 0.48 is documented
-- [ ] `jig upgrade` to 1.0 lists the branches left on 0.48, and `jig upgrade --branches` brings the open ones over
+- [ ] The installer places the runtime, the machine-wide install is in versioned directories switched atomically, and rollback to 0.51.2 is documented
+- [ ] `jig upgrade` to 1.0 lists the branches left on 0.51.2, and `jig upgrade --branches` brings the open ones over
 - [ ] A pull request to Jig UI's spec says what 1.0 changes for it, with the shape of the hosted service from `research.md`
 - [ ] The owner's trial on two projects, one on the staging flow with open tasks (after: the three items above — it tries the finished cut-over)
 

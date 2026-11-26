@@ -53,7 +53,7 @@ The owner's colleagues, 2026-11-23:
   every command.
 - What is true when the work is done: no bash is left in Jig except the installer and the
   compatibility path for a user's own `verify.sh`; the full test suite runs on Windows in 10 minutes
-  or less; a project on 0.48.x reaches 1.0 through `jig upgrade` with no manual steps, open tasks
+  or less; a project on 0.51.2 reaches 1.0 through `jig upgrade` with no manual steps, open tasks
   and the staging flow included.
 
 ## Stress test
@@ -66,7 +66,7 @@ The owner's colleagues, 2026-11-23:
   - Parity against recordings holds only if the recordings carry what the bash tests actually
     assert: the logs of the `gh`/`glab`/`git` stubs (stub_gh is used 164 times, stub_tool 107,
     stub_glab 27), and a controllable clock — there is none today.
-  - "No manual steps" holds only if 1.0 writes nothing 0.48 cannot read.
+  - "No manual steps" holds only if 1.0 writes nothing 0.51.2 cannot read.
 - The main trade-off: the whole stack is paid for once, with main frozen, against a stack that keeps
   costing time on every task and every CI run; nothing reaches users until the last command is
   ported.
@@ -100,7 +100,7 @@ The owner's colleagues, 2026-11-23:
 ## Scope and non-goals
 
 - In scope: every command of `jig`, its hooks, the 13 stock profiles, the test suite, the
-  installer's runtime step, `jig upgrade` from 0.48.x to 1.0 including open branches, the docs for
+  installer's runtime step, `jig upgrade` from 0.51.2 to 1.0 including open branches, the docs for
   rollback.
 - Not doing: changing the formats of `state`, `config.yaml`, the journal or `profile.yaml` (a spec
   of its own after 1.0, perhaps onto SQLite); an MCP server; the hosted or self-hosted service; any
@@ -149,12 +149,14 @@ The owner's colleagues, 2026-11-23:
   `parseDocument` keeping comments and giving line numbers. Rejected: a hand-written reader.
 - Errors carry a closed code (`dirty-tree`, `review-stale`, …) that is stable in `--json`; skills
   and Jig UI match the code, not the text.
-- Formats do not change in 1.0, `profile.yaml` included; the invariant "1.0 writes only what 0.48
+- Formats do not change in 1.0, `profile.yaml` included; the invariant "1.0 writes only what 0.51.2
   reads" has a test. Rejected: changing the profile format with the rewrite, because edited
   `profile.yaml` files would break again, as they did in 0.48.0.
-- Rollback: `jig self-update --version 0.48.x` works because formats are kept, and the docs say so;
+- Rollback: `jig self-update --version 0.51.2` works because formats are kept, and the docs say so;
   the machine-wide install is laid out in versioned directories and switched atomically, so a
   process started on one version finishes on it.
+- Baseline: 0.51.2, the last bash release, is the version 1.0 stays compatible with, upgrades
+  from and rolls back to; main is frozen, so it stays the last.
 - Profiles: the 13 stock profiles become modules of the core, `profile.yaml` stays their data, and
   `jig verify` no longer starts bash on Windows; a user's own profile may supply a module; a user's
   `verify.sh` with `profile.sh` keeps working in 1.0 as a compatibility path. Rejected: profiles
@@ -180,10 +182,10 @@ The owner's colleagues, 2026-11-23:
   `git` counted, and a hook starts no noticeably slower on macOS, the work stops and is reconsidered
   before more is ported.
 - Cut-over with open work: `jig upgrade` to 1.0 refuses nothing; it lists the branches and
-  worktrees still on 0.48 and those that may conflict. `jig upgrade --branches`, run by a person,
+  worktrees still on 0.51.2 and those that may conflict. `jig upgrade --branches`, run by a person,
   merges the base into each open task branch and the staging branch, and skips — naming why — a
   branch with work running in its worktree (bash reads a script incrementally, `upgrade.sh`), with
-  uncommitted changes, or with a conflict. Skipped branches finish on 0.48 under the invariant
+  uncommitted changes, or with a conflict. Skipped branches finish on 0.51.2 under the invariant
   above. Rejected: refusing the upgrade while tasks are open — in a large project that means never.
 - Release: none until every command is ported and the owner has tried 1.0 on two projects, one of
   them on the staging flow with open tasks; the version is 1.0, released by `jig-release` apart from
