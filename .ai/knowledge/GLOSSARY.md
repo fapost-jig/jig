@@ -130,7 +130,7 @@ Only a Forge can produce `open` or `closed`; git ancestry produces `merged` or `
 ## Forge
 
 The hosting service that owns pull/merge requests — GitHub via `gh`, GitLab via `glab`.
-Optional (ADR-0002): when absent, unauthenticated or configured `forge: none`,
+Optional (adr-20261126-jig-1-0-is-rewritten-off-bash-and-the-pilot-picks-the-language): when absent, unauthenticated or configured `forge: none`,
 Housekeeping falls through to git ancestry. Informal synonyms: host, remote, provider.
 
 ## Archive

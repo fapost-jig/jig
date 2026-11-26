@@ -15,7 +15,7 @@ paths:
   - tests/run.sh
   - scripts/lib/profile.sh
   - scripts/lib/runenv.sh
-reviewed_at: 2026-11-18
+reviewed_at: 2026-11-26
 ---
 # Verify rules
 
@@ -277,7 +277,8 @@ the global `RULES.md` (ADR-0013). What follows binds changes inside this domain.
   failure to suppress: without the version in the line, "green here, red there" has no
   visible cause. Refusing an unexpected version is the opposite mistake; it fails the
   gate for shipping an ordinary distribution rather than for anything about the code,
-  and the tool is optional in the first place (ADR-0002).
+  and the tool is optional in the first place
+  (adr-20261126-jig-1-0-is-rewritten-off-bash-and-the-pilot-picks-the-language).
 - **A test decides its own environment; it never inherits one.** A check that needs a
   tool supplies it as a stub on `PATH`; a check that needs a tool *gone* builds a `PATH`
   from an explicit tool list. The suite gave three different verdicts for one commit —

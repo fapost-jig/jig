@@ -23,7 +23,7 @@ reviewed_at: 2026-11-26
 ## Context
 
 Jig is about 58k lines of bash under `scripts/lib/` and about 96k lines of tests. ADR-0002 chose bash
-3.2 with `git` as the only dependency so that no runtime had to be installed and every file could be
+3.2 with `git` as the only dependency so that no language runtime had to be installed and every file could be
 read by a person or an agent. That choice now costs more than it saves:
 
 - Speed. In CI run 44709464527 (2026-11-20) the Windows shards took 30–42 minutes, the macOS shards
@@ -35,7 +35,7 @@ read by a person or an agent. That choice now costs more than it saves:
   with exit 139.
 - Cost over time. The longer the move waits, the larger the rewrite.
 
-ADR-0002's reasons are weighed against that. A runtime requirement is real, but the installer can
+ADR-0002's reasons are weighed against that. A language runtime requirement is real, but the installer can
 place one. Readability is partly traded: the sources stay readable in Jig's own repository, while a
 project carries the bundled file a release builds from them. The owner proposed the move on
 2026-11-20, and the owner's colleagues asked on 2026-11-23 whether Go or Rust should be considered
@@ -81,13 +81,15 @@ beside TypeScript. The shape, the stress test and the failure hunt are in the sp
   differences, each with its reason; sorting is byte order; non-UTF-8 names are handled as bytes. A
   command's bash tests are deleted only once its port passes.
 - **No mixed code.** The new implementation grows beside bash and calls only itself; shared code moves
-  with the first command that needs it; `jig-next` lets ported commands be used early. There is no
+  with the first command that needs it; `jig-next` lets ported commands be used early,
+  read-only ones first. There is no
   dispatcher.
 - **Workflow.** CI is off for pull requests into the epic and tests run locally; a manual Windows run
   (`workflow_dispatch`) follows every phase and precedes the final pull request. Main is frozen except
   urgent fixes, each carried into the epic at once with its recordings taken again.
-- **Rollback.** `jig self-update --version <last bash release>` works because formats are kept. The
-  machine-wide install is laid out in versioned directories and switched atomically.
+- **Rollback.** `jig self-update --version <last bash release>` works because formats are kept, and the
+  docs say so. The machine-wide install is laid out in versioned directories and switched
+  atomically, so a process started on one version finishes on it.
 - **Cut-over.** `jig upgrade` to 1.0 refuses nothing; it lists the branches and worktrees still on
   bash and those that may conflict. `jig upgrade --branches`, run by a person, merges the base into
   open task branches and the staging branch, and skips, naming why, a branch with work running in its
@@ -103,7 +105,7 @@ beside TypeScript. The shape, the stress test and the failure hunt are in the sp
 For TypeScript the spec proposes Node LTS (24, at least 22) running `.ts` by type stripping with no
 build step; the system Node or one the installer places in Jig's directory; a `jig.mjs` bundle;
 profiles as modules; zod for schemas; the `yaml` library with its failsafe schema and `parseDocument`.
-Bun is rejected. **None of this is accepted by this ADR.** If Go wins, the runtime, the in-project
+Bun is rejected. **None of this is accepted by this ADR.** If Go wins, the language runtime, the in-project
 file, the form of profiles as code and the schema library are decided again. They are decided by the
 ADR written with "The comparison and the choice" (Phase 2), before Phase 3.
 
