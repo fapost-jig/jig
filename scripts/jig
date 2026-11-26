@@ -195,6 +195,12 @@ EOF
 main() {
   local cmd="${1:-help}"
   [ $# -gt 0 ] && shift
+  # A malformed JIG_NOW is refused here, once, not stamp by stamp (common.sh, the
+  # clock); a `--json` command refuses it inside its envelope instead (json_run).
+  case " $* " in
+    *" --json "*) ;;
+    *) jig_now_check ;;
+  esac
   case "$cmd" in
     help|-h|--help) jig_usage ;;
     version|--version)

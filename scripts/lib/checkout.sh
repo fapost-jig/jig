@@ -568,11 +568,11 @@ _jig_checkout_take() {
     # BSD form with lines of its own before the fallback answers.
     while read -r mtime f; do
       case "$mtime" in '' | *[!0-9]*) continue ;; esac
-      age=$(($(date +%s) - mtime))
+      age=$(($(date +%s) - mtime)) # real clock: against a file mtime
     done < <(_jig_checkout_mtimes "$file")
     if [ -z "$age" ] || [ "$age" -gt "$ttl" ]; then since=""; fi
   fi
-  [ -n "$since" ] || since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  [ -n "$since" ] || jig_now_utc_v since
   # One line per key: a line break inside an argument must not start a key,
   # and a tab must not become a field of the lines jig_checkout_taken prints.
   cmd=$*
@@ -631,7 +631,7 @@ jig_checkout_taken_begin() {
   _JIG_TK_READY=1
   _JIG_TK_SELF=$(jig_checkout_session)
   _JIG_TK_TTL=$(_jig_checkout_ttl)
-  _JIG_TK_NOW=$(date +%s)
+  _JIG_TK_NOW=$(date +%s) # real clock: against a file mtime
   _JIG_TK_ROOT=$(jig_config_clone_root 2>/dev/null) || _JIG_TK_ROOT=""
   return 0
 }
@@ -713,7 +713,7 @@ _jig_checkout_mark_ended() {
   if [ -n "$expect" ] && [ -n "$sess" ] && [ "$sess" != "$expect" ]; then
     return 0
   fi
-  _jig_checkout_write "$file" "${body}ended: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+  _jig_checkout_write "$file" "${body}ended: $(jig_now_utc)
 " || true
   return 0
 }
@@ -872,7 +872,7 @@ jig_checkout_busy() {
   [ -d "$runtime/working" ] || return 0
   ttl=$(_jig_checkout_ttl)
   self=$(jig_checkout_session)
-  now=$(date +%s)
+  now=$(date +%s) # real clock: against a file mtime
   head=$(_jig_checkout_head)
   list=$(_jig_checkout_worktree_list)
 

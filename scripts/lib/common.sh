@@ -1495,7 +1495,7 @@ jig_staging_drift() {
 " ;;
     esac
   done < <(_jig_staging_drift_refs "$rows" "$prefix" "$suffix" "$staging" "$dbase")
-  now=$(date +%s)
+  jig_now_epoch_v now
   walk=$(_jig_staging_walk "$stip" "$rows3")
   landing=$(git -C "$JIG_PROJECT" rev-list --parents --timestamp "$stip" "^$bsha" 2>/dev/null) || landing=""
   {
@@ -2456,7 +2456,7 @@ jig_net() {
     "$@"
     return
   fi
-  now=$(date +%s)
+  now=$(date +%s) # real clock: the net deadline is a wait
   left=$((_JIG_NET_DEADLINE - now))
   [ "$left" -le "$_JIG_NET_CALL" ] || left=$_JIG_NET_CALL
   if [ "$left" -le 0 ]; then
@@ -2590,7 +2590,7 @@ jig_release_check_record() {
   exe=$(jig_global_executable) || return 1
   root="${exe%/scripts/jig}"
   best=$(jig_check_newest_release "$root" "$_JIG_RELEASE_CHECK_TIMEOUT") || rc=$?
-  now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  jig_now_utc_v now
   if [ "$rc" -eq 0 ]; then
     printf 'latest=%s\nchecked_at=%s\n' "${best#v}" "$now" > "$tmp" || return 1
   else
@@ -5673,7 +5673,94 @@ EOF
 
 # --- misc ------------------------------------------------------------------
 
-jig_today() { date +%Y-%m-%d; }
+# --- the clock -----------------------------------------------------------------
+#
+# Every reading of the current time goes through the helpers below, so a test can
+# pin it: JIG_NOW=<seconds since the epoch> makes them answer that instant (and
+# fork nothing); unset or empty they ask `date`. Anything else is refused, never
+# read as the real clock — a recording made against a typo would be a lie.
+#
+# Only a stamp that is written or compared with a recorded time reads this clock.
+# Waiting (a deadline, an elapsed time, $SECONDS) and the age of a file (its mtime
+# comes from the OS clock) stay on the real one; each such `date` carries the
+# marker `# real clock: <why>` on its own line or the line above it, and
+# tests/clock.t.sh fails on any `date` that reads "now" and is neither, outside
+# this section (which ends at jig_today).
+
+# jig_now_valid — JIG_NOW is unset, empty, or seconds since the epoch (digits,
+# fewer than 15 of them). Says nothing.
+jig_now_valid() {
+  case "${JIG_NOW:-}" in
+    *[!0-9]* | ???????????????*) return 1 ;;
+  esac
+}
+
+# jig_now_check — refuse a JIG_NOW that is not seconds since the epoch. The
+# dispatcher runs it once, before any command: a helper below dies only in the
+# subshell of a `$(jig_today)`, and the command around it would go on with an
+# empty stamp. A `--json` command is checked inside its envelope (json_run).
+jig_now_check() {
+  jig_now_valid || jig_die "JIG_NOW must be seconds since the epoch, got '$JIG_NOW'"
+}
+
+# _jig_now_pin — _JIG_NOW_PIN <- JIG_NOW as a plain number, or empty when unset.
+_jig_now_pin() {
+  jig_now_check
+  _JIG_NOW_PIN=${JIG_NOW:-}
+  [ -z "$_JIG_NOW_PIN" ] || _JIG_NOW_PIN=$((10#$_JIG_NOW_PIN))
+}
+
+# jig_now_epoch_v <var> — <var> <- seconds since the epoch.
+jig_now_epoch_v() {
+  _jig_now_pin
+  if [ -n "$_JIG_NOW_PIN" ]; then
+    printf -v "$1" '%s' "$_JIG_NOW_PIN"
+  else
+    printf -v "$1" '%s' "$(date +%s)"
+  fi
+}
+
+# jig_now_date [-u] +<format> — `date` for the current instant, printed: the
+# local formats (a day, the status page's time). Pinned, GNU `date -d @<n>`
+# first, as jig_utc_from_epoch does: GNU's `-r` takes a file, so the BSD form
+# tried first would read a file that happens to be named <n>.
+jig_now_date() {
+  local u=""
+  if [ "$1" = -u ]; then
+    u=-u
+    shift
+  fi
+  _jig_now_pin
+  if [ -z "$_JIG_NOW_PIN" ]; then
+    date ${u:+"$u"} "$1"
+  else
+    date ${u:+"$u"} -d "@$_JIG_NOW_PIN" "$1" 2>/dev/null \
+      || date ${u:+"$u"} -r "$_JIG_NOW_PIN" "$1" 2>/dev/null \
+      || jig_die "date cannot format JIG_NOW=$_JIG_NOW_PIN"
+  fi
+}
+
+# jig_now_utc_v <var> — <var> <- the time as UTC `YYYY-MM-DDTHH:MM:SSZ`; pinned,
+# through jig_utc_from_epoch, the one place seconds become UTC.
+jig_now_utc_v() {
+  local __jnu_at
+  _jig_now_pin
+  if [ -z "$_JIG_NOW_PIN" ]; then
+    printf -v "$1" '%s' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  else
+    __jnu_at=$(jig_utc_from_epoch "$_JIG_NOW_PIN") || jig_die "date cannot format JIG_NOW=$_JIG_NOW_PIN"
+    printf -v "$1" '%s' "$__jnu_at"
+  fi
+}
+
+# jig_now_utc — the same, printed, for a stamp written once per command.
+jig_now_utc() {
+  local __jnp_at
+  jig_now_utc_v __jnp_at
+  printf '%s\n' "$__jnp_at"
+}
+
+jig_today() { jig_now_date +%Y-%m-%d; }
 
 # jig_trash_dest <name> — where <name> goes in trash today:
 # .ai/runtime/trash/<date>/<name>, or <name>-2, -3, … when that is taken. Never
@@ -5919,7 +6006,7 @@ jig_revision_bump() {
     seen=$_JIG_REV
     old="$_JIG_REV_OLD $_JIG_REV"
     if [ -z "$seen" ]; then
-      next=$(date +%s)
+      jig_now_epoch_v next
     else
       next=$((seen + 1))
     fi
@@ -5982,11 +6069,12 @@ jig_shipping_begin() {
   jig_shipping_file_v file "$id"
   mkdir -p "${file%/*}" 2>/dev/null || return 0
   if jig_ship_timeout_v timeout; then
+    # real clock: the deadline is a wait, ended by the clock the verify runs on
     printf -v deadline_line 'deadline: %s\n' "$(( $(date +%s) + 10#$timeout * 60 + 900 ))"
   fi
   tmp="${file%/*}/.tmp.$id.$$"
   jig_cleanup_add "$tmp"
-  printf 'pid: %s\nsince: %s\n%s' "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$deadline_line" > "$tmp" 2>/dev/null || return 0
+  printf 'pid: %s\nsince: %s\n%s' "$$" "$(jig_now_utc)" "$deadline_line" > "$tmp" 2>/dev/null || return 0
   mv "$tmp" "$file" 2>/dev/null || return 0
   jig_record_changed
   _JIG_SHIPPING_ID=$id
@@ -6026,6 +6114,7 @@ jig_shipping_since_v() {
           case "$__jss_deadline" in
             '' | *[!0-9]*) ;;
             *)
+              # real clock: the deadline is a wait
               if [ "$(date +%s)" -le "$((10#$__jss_deadline))" ]; then
                 __jss_since=$(_jig_verify_busy_value "$__jss_file" since || true)
               fi
@@ -6070,7 +6159,7 @@ jig_revision_claim() {
   _jig_revision_scan "$dir"
   if [ "$expected" = 0 ]; then
     [ -z "$_JIG_REV" ] || return 1
-    next=$(date +%s)
+    jig_now_epoch_v next
   else
     [ "$_JIG_REV" = "$expected" ] || return 1
     next=$((expected + 1))
@@ -6297,7 +6386,7 @@ jig_utc_ago() {
   local past now d
   past=$(jig_utc_epoch "$1")
   [ -n "$past" ] || return 0
-  now=$(date -u +%s)
+  jig_now_epoch_v now
   d=$((now - past))
   if [ "$d" -lt 60 ]; then printf 'just now\n'
   elif [ "$d" -lt 3600 ]; then printf '%d min\n' $((d / 60))
@@ -6620,7 +6709,7 @@ jig_file_age_days() {
   local f="$1" mtime now
   [ -f "$f" ] || { printf '0\n'; return; }
   if mtime=$(stat -f %m "$f" 2>/dev/null); then :; else mtime=$(stat -c %Y "$f"); fi
-  now=$(date +%s)
+  now=$(date +%s) # real clock: against a file mtime
   printf '%d\n' $(( (now - mtime) / 86400 ))
 }
 
@@ -6977,7 +7066,7 @@ jig_verify_busy_holder() {
   case "$mtime" in
     '' | *[!0-9]*) return 1 ;;
   esac
-  now=$(date +%s)
+  now=$(date +%s) # real clock: against a file mtime
   if [ "$now" -lt "$mtime" ]; then age=0; else age=$((now - mtime)); fi
   # The record's own ttl is the holder's; the caller's is for records written
   # before it carried one.

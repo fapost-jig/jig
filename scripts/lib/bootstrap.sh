@@ -737,7 +737,7 @@ jig_bootstrap_worktree() {
   # person's own work, and that is theirs, not this run's doing.
   _BOOTSTRAP_BASELINE=$(_bootstrap_dirt "$tree_root")
 
-  started=$(date +%s 2>/dev/null || printf '0')
+  started=$(date +%s 2>/dev/null || printf '0') # real clock: elapsed time
 
   # A directory that could be shared and is not: say so here, where a task
   # that edits it would miss it (jig_share_candidates). Not a warning: a task
@@ -865,7 +865,7 @@ EOF
     _bootstrap_discard "$_JIG_BOOTSTRAP_STAGING" "$staged" >/dev/null 2>&1 || true
   done < <(_bootstrap_declared)
 
-  elapsed=$(( $(date +%s 2>/dev/null || printf '0') - started ))
+  elapsed=$(( $(date +%s 2>/dev/null || printf '0') - started )) # real clock: elapsed time
   [ "$elapsed" -ge 0 ] 2>/dev/null || elapsed=0
 
   if [ -n "$carried" ]; then

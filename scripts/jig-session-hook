@@ -83,7 +83,7 @@ _age_days() {
   if mtime=$(stat -f %m "$f" 2>/dev/null); then :; else
     mtime=$(stat -c %Y "$f" 2>/dev/null) || { printf '0\n'; return; }
   fi
-  now=$(date +%s)
+  now=$(date +%s) # real clock: against a file mtime
   printf '%d\n' $(( (now - mtime) / 86400 ))
 }
 

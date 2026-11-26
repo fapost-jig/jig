@@ -902,7 +902,7 @@ EOF
   accounts="$_PR_ACCOUNTS" active="$_PR_ACTIVE" tok="$_PR_TOKEN_ENV" login="$_PR_LOGIN" why="$_PR_WHY"
 
   mkdir -p "$dir"
-  now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  jig_now_utc_v now
   _pr_write "$rec" "url: $_PR_URL
 forge: $_PR_FORGE
 host: $_PR_HOST
@@ -1760,7 +1760,7 @@ _pr_comments_check() {
   _pr_comments_build
   _pr_write "$_PR_DIR/payload.json" "$_PR_PAYLOAD"
   _pr_write "$_PR_DIR/shown.md" "$_PR_SHOWN"
-  now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  jig_now_utc_v now
   _pr_write "$_PR_DIR/shown" "hash: $_PR_H
 shown_at: $now
 "
@@ -1938,7 +1938,7 @@ _pr_post_file() {
 # as soon as it is given.
 _pr_gh_posted() {
   local now
-  now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  jig_now_utc_v now
   _pr_write "$_PR_DIR/posted" "hash: $_PR_H
 review: $1
 replies: $2
@@ -2044,7 +2044,7 @@ _pr_comments_post() {
           fi
           if [ -z "$posted_id" ]; then posted_id="$_PR_OUT"; fi
           ids="$ids${ids:+ }$_PR_OUT"
-          now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          jig_now_utc_v now
           _pr_write "$_PR_DIR/posted" "hash: $_PR_H
 review: $ids
 login: $_PR_D_LOGIN
@@ -2471,7 +2471,7 @@ _pr_followup() {
     k=$((k + 1))
   done
   fu="$_PR_DIR/followup"
-  now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  jig_now_utc_v now
   _pr_write "$fu" "login: $login
 head: $_PR_HEAD
 follows: $_PR_FU_HEAD
