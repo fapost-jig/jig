@@ -36,8 +36,13 @@ permissions:
 # first one's release (it happened to 0.7.2). GitHub keeps one run pending per
 # group; a third merge meanwhile replaces the pending one, and its own run tags
 # the version then current, so a release comes later but is not lost.
+#
+# A manual dispatch has a group of its own: it runs everything on every
+# platform (~45 minutes), and a push to the same branch (an epic that is
+# tested by dispatch, since its pull requests run no tests) would otherwise
+# cancel it.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ${{ github.event_name == 'workflow_dispatch' && format('ci-dispatch-{0}', github.run_id) || format('ci-{0}', github.ref) }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
@@ -48,6 +53,9 @@ jobs:
   # .github/scripts/ci-scope.sh, which has tests; this job only runs it.
   # A skipped job reads as passed to a required check, where `paths-ignore`
   # would leave the check waiting forever.
+  #
+  # A pull request into `epic/stack-migration` is `light` whatever it changes:
+  # it runs the knowledge check only (.github/scripts/ci-untested-base.sh).
   #
   # A push is measured from the newest successful run on its branch whose
   # head is in the pushed history, not from the previous tip: GitHub keeps
@@ -126,6 +134,7 @@ jobs:
         id: scope
         env:
           EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
           BEFORE: ${{ github.event.before }}
           BRANCH: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
@@ -158,7 +167,24 @@ jobs:
             fi
           fi
           case "$EVENT" in
-            pull_request) line=$(.github/scripts/ci-scope.sh "$pr_base") ;;
+            pull_request)
+              # Pull requests into the stack-migration epic run no tests
+              # (.ai/specs/stack-migration/spec.md, "Workflow": tasks reach
+              # the epic by pull request with CI switched off for those; the
+              # tests run locally and by a manual Windows dispatch). `light`
+              # still lets `ci-ok`, the required check, report: a workflow
+              # that did not run would leave it waiting forever. This wins
+              # over ci-scope.sh, which answers full for a change to CI. A
+              # pull request from the epic into main has base main and stays
+              # full.
+              untested=$(.github/scripts/ci-untested-base.sh "$EVENT" "$BASE_REF") \
+                || untested="test (ci-untested-base.sh failed; measuring the change)"
+              echo "untested base: $untested"
+              case "$untested" in
+                skip*) line="light (${untested#skip })" ;;
+                *) line=$(.github/scripts/ci-scope.sh "$pr_base") ;;
+              esac
+              ;;
             push)
               # Empty when there is no successful run yet, or the API cannot
               # answer: ci-scope.sh then runs everything.
