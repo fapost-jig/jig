@@ -296,7 +296,7 @@ test_ci_workflow_scope_asks_ci_untested_base_with_the_base_ref_from_env() {
     fail "github.base_ref must appear once, in env, and not in the run script"
   # A skip answer is light and never reaches ci-scope.sh.
   # shellcheck disable=SC2016 # a workflow line, matched literally
-  assert_contains "$block" 'skip*) line="light (${untested#skip })" ;;' "a skip answer must be a light scope"
+  assert_contains "$block" 'skip*) line="light ${untested#skip }" ;;' "a skip answer must be a light scope"
   # shellcheck disable=SC2016 # an awk program, not a shell expansion
   run_part=$(printf '%s\n' "$block" | awk '/untested=\$\(/ { f = 1 } f && /ci-scope.sh/ { print NR ": " $0; exit }')
   # shellcheck disable=SC2016 # a workflow line, matched literally
