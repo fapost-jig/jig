@@ -276,7 +276,7 @@ of the form "while we're at it, let's also…" break against.
 
 ## Rules
 
-- Shell code targets POSIX sh / bash 3.2; run `shellcheck` before committing. (ADR-0002)
+- Shell code targets POSIX sh / bash 3.2; run `shellcheck` before committing. (adr-20261126-jig-1-0-is-rewritten-off-bash-and-the-pilot-picks-the-language)
 - Knowledge documents under `features/`, `adr/`, `conventions/` carry frontmatter with
   `id`, `type`, `status`; `domains`/`paths` when applicable. (ADR-0004)
 - An ADR is named `YYYYMMDD-<slug>` by the day it was written, and cited by its id; legacy

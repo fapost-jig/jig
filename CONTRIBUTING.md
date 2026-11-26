@@ -19,7 +19,8 @@ User documentation is the [site](https://jig.fapost.in); its sources are in [`do
 - A decision that changes architecture, distribution, lifecycle semantics or the safety of a
   destructive operation gets an ADR, named `YYYYMMDD-<slug>.md`, created with
   `jig knowledge new adr <slug>`.
-- Scripts are POSIX sh / bash 3.2 with no dependency but Git (ADR-0002). Every script command has a
+- Scripts are POSIX sh / bash 3.2 with no dependency but Git, for every line of bash in Jig, the
+  installer and the `verify.sh` compatibility path after 1.0 included (adr-20261126-jig-1-0-is-rewritten-off-bash-and-the-pilot-picks-the-language). Every script command has a
   test under `tests/`. Skills stay short; mechanics go to scripts (ADR-0001).
 - Everything that leaves the machine — code, comments, knowledge, skills, documentation, commit
   messages — is written in English.

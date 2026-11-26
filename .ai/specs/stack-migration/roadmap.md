@@ -12,7 +12,7 @@ Goal: the decision is on record and the epic can take ported code. Done when: th
 pull request into the epic runs no tests while a person can run the suite on Windows by hand, and
 the bash tests can control time.
 
-- [ ] `stack-adr` — ADR superseding ADR-0002: the language is chosen by the pilot, and the decisions of this spec that do not depend on it are accepted
+- [x] `stack-adr` — ADR superseding ADR-0002: the language is chosen by the pilot, and the decisions of this spec that do not depend on it are accepted
 - [ ] `epic-ci-skip` — CI skips pull requests into the epic, and a person can run the suite on Windows on any branch through `workflow_dispatch`
 - [ ] `bash-clock-seam` — `JIG_NOW` in bash: every reading of the clock goes through one place a test can set, so recordings do not depend on the day they were taken
 
