@@ -24,7 +24,7 @@ new code passes against its recordings, locally and on the manual Windows run.
 - [ ] `stack-recorder` — Recorder — running the bash tests in record mode keeps, for every `jig` call, arguments, environment, file trees before and after, output, exit code and stub logs, normalised (after: `bash-clock-seam` — time must be controlled before anything is recorded)
 - [ ] Parity check — a ported command is run against its recordings and the differences are reported, with a list of intended differences (after: Recorder — it reads what the recorder wrote)
 - [ ] `ts-skeleton` — TypeScript skeleton — runtime choice, `jig-next`, core and CLI split, the process executor, the storage module reading today's files, zod schemas, the invariant test, the bundle into `jig.mjs` with the dependency rules checked
-- [ ] Go skeleton — the same pieces in Go, enough to port the pilot
+- [ ] `go-skeleton` — Go skeleton — the same pieces in Go, enough to port the pilot
 
 ## Phase 2 — Pilot and the language
 
