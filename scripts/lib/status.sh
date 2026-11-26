@@ -85,7 +85,7 @@ _status_counts() {
   else
     _SC_PENDING=""
   fi
-  _SC_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  jig_now_utc_v _SC_AT
   _SC_READY=1
 }
 
@@ -1923,7 +1923,7 @@ _status_hk_stale() {
   case "$days" in '' | *[!0-9]*) days=1 ;; esac
   past=$(jig_utc_epoch "$at")
   [ -n "$past" ] || return 0
-  now=$(date -u +%s)
+  jig_now_epoch_v now
   [ $((now - past)) -gt $((days * 86400)) ]
 }
 
@@ -1946,7 +1946,7 @@ _status_in() {
 _status_html_page() {
   local project generated report
   project=$(basename "$JIG_PROJECT")
-  generated=$(date '+%Y-%m-%d %H:%M:%S %z %Z' | _status_zone)
+  generated=$(jig_now_date '+%Y-%m-%d %H:%M:%S %z %Z' | _status_zone)
   # Asked once: the report and the summary both show it.
   _STATUS_CURRENT=$(_status_current_task)
   # The whole text report, as `jig status` prints it, so the page never shows
@@ -2974,7 +2974,7 @@ _status_json() {
   if ! _status_counts_read; then
     _SC_PROPOSALS=$(km_proposed_count)
     _SC_SOURCES=$(km_changed_sources_count)
-    _SC_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    jig_now_utc_v _SC_AT
   fi
   _status_live_collect page
   _status_hk_load

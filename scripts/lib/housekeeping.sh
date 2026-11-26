@@ -126,7 +126,7 @@ cmd_housekeeping() {
   # (none) or were missing because the forge did not answer (failed): the
   # status page shows `remote=open` only as fresh as that.
   if [ "$dry" != 1 ]; then
-    _hk_log "--- run $(date -u +%Y-%m-%dT%H:%M:%SZ) forge=$_HK_FORGE_TOKEN"
+    _hk_log "--- run $(jig_now_utc) forge=$_HK_FORGE_TOKEN"
   fi
 
   local needs_consolidation=0 wrong_base=0 archive_refused=0 found=0 keep_branches="" archive_err
@@ -899,8 +899,8 @@ _hk_forge_gitlab_reviews() {
     $1 != "" && $2 == st && prstate($3) == "open" && $5 != "" { print $1 "\t" $5 "\t" $4 }')
   [ -n "$rows" ] || return 0
   cache=$(forgecache_read)
-  now=$(date -u +%s)
-  now_iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  jig_now_epoch_v now
+  jig_now_utc_v now_iso
   while IFS="$t" read -r h url sha; do
     [ -n "$h" ] || continue
     reuse=""
@@ -963,7 +963,7 @@ _hk_forge_cache_write() {
   forgecache_owned || return 0
   ci=$(_hk_forge_ci)
   reviews=$(_hk_forge_gitlab_reviews)
-  at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  jig_now_utc_v at
   # One stream, each line tagged with the list it came from: the checks first
   # (C, GitHub's open list), then the reviews GitLab was asked for (R), so
   # every pull request row can be joined to them in one pass.
@@ -1549,7 +1549,7 @@ EOF
           return 0
         fi
         printf 'housekeeping: closed pull request %s: superseded by Jig %s\n' "$url" "$have"
-        _hk_log "$(date -u +%Y-%m-%dT%H:%M:%SZ) branch=$b where=origin action=close-pr"
+        _hk_log_at "branch=$b where=origin action=close-pr"
       done <<EOF
 $rows
 EOF
@@ -1627,11 +1627,11 @@ _hk_branch_say() {
     [ -n "$line" ] || continue
     printf '%s\n' "$line"
     case "$line" in
-      *": deleted superseded branch $b "*) _hk_log "$(date -u +%Y-%m-%dT%H:%M:%SZ) branch=$b where=local action=delete" ;;
-      *": deleted branch $b on origin") _hk_log "$(date -u +%Y-%m-%dT%H:%M:%SZ) branch=$b where=origin action=delete" ;;
-      *": deleted branch $b") _hk_log "$(date -u +%Y-%m-%dT%H:%M:%SZ) branch=$b where=local action=delete" ;;
-      *": kept branch $b on origin"*) _hk_log "$(date -u +%Y-%m-%dT%H:%M:%SZ) branch=$b where=origin action=keep" ;;
-      *": kept branch $b"*) _hk_log "$(date -u +%Y-%m-%dT%H:%M:%SZ) branch=$b where=local action=keep" ;;
+      *": deleted superseded branch $b "*) _hk_log_at "branch=$b where=local action=delete" ;;
+      *": deleted branch $b on origin") _hk_log_at "branch=$b where=origin action=delete" ;;
+      *": deleted branch $b") _hk_log_at "branch=$b where=local action=delete" ;;
+      *": kept branch $b on origin"*) _hk_log_at "branch=$b where=origin action=keep" ;;
+      *": kept branch $b"*) _hk_log_at "branch=$b where=local action=keep" ;;
     esac
   done <<EOF
 $2
@@ -1770,13 +1770,13 @@ _hk_worktree_retire() {
       leftover) _HK_WT_NOTE="worktree removed by git, but files remain in its directory ($path)" ;;
       *) _HK_WT_NOTE="worktree kept, git refused to remove it ($path)" ;;
     esac
-    [ "$dry" = 1 ] || _hk_log "$(date -u +%Y-%m-%dT%H:%M:%SZ) task=$tid worktree=$path action=keep reason=$reason"
+    [ "$dry" = 1 ] || _hk_log_at "task=$tid worktree=$path action=keep reason=$reason"
     return 1
   fi
   if [ "$ours" = 0 ]; then
     _HK_WT_LINE="worktree $path left in place (outside-worktree-root)"
     _HK_WT_NOTE="worktree left in place, jig did not create it ($path)"
-    [ "$dry" = 1 ] || _hk_log "$(date -u +%Y-%m-%dT%H:%M:%SZ) task=$tid worktree=$path action=leave reason=outside-worktree-root"
+    [ "$dry" = 1 ] || _hk_log_at "task=$tid worktree=$path action=leave reason=outside-worktree-root"
     return 0
   fi
   if [ "$dry" = 1 ]; then
@@ -1790,7 +1790,7 @@ _hk_worktree_retire() {
     # local database is still gone, and a person who has to ask "what was in
     # there" can no longer look.
     gone=$(_hk_ignored_summary "$ignored")
-    _hk_log "$(date -u +%Y-%m-%dT%H:%M:%SZ) task=$tid worktree=$path action=remove${gone:+ ignored=$gone}"
+    _hk_log_at "task=$tid worktree=$path action=remove${gone:+ ignored=$gone}"
   fi
   return 0
 }
@@ -1948,7 +1948,7 @@ _hk_checkout_keep() {
   [ -n "$(git -C "$JIG_PROJECT" status --porcelain 2>/dev/null || true)" ] || return 0
   _HK_WT_LINE="checkout $JIG_PROJECT kept (uncommitted-changes)"
   _HK_WT_NOTE="this checkout has uncommitted changes on the task's branch"
-  [ "$dry" = 1 ] || _hk_log "$(date -u +%Y-%m-%dT%H:%M:%SZ) task=$tid worktree=$JIG_PROJECT action=keep reason=uncommitted-changes"
+  [ "$dry" = 1 ] || _hk_log_at "task=$tid worktree=$JIG_PROJECT action=keep reason=uncommitted-changes"
   return 1
 }
 
@@ -1980,7 +1980,7 @@ _hk_trash_expire() {
     else
       rm -rf "$entry"
       printf 'delete trash/%s (%d days old)\n' "$day" "$age"
-      _hk_log "$(date -u +%Y-%m-%dT%H:%M:%SZ) trash=$day action=delete age=${age}d"
+      _hk_log_at "trash=$day action=delete age=${age}d"
     fi
   done < <(find "$trash" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | LC_ALL=C sort)
 }
@@ -2016,7 +2016,7 @@ _hk_report() {
   [ "$_HK_VERBOSE" != 1 ] || printf '%s\n' "$line"
 
   [ "$dry" = 1 ] && return 0
-  _hk_log "$(date -u +%Y-%m-%dT%H:%M:%SZ) task=$tid status=$st remote=$remote via=$_HK_VIA action=$shown${reason:+ reason=$reason}${rel:+ dest=$rel}${flags:+ flags=$flags}${_HK_STAGING_STATE:+ staging=$_HK_STAGING_STATE}${facts:+ $facts}"
+  _hk_log_at "task=$tid status=$st remote=$remote via=$_HK_VIA action=$shown${reason:+ reason=$reason}${rel:+ dest=$rel}${flags:+ flags=$flags}${_HK_STAGING_STATE:+ staging=$_HK_STAGING_STATE}${facts:+ $facts}"
 }
 
 # _hk_record <task> <status> <remote> <action> <flags> <age_days>
@@ -2387,6 +2387,14 @@ _hk_log() {
   printf '%s\n' "$1" >> "$runtime/housekeeping.log"
 }
 
+# _hk_log_at <record> — _hk_log of <record> behind the current UTC time. Read into a
+# variable, not $(jig_now_utc): it is called once per task or branch.
+_hk_log_at() {
+  local at
+  jig_now_utc_v at
+  _hk_log "$at $1"
+}
+
 # _hk_log_keep_runs, _hk_log_keep_output — how much of the log a trim keeps:
 # the last runs whole, and per run that many lines that are not a record (the
 # report on stdout, a runaway's stderr). A normal run prints under 200 lines;
@@ -2483,13 +2491,15 @@ _hk_task_age_days() {
 }
 
 # _hk_days_since <YYYY-MM-DD> — whole days elapsed, 0 when unparsable.
-# Mirrors jig_file_age_days's BSD/GNU `date` portability trick.
+# Mirrors jig_file_age_days's BSD/GNU `date` portability trick. The day is read
+# as its midnight, as GNU reads it: BSD `-j -f` fills the missing time of day from
+# the real clock, and the count would change with the hour under JIG_NOW.
 _hk_days_since() {
   local d="$1" ts now
   [ -n "$d" ] || { printf '0\n'; return; }
-  if ts=$(date -j -f '%Y-%m-%d' "$d" +%s 2>/dev/null); then :; else
+  if ts=$(date -j -f '%Y-%m-%d %H:%M:%S' "$d 00:00:00" +%s 2>/dev/null); then :; else
     ts=$(date -d "$d" +%s 2>/dev/null) || { printf '0\n'; return; }
   fi
-  now=$(date +%s)
+  jig_now_epoch_v now
   printf '%d\n' $(( (now - ts) / 86400 ))
 }

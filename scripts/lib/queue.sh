@@ -495,7 +495,7 @@ _queue_write() {
       [ -z "$refusal" ] || jig_die "$refusal"
       refusal=$(jig_pause_request_refusal "$_QID")
       [ -z "$refusal" ] || jig_fail already-exists "$refusal"
-      at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+      jig_now_utc_v at
     fi
   fi
   if [ -n "$anchor" ]; then

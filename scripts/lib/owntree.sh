@@ -106,7 +106,7 @@ _ot_lock_try() {
   jig_claim_file "$1/busy/run" || return 1
   printf 'checkout: %s\npid: %s\n' "$JIG_PROJECT" "$$" > "$1/busy/run" 2>/dev/null || true
   _OT_LOCK_DIR="$1"
-  _JIG_NET_DEADLINE=$(($(date +%s) + _OT_NET_BUDGET))
+  _JIG_NET_DEADLINE=$(($(date +%s) + _OT_NET_BUDGET)) # real clock: the net budget is a wait
 }
 
 # _ot_lock_shaped <dir> — <dir> is a path of the lock's shape, the one place its

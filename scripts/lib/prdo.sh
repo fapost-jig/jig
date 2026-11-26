@@ -726,7 +726,7 @@ _prdo_pr_status_body() {
   # The checks, each with its time.
   _prdo_checks "$_PRDO_KIND" "$url" "$_PRDO_PIPELINE"
   local now line name bucket link started completed st s_ep e_ep dur list="" passes=0 reds=0 waits=0 checks_state
-  now=$(date -u +%s)
+  jig_now_epoch_v now
   while IFS=$'\t' read -r name bucket link started completed; do
     [ -n "$name" ] || continue
     [ "$started" != - ] || started=""

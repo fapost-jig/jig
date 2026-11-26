@@ -160,7 +160,14 @@ _json_error_from() {
 json_run() {
   local producer="$1" out err rc at rev both code
   shift
-  at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  # A malformed JIG_NOW is a refusal like any other, in the envelope: the
+  # producer's subshell checks it first (jig_now_check), and the envelope's own
+  # time is then the real one — there is no pinned time to give.
+  if jig_now_valid; then
+    jig_now_utc_v at
+  else
+    at=$(date -u +%Y-%m-%dT%H:%M:%SZ) # real clock: JIG_NOW is refused below
+  fi
   # Read before the data, never after: a write that lands while the producer
   # reads then raises the revision past this one, and the consumer's next read
   # sees it. Read after, the revision could cover a write the data missed, and
@@ -179,7 +186,7 @@ json_run() {
   # subshell only, and unexported: a child jig's refusal is plain text, and
   # reads as `failed`.
   set +e
-  ( set -e; _JIG_JSON_CODES=1; "$producer" "$@" ) >"$out" 2>"$err"
+  ( set -e; _JIG_JSON_CODES=1; jig_now_check; "$producer" "$@" ) >"$out" 2>"$err"
   rc=$?
   set -e
   # The person reads stderr as the text form prints it: the markers are for

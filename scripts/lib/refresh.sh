@@ -82,7 +82,7 @@ _refresh_fetch() {
     return 0
   fi
   jig_git_origin_account refresh read
-  _JIG_NET_DEADLINE=$(( $(date +%s) + _JIG_NET_CALL ))
+  _JIG_NET_DEADLINE=$(( $(date +%s) + _JIG_NET_CALL )) # real clock: the net deadline is a wait
   if err=$(jig_net jig_git_origin fetch --quiet --no-prune origin 2>&1 >/dev/null); then
     _REFRESH_FETCH="done"
   else

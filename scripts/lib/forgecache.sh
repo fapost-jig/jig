@@ -91,7 +91,7 @@ forgecache_record() {
   case "$sha" in '' | *[!0-9a-f]*) sha="-" ;; esac
   case "$url" in '' | *[[:space:]]*) url="-" ;; esac
   t=$(printf '\t')
-  at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  jig_now_utc_v at
   rest=$(forgecache_read | awk -F '\t' -v h="$head" -v b="$base" '!($1 == h && $2 == b)')
   forgecache_write "$head$t$base$t$state$t-$t$at$t$sha$t$url$t-$t-$t-${rest:+
 $rest}"

@@ -909,14 +909,15 @@ _task_touch_state() {
 
 # Whole days between <date> (YYYY-MM-DD) and today; 0 when <date> is empty or
 # unparsable. Mirrors jig_file_age_days's BSD/GNU `date` portability trick
-# (ADR-0002: no GNU-only tools assumed).
+# (ADR-0002: no GNU-only tools assumed). The day is its midnight on both: BSD `-j -f`
+# would fill the missing time of day from the real clock (see _hk_days_since).
 _task_days_since() {
   local d="$1" ts now
   [ -n "$d" ] || { printf '0\n'; return; }
-  if ts=$(date -j -f '%Y-%m-%d' "$d" +%s 2>/dev/null); then :; else
+  if ts=$(date -j -f '%Y-%m-%d %H:%M:%S' "$d 00:00:00" +%s 2>/dev/null); then :; else
     ts=$(date -d "$d" +%s 2>/dev/null) || { printf '0\n'; return; }
   fi
-  now=$(date +%s)
+  jig_now_epoch_v now
   printf '%d\n' $(( (now - ts) / 86400 ))
 }
 
@@ -3167,7 +3168,7 @@ task_merge() {
 # _task_autopilot_now — UTC ISO-8601 timestamp for one journal line (same
 # format housekeeping.sh's log lines use, conventions/shell.md).
 _task_autopilot_now() {
-  date -u +%Y-%m-%dT%H:%M:%SZ
+  jig_now_utc
 }
 
 # _task_autopilot_valid_stage <name> — same grammar as one item of

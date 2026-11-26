@@ -293,7 +293,7 @@ _notify_record_in() {
   outcome=$(_notify_outcome "$3")
   tmp=$(mktemp "$dir/notify.tmp.XXXXXX") || return 0
   jig_cleanup_add "$tmp"
-  printf '%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$event" "$outcome" > "$tmp" \
+  printf '%s\t%s\t%s\n' "$(jig_now_utc)" "$event" "$outcome" > "$tmp" \
     && mv "$tmp" "$file"
 }
 
