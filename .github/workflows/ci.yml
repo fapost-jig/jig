@@ -181,7 +181,7 @@ jobs:
                 || untested="test (ci-untested-base.sh failed; measuring the change)"
               echo "untested base: $untested"
               case "$untested" in
-                skip*) line="light (${untested#skip })" ;;
+                skip*) line="light ${untested#skip }" ;;
                 *) line=$(.github/scripts/ci-scope.sh "$pr_base") ;;
               esac
               ;;

@@ -17,6 +17,7 @@
 # The names are compared whole: `epic/stack-migration-2` is not
 # `epic/stack-migration`. Nothing is read from a pull request's own content.
 set -eu
+set -o pipefail
 
 # Branches whose pull requests run no tests, one per line. Remove the line
 # when the migration's epic reaches main.
