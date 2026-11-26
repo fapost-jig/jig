@@ -51,8 +51,8 @@ container it runs its checks in are ended. Nothing to do by hand ([From 0.50.0 t
   already did, under the same `verify.busy_ttl` ([Configuration](/configuration#working-in-one-checkout)).
   The record lives in the machine's cache directory (`$XDG_CACHE_HOME/jig/verify-env/`, else
   `~/.cache/jig/verify-env/`), keyed by the container's name with the options of `docker exec`
-  skipped; an attached option value ending in `e`, `u` or `w` (`-w/var/www`) is not read right yet
-  ([Known issues](/known-issues)). Compose, Sail, DDEV, Lando and devcontainers are an environment per project and are not
+  skipped; an attached option value ending in `e`, `u` or `w` (`-w/var/www`) was not read right
+  until [0.51.1](#0511). Compose, Sail, DDEV, Lando and devcontainers are an environment per project and are not
   shared. A record now carries its holder's own `verify.busy_ttl`, so a long suite is no longer run
   over by a waiter with a shorter one, and a run releases only the record it holds.
 - **A stopped `jig verify` no longer leaves its tests running in the container.** `docker exec`
