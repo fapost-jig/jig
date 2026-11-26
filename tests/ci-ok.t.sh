@@ -296,3 +296,12 @@ test_ci_ok_refuses_windows_decided_away_outside_a_pull_request_and_an_epic_push(
     assert_contains "$OUT" "only a pull request or a push to an epic branch may"
   done
 }
+
+# A pull request into the stack-migration epic is light with the suite skipped
+# (ci-untested-base.sh), and that is a decided skip.
+test_ci_ok_passes_a_light_pull_request_into_the_untested_epic() {
+  co_run false false pull_request epic/stack-migration task/some-step \
+    scope=success knowledge=success test=skipped test-windows=skipped \
+    smoke-windows=skipped changelog=success epic-pr=skipped
+  assert_eq 0 "$RC" "$OUT"
+}

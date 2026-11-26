@@ -281,3 +281,34 @@ test_ci_workflow_matrices_are_limited_off_main_and_free_on_main() {
   [ "$(grep -c "max-parallel: \${{ github.ref == 'refs/heads/main' && 20 ||" "$(cw_file)")" -eq 2 ] ||
     fail "both matrix jobs must carry the limit"
 }
+
+# A pull request into an untested base is light (ci-untested-base.sh): the
+# base reaches the script through env, never interpolated into the script.
+test_ci_workflow_scope_asks_ci_untested_base_with_the_base_ref_from_env() {
+  local block run_part
+  block=$(cw_job_block scope)
+  # shellcheck disable=SC2016
+  cw_has "$block" 'BASE_REF: ${{ github.base_ref }}' || fail "scope must pass github.base_ref through env"
+  # shellcheck disable=SC2016
+  assert_contains "$block" '.github/scripts/ci-untested-base.sh "$EVENT" "$BASE_REF"' \
+    "scope must ask ci-untested-base.sh about the event and base"
+  [ "$(printf '%s\n' "$block" | grep -c 'github\.base_ref')" -eq 1 ] ||
+    fail "github.base_ref must appear once, in env, and not in the run script"
+  # A skip answer is light and never reaches ci-scope.sh.
+  # shellcheck disable=SC2016 # a workflow line, matched literally
+  assert_contains "$block" 'skip*) line="light ${untested#skip }" ;;' "a skip answer must be a light scope"
+  # shellcheck disable=SC2016 # an awk program, not a shell expansion
+  run_part=$(printf '%s\n' "$block" | awk '/untested=\$\(/ { f = 1 } f && /ci-scope.sh/ { print NR ": " $0; exit }')
+  # shellcheck disable=SC2016 # a workflow line, matched literally
+  assert_contains "$run_part" 'ci-scope.sh "$pr_base"' "ci-scope.sh stays the answer for any other base"
+}
+
+# A manual dispatch has a concurrency group of its own, so a push to the same
+# branch cannot cancel it; every other event keeps ci-<ref>.
+test_ci_workflow_a_dispatch_run_has_its_own_concurrency_group() {
+  local group
+  group=$(awk '/^concurrency:/ { f = 1; next } f && /^  group:/ { print; exit }' "$(cw_file)")
+  assert_contains "$group" "github.event_name == 'workflow_dispatch'" "the group must tell a dispatch apart"
+  assert_contains "$group" "format('ci-dispatch-{0}', github.run_id)" "a dispatch must be grouped by its run"
+  assert_contains "$group" "format('ci-{0}', github.ref)" "every other event must keep ci-<ref>"
+}

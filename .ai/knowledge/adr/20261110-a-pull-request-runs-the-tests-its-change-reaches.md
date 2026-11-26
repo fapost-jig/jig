@@ -15,8 +15,9 @@ paths:
   - tests/run.sh
   - .github/scripts/ci-nightly-tested.sh
   - .github/scripts/ci-outputs.sh
-summary: Why a pull request and a push run only the tests the shell profile says the change reaches, with the whole suite nightly (skipped on a tree already tested in full) and for a release; how shares are sized by estimated work and divided by measured durations from one plan; why a plain selected run never releases or closes red-main (release reads whole since 2026-11-18, which a narrowed run may satisfy), and is reused only by a push needing no test beyond its plan.
-reviewed_at: 2026-11-19
+  - .github/scripts/ci-untested-base.sh
+summary: Why a pull request and a push run only the tests the shell profile says the change reaches, with the whole suite nightly (skipped on a tree already tested in full) and for a release; how shares are sized by estimated work and divided by measured durations from one plan; why a plain selected run never releases or closes red-main (release reads whole since 2026-11-18, which a narrowed run may satisfy), and is reused only by a push needing no test beyond its plan; and why a pull request into epic/stack-migration runs no tests (2026-11-26).
+reviewed_at: 2026-11-26
 ---
 # <Decision in one sentence>
 # A pull request runs the tests its change reaches; the whole suite runs nightly and for a release
@@ -152,3 +153,21 @@ now applies to a pull request's run of the whole suite only.
 > (`ci-reuse.sh` is unchanged on that point): a push to `main` tests what its own scope says on
 > every platform. The accepted cost: a break only macOS or Windows shows on a `full`
 > pull request appears on `main`, as a red `main`, and not on the pull request.
+
+> **Amendment (2026-11-26): a pull request into `epic/stack-migration` runs no tests.** While the
+> stack migration is built on its epic (`.ai/specs/stack-migration/`, decision "Workflow"), a pull
+> request whose base is exactly a branch listed in `.github/scripts/ci-untested-base.sh` is `light`
+> whatever it changes, `.github/` included: `scope` asks that script before `ci-scope.sh`, and only
+> `knowledge`, `changelog` and `ci-ok` run, so the required check still reports. The tests of such a
+> pull request run locally (`jig verify`), on the push that merges it into the epic (measured as any
+> push to `epic/**`, Windows skipped), and by a manual `workflow_dispatch`, which runs everything on
+> every platform and has a concurrency group of its own so that a push to the same branch does not
+> cancel it. Every other base is unchanged: a pull request from the epic into `main` has base `main`
+> and is measured as always. Why: the migration ports the code piece by piece beside the bash one,
+> and each pull request would otherwise run the bash suite for changes it cannot reach, at the cost
+> of the organisation's small concurrent-job limit. The accepted risk: a green `ci-ok` from a light
+> run stays on the head commit if the pull request is retargeted to another base, since `ci.yml`
+> does not listen to `edited`; a retarget needs a new push (or a re-run) before it merges. The same
+> holds for one head commit open in a pull request into the epic and in one into another base: both
+> runs report a `ci-ok` on that commit, and the later one decides the required check. The line
+> naming the epic is removed when the epic reaches `main`.
