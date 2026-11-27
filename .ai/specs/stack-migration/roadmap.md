@@ -37,15 +37,16 @@ new code passes against its recordings, locally and on the manual Windows run.
 Goal: the language is chosen on numbers. Done when: the comparison is written and the owner has
 chosen, or the work is stopped by the gate.
 
-- [ ] `jig context` in TypeScript — passes its recordings and its own in-process tests (after: Parity check — it is proven against the recordings; TypeScript skeleton — it runs on it)
-- [ ] `jig context` in Go — the same, in Go (after: Parity check — the same proof; Go skeleton — it runs on it)
-- [ ] The comparison and the choice — Windows test time with `git` counted, hook start time, code size and review rounds, what lies in the project; the gate of 3× decides whether to go on (after: both pilots — it compares them)
+- [ ] `pilot-context-ts` — `jig context` in TypeScript — passes its recordings and its own in-process tests (after: Parity check — it is proven against the recordings; TypeScript skeleton — it runs on it)
+- [ ] `pilot-context-go` — `jig context` in Go — the same, in Go (after: Parity check — the same proof; Go skeleton — it runs on it)
+- [ ] `pilot-comparison` — The comparison and the choice — Windows test time with `git` counted, hook start time, code size and review rounds, what lies in the project; the gate of 3× decides whether to go on (after: both pilots — it compares them)
 
 ## Phase 3 — The leaves
 
 Goal: the commands nothing else calls are ported. Done when: each passes its recordings and its
 bash tests are deleted.
 
+- [ ] `replay-gaps` — Replay what the recorder cannot yet — calls that touch paths outside the recorded trees (a linked repository beside the test), directory modes (an unwritable runtime/), and the two process-count tests whose replay fails on tree.before; bash must match its own recordings for every recorded call before Phase 3 ports rely on them (found by `pilot-context-go`)
 - [ ] fog: the exact set of leaf commands — `knowledge`, `queue`, `spec`, `config`, `doctor` are the expected ones; the call graph decides when the tasks are filed
 
 ## Phase 4 — Verify, profiles and the middle
