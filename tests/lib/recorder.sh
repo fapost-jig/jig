@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tests/lib/recorder.sh — the stack recorder (task stack-recorder, format 1).
+# tests/lib/recorder.sh — the stack recorder (task stack-recorder, format 2).
 #
 # Test tooling only: it never ships to a project. `JIG_RECORD=<dir> tests/run.sh`
 # exports JIG_RECORDER=<this file>, and the dispatcher (scripts/jig) hands every
@@ -47,8 +47,13 @@ C="env LC_ALL=C"
 
 # --- small helpers ------------------------------------------------------------
 
+# A step run by _rec_sub is a subshell: its REC_ERRORS dies with it, so the step
+# name is also appended to $REC_DIR/.errors, which _rec_post folds in.
 _rec_err() {
   REC_ERRORS="${REC_ERRORS:+$REC_ERRORS,}$1"
+  if [ -n "${REC_DIR:-}" ] && [ -d "$REC_DIR" ]; then
+    printf '%s\n' "$1" >> "$REC_DIR/.errors" 2>/dev/null || :
+  fi
 }
 
 # _rec_now_valid — JIG_NOW is set and is seconds since the epoch, as the
@@ -500,7 +505,8 @@ _rec_subst() {
 # --- file trees -----------------------------------------------------------------
 
 # _rec_roots — REC_ROOTS: the test's directory and the ones beside it, minus the
-# files this very call's output goes to and the record directory itself.
+# $JIG_TEST_TMP.out* capture files of this very call and the record directory
+# itself. A file inside the trees that a stream is redirected to is part of them.
 _rec_roots() {
   local r
   REC_ROOTS=()
@@ -523,10 +529,18 @@ _rec_roots() {
 # _rec_hash_files <list-file> <ids-file> — one blob id per line of the list, `-`
 # for a file that could not be stored.
 _rec_hash_files() {
-  local p id
-  if git --git-dir="$REC_STORE" hash-object -w --no-filters --stdin-paths < "$1" > "$2" 2>/dev/null; then
+  local p id base="${JIG_TEST_TMP%/*}"
+  # Paths go through stdin relative to the parent of $JIG_TEST_TMP (every root
+  # starts with $JIG_TEST_TMP): an absolute path on stdin is a drive path on
+  # Windows. Paths with a newline never reach this list (see _rec_snapshot).
+  while IFS= read -r p; do
+    printf '%s\n' "${p#"$base"/}"
+  done < "$1" > "$1.rel"
+  if (cd "$base" && git --git-dir="$REC_STORE" hash-object -w --no-filters --stdin-paths) < "$1.rel" > "$2" 2>/dev/null; then
+    rm -f "$1.rel"
     return 0
   fi
+  rm -f "$1.rel"
   : > "$2"
   while IFS= read -r p; do
     id=$(git --git-dir="$REC_STORE" hash-object -w --no-filters -- "$p" 2>/dev/null) || id="-"
@@ -765,8 +779,11 @@ _rec_norm() {
     done < "$REC_SCR/changes.t"
     exec 6<&-
   } > "$nd/changes"
-  # norm/files/<path>: every added or changed regular file.
-  exec 6< "$REC_SCR/cpaths.norm"
+  # norm/files/<name>: every added or changed regular file, under its path with
+  # each of < > : " \ | ? * made _, since NTFS forbids them in a name (two
+  # paths may then share a name; a known limit). One tr for all the paths.
+  $C tr '<>:"\\|?*' '_________' < "$REC_SCR/cpaths.norm" > "$REC_SCR/cpaths.files"
+  exec 6< "$REC_SCR/cpaths.files"
   while IFS="$TAB" read -r x t r; do
     IFS= read -r -u 6 np || np=""
     case "$x$t" in
@@ -775,7 +792,7 @@ _rec_norm() {
     esac
     [ "$r" != "-" ] && [ -n "$r" ] || continue
     dest="$nd/files/$np"
-    mkdir -p "$(dirname "$dest")" || continue
+    mkdir -p "$(dirname "$dest")" || { _rec_err "norm-file"; continue; }
     if git --git-dir="$REC_STORE" cat-file blob "$r" > "$REC_SCR/blob" 2>/dev/null; then
       _nf_text "$REC_DIR" "$REC_SCR/blob" 1 > "$dest" || _rec_err "norm-file"
     else
@@ -829,7 +846,7 @@ _rec_pre() {
 # _rec_post <exit code> — everything recorded after jig ran. None of it can
 # change the result, which is already known.
 _rec_post() {
-  local rc="$1" entry
+  local rc="$1" entry step
   _rec_sub tree.after _rec_snapshot after
   _rec_sub git.after _rec_gitstate after
   _rec_sub changes _rec_changes
@@ -841,8 +858,18 @@ _rec_post() {
   else
     rm -f "$REC_DIR/recorder.log"
   fi
+  # Last: every _rec_err above has written its step here as well.
+  if [ -s "$REC_DIR/.errors" ]; then
+    while IFS= read -r step; do
+      case ",$REC_ERRORS," in
+        *",$step,"*) ;;
+        *) REC_ERRORS="${REC_ERRORS:+$REC_ERRORS,}$step" ;;
+      esac
+    done < "$REC_DIR/.errors"
+  fi
+  rm -f "$REC_DIR/.errors"
   {
-    printf 'format=1\n'
+    printf 'format=2\n'
     printf 'test=%s::%s\n' "$REC_FILE" "$REC_TEST"
     printf 'seq=%s\n' "$REC_SEQ"
     printf 'exit=%s\n' "$rc"

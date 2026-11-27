@@ -839,3 +839,50 @@ test_runner_shares_by_durations_are_deterministic_and_start_the_longest_first() 
   b=$(rn_shard_names 2 3 JIG_TEST_DURATIONS="$PWD/table.tsv")
   assert_eq "$a" "$b" "share 2/3 twice"
 }
+
+# --- inherited secrets ---------------------------------------------------
+
+test_runner_does_not_pass_secret_looking_variables_to_a_test() {
+  rn_build_suite
+  cat > root/tests/s.t.sh <<'EOF2'
+# shellcheck shell=bash
+test_1_sees() {
+  {
+    printf 'token=%s\n' "${GH_TOKEN-unset}"
+    printf 'lower=%s\n' "${my_secret-unset}"
+    printf 'key=%s\n' "${FOO_API_KEY-unset}"
+    printf 'pass=%s\n' "${DB_PASSWORD-unset}"
+    printf 'pat=%s\n' "${GH_PAT-unset}"
+    printf 'plain=%s\n' "${PLAIN_VALUE-unset}"
+  } > "$SEEN_FILE"
+}
+EOF2
+  run env -u JIG_TEST_SHARD -u JIG_TEST_SKIP JIG_TEST_JOBS=1 \
+    "SEEN_FILE=$PWD/seen" GH_TOKEN=leak my_secret=leak FOO_API_KEY=leak \
+    DB_PASSWORD=leak GH_PAT=leak PLAIN_VALUE=kept "$PWD/root/tests/run.sh"
+  assert_eq 0 "$RC" "the fixture suite passes"
+  seen=$(cat seen)
+  assert_contains "$seen" "token=unset"
+  assert_contains "$seen" "lower=unset"
+  assert_contains "$seen" "key=unset"
+  assert_contains "$seen" "pass=unset"
+  assert_contains "$seen" "pat=unset"
+  assert_contains "$seen" "plain=kept"
+}
+
+# --- record mode ---------------------------------------------------------
+
+test_runner_refuses_a_record_directory_of_another_format() {
+  rn_build_suite
+  cat > root/tests/s.t.sh <<'EOF2'
+# shellcheck shell=bash
+test_1_runs() { :; }
+EOF2
+  mkdir rec
+  printf 'jig-recording 1\n' > rec/FORMAT
+  run env -u JIG_TEST_SHARD -u JIG_TEST_SKIP JIG_TEST_JOBS=1 \
+    "JIG_RECORD=$PWD/rec" "$PWD/root/tests/run.sh"
+  assert_eq 2 "$RC" "a recording of format 1 is refused"
+  assert_contains "$OUT" 'this runner writes "jig-recording 2"'
+  assert_eq "jig-recording 1" "$(cat rec/FORMAT)" "the directory is left as it was"
+}

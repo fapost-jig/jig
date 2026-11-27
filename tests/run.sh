@@ -66,7 +66,7 @@
 # test makes, keeps the raw call (arguments, working directory, environment,
 # stdin, output, exit code, file trees before and after, git state) and its
 # normalised views under <dir> (the stack recorder, tests/lib/recorder.sh; the
-# format is "jig-recording 1"). The directory is created when it is missing, a
+# format is "jig-recording 2"). The directory is created when it is missing, a
 # FORMAT of another version refuses the run, it may not lie inside the run's own
 # results (they are removed at the end), and a test's earlier recording is
 # replaced by the new one. Recording reads nothing from the runner's stdin (it is
@@ -124,13 +124,13 @@ if [ -n "${JIG_RECORD:-}" ]; then
   if [ -f "$RECORD_DIR/FORMAT" ]; then
     record_format=""
     IFS= read -r record_format < "$RECORD_DIR/FORMAT" || true
-    if [ "$record_format" != "jig-recording 1" ]; then
-      printf 'tests/run.sh: %s holds a recording of another format (%s); this runner writes "jig-recording 1"\n' \
+    if [ "$record_format" != "jig-recording 2" ]; then
+      printf 'tests/run.sh: %s holds a recording of another format (%s); this runner writes "jig-recording 2"\n' \
         "$RECORD_DIR" "$record_format" >&2
       exit 2
     fi
   else
-    printf 'jig-recording 1\n' > "$RECORD_DIR/FORMAT" \
+    printf 'jig-recording 2\n' > "$RECORD_DIR/FORMAT" \
       || { printf 'tests/run.sh: could not write %s/FORMAT\n' "$RECORD_DIR" >&2; exit 2; }
   fi
   if [ ! -f "$RECORD_DIR/store.git/HEAD" ]; then
@@ -432,6 +432,22 @@ enter_test_env() {
     GIT_CEILING_DIRECTORIES GIT_DISCOVERY_ACROSS_FILESYSTEM
   export GIT_AUTHOR_NAME=jig GIT_AUTHOR_EMAIL=jig@test
   export GIT_COMMITTER_NAME=jig GIT_COMMITTER_EMAIL=jig@test
+  # A variable that looks like a secret (a developer's GH_TOKEN, an API key) is
+  # not inherited by any test, recorded run or not, so that recording never
+  # changes an outcome: a stub that logs `env` into the test's tree would
+  # otherwise put the secret into a recording's store.git and norm/files. A
+  # test that needs a token sets a fake one itself, and then it is recorded in
+  # `env` because it differs from the runner's.
+  local secret_name
+  while IFS= read -r secret_name; do
+    case "$secret_name" in
+      *[Tt][Oo][Kk][Ee][Nn]* | *[Ss][Ee][Cc][Rr][Ee][Tt]* | *[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]* \
+        | *[Pp][Aa][Ss][Ss][Ww][Dd]* | *[Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll]* \
+        | *[Aa][Pp][Ii]_[Kk][Ee][Yy]* | *[Aa][Cc][Cc][Ee][Ss][Ss]_[Kk][Ee][Yy]* | *_[Kk][Ee][Yy] \
+        | *_[Pp][Aa][Tt])
+        unset "$secret_name" ;;
+    esac
+  done < <(compgen -e)
   # shellcheck disable=SC1090,SC1091
   . "$ROOT/tests/lib/assert.sh"
 }

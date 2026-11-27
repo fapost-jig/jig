@@ -566,6 +566,24 @@ skip_unless_control_char_names() {
   esac
 }
 
+# skip_unless_ntfs_forbidden_names — skip the calling test unless a file name
+# holding the bytes NTFS forbids (< > : " | ? *) can be made and git hashes it
+# by its name: on Windows MSYS stores them as other characters, and native git
+# cannot open such a path.
+skip_unless_ntfs_forbidden_names() {
+  local dir name id
+  dir=$(mktemp -d "${TMPDIR:-/tmp}/jig-ntfs-check.XXXXXX") || return 1
+  [ -n "$dir" ] && [ -d "$dir" ] || return 1
+  name='a<b>c:d"e|f?g*h'
+  id=$(
+    cd "$dir" || exit 1
+    printf 'x\n' > "$name" 2>/dev/null || exit 1
+    git hash-object --no-filters -- "$name" 2>/dev/null
+  ) || id=""
+  rm -rf "$dir"
+  [ -n "$id" ] || skip "this filesystem or git cannot carry < > : \" | ? * in a file name"
+}
+
 # skip_unless_non_ascii_names — skip the calling test unless a file name
 # holding a byte above 0x7F round-trips through git. The name is built from
 # octal escapes so this file stays pure ASCII, the way the tests that use it
