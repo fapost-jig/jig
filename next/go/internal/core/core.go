@@ -3,6 +3,8 @@
 package core
 
 import (
+	"io"
+
 	"github.com/fapost-jig/jig/next/go/internal/clock"
 	"github.com/fapost-jig/jig/next/go/internal/proc"
 )
@@ -15,4 +17,16 @@ type Ctx struct {
 	Clock clock.Clock
 	// Env answers an environment variable; "" when it is not set.
 	Env func(key string) string
+	// Cwd is the directory the program was started in; "" is ".".
+	Cwd string
+	// Stdin is what `-` reads (a file list on stdin); nil is an empty input.
+	Stdin io.Reader
+}
+
+// cwd is the directory git is asked from when no checkout is named yet.
+func (c Ctx) cwd() string {
+	if c.Cwd == "" {
+		return "."
+	}
+	return c.Cwd
 }

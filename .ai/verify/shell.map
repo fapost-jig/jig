@@ -34,7 +34,7 @@ scripts/jig-next-ts*            next-ts:: parity-ports::
 # suites. The intended list is read by the check alone (task parity-check).
 tests/lib/recorder.sh           recorder:: parity:: parity-ports::
 tests/lib/parity.sh             parity:: parity-ports::
-tests/parity/**                 parity:: parity-ports::
+tests/parity/**                 parity:: parity-ports:: parity-context-go::
 tests/parity.t.sh               parity::
 
 # `jig version` of both ports against its bash recordings (tests/parity-ports.t.sh). The first matching
@@ -63,8 +63,11 @@ scripts/lib/prgitlab.sh         pr:: gh::
 # profile `go` is not on in .ai/config.yaml, so this line is what makes `jig verify`
 # run them when anything under next/go changes. The launcher is also a file
 # under scripts/, which the guards of dispatcher:: and gh:: scan.
-next/go/**                      next-go:: parity-ports::
-scripts/jig-next-go*            next-go:: dispatcher:: gh:: parity-ports::
+next/go/**                      next-go:: parity-ports:: parity-context-go::
+scripts/jig-next-go*            next-go:: dispatcher:: gh:: parity-ports:: parity-context-go::
+# The Go port of `jig context` is held to the bash recordings of the tests that call it
+# (task pilot-context-go); its own file is mapped here.
+tests/parity-context-go.t.sh    parity-context-go::
 
 adapters/**                     adapters::
 profiles/**                     profiles:: verify::

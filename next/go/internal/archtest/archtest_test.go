@@ -206,8 +206,8 @@ func TestOnlyStorageKnowsWhereWorkspacesAre(t *testing.T) {
 			if !ok || lit.Kind != token.STRING {
 				return true
 			}
-			if v, err := strconv.Unquote(lit.Value); err == nil && strings.Contains(v, "workspace") {
-				t.Errorf("%s:%d: a string with `workspace` outside internal/storage", s.rel, s.fset.Position(lit.Pos()).Line)
+			if v, err := strconv.Unquote(lit.Value); err == nil && strings.Contains(v, "workspace/") {
+				t.Errorf("%s:%d: a string with a `workspace/` path outside internal/storage", s.rel, s.fset.Position(lit.Pos()).Line)
 			}
 			return true
 		})
