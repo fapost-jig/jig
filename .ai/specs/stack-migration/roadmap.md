@@ -25,6 +25,7 @@ new code passes against its recordings, locally and on the manual Windows run.
 - [ ] `parity-check` — Parity check — a ported command is run against its recordings and the differences are reported, with a list of intended differences (after: Recorder — it reads what the recorder wrote)
 - [ ] `ts-skeleton` — TypeScript skeleton — runtime choice, `jig-next`, core and CLI split, the process executor, the storage module reading today's files, zod schemas, the invariant test, the bundle into `jig.mjs` with the dependency rules checked
 - [x] `go-skeleton` — Go skeleton — the same pieces in Go, enough to port the pilot
+- [ ] `recorder-hardening` — Recorder on Windows — path-safe placeholders, no inherited secrets in snapshots, no lost recorder errors (findings of `stack-recorder`)
 
 ## Phase 2 — Pilot and the language
 
