@@ -114,6 +114,11 @@ The owner's colleagues, 2026-11-23:
   not depend on the language. Rejected: Rust, because Jig waits on `git`, not on CPU, and its port
   costs the most; choosing now, because both sides of the comparison are real and only the pilot
   gives numbers (owner and colleagues, 2026-11-23).
+- Readable source in the installed project weighs in the choice: a user, or their agent, can read
+  `jig.mjs` to understand a failure and file an issue, which a binary does not allow. So the bundle
+  is never minified. TypeScript is chosen if it passes the pilot's gate; Go wins only if TypeScript
+  misses the gate and Go passes it, or Go's numbers are better by a margin the comparison states and
+  the owner accepts. The 3× gate stays the test of whether to port at all (owner, 2026-11-27).
 - The decisions below are written for TypeScript; if Go wins, the runtime, the in-project file, the
   profiles-as-modules and the schema library are decided again before Phase 3.
 - Runtime (TypeScript): Node LTS (24, at least 22), `.ts` run directly by type stripping with no
@@ -173,6 +178,14 @@ The owner's colleagues, 2026-11-23:
   written list of intended differences, each with its reason; sorting is byte order; non-UTF-8
   names go through `Buffer`. A command's bash tests are deleted only once its port passes, so a
   doubtful recording can be taken again.
+- Which tests run where: the bash tests are the oracle for development — a port records the bash
+  tests of its own command, replays them and gets its own tests on the new stack that cover the same
+  behaviour. CI on the epic runs the new stack's tests and the parity check of the ported commands,
+  recording only those commands' bash tests; it never reruns the whole bash suite, since bash does
+  not change on the epic. The whole bash suite runs only on `main`, which stays on 0.51.2 until the
+  epic lands; a command's bash tests leave with its bash code once its port passes, so by the
+  cut-over there is no bash suite left to run. Before the epic lands, CI runs the new stack's whole
+  suite and the rollback check: 0.51.2 reads what 1.0 wrote (owner, 2026-11-27).
 - No mixed code: the new implementation grows beside the bash one and calls only itself; ports go
   from the leaves of the call graph to `task`, shared code moving with the first command that needs
   it; a separate `jig-next` lets the owner and agents use ported commands on this repository early,
