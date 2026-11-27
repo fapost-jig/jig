@@ -21,6 +21,15 @@ jig_resolve_path() {
 
 JIG_SELF=$(jig_resolve_path "${BASH_SOURCE[0]}")
 JIG_LIB=$(cd "$(dirname "$JIG_SELF")/lib" && pwd)
+
+# Test-only hook: `JIG_RECORD=<dir> tests/run.sh` sets JIG_RECORDER, and the
+# outermost call of a test is then run through tests/lib/recorder.sh, which
+# starts this script again under JIG_RECORDING and keeps what it saw. Nothing
+# sets JIG_RECORDER outside the test runner, so for a user this is a no-op.
+if [ -n "${JIG_RECORDER:-}" ] && [ -z "${JIG_RECORDING:-}" ]; then
+  exec "$BASH" "$JIG_RECORDER" record "${BASH_SOURCE[0]}" "$@"
+fi
+
 export JIG_SELF JIG_LIB
 
 # shellcheck source=lib/version.sh
