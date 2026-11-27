@@ -114,6 +114,11 @@ The owner's colleagues, 2026-11-23:
   not depend on the language. Rejected: Rust, because Jig waits on `git`, not on CPU, and its port
   costs the most; choosing now, because both sides of the comparison are real and only the pilot
   gives numbers (owner and colleagues, 2026-11-23).
+- Readable source in the installed project weighs in the choice: a user, or their agent, can read
+  `jig.mjs` to understand a failure and file an issue, which a binary does not allow. So the bundle
+  is never minified. TypeScript is chosen if it passes the pilot's gate; Go wins only if TypeScript
+  misses the gate and Go passes it, or Go's numbers are better by a margin the comparison states and
+  the owner accepts. The 3× gate stays the test of whether to port at all (owner, 2026-11-27).
 - The decisions below are written for TypeScript; if Go wins, the runtime, the in-project file, the
   profiles-as-modules and the schema library are decided again before Phase 3.
 - Runtime (TypeScript): Node LTS (24, at least 22), `.ts` run directly by type stripping with no
