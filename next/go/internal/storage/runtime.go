@@ -2,11 +2,14 @@ package storage
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/fapost-jig/jig/next/go/internal/clock"
 )
 
 // AiDir is the directory a project keeps Jig's files in (JIG_AI_DIR).
@@ -14,10 +17,10 @@ const AiDir = ".ai"
 
 // CloneRoot is the main checkout of the clone root belongs to
 // (jig_config_clone_root).
-func CloneRoot(root string) string { return cloneRoot(root) }
+func CloneRoot(root string) string { return Slash(cloneRoot(root)) }
 
 // RuntimeDir is root's own .ai/runtime directory.
-func RuntimeDir(root string) string { return filepath.Join(root, AiDir, "runtime") }
+func RuntimeDir(root string) string { return Slash(filepath.Join(root, AiDir, "runtime")) }
 
 // RecordGet is _jig_checkout_read: the value of the first `<key>: <value>` line
 // of a flat record, a CR at a line's end removed. found is false when there is
@@ -123,7 +126,7 @@ func TakenRecordsOf(cloneRoot, session string) []string {
 		}
 		p := filepath.Join(RuntimeDir(cloneRoot), "taken", d.Name(), session)
 		if isFile(p) {
-			out = append(out, p)
+			out = append(out, Slash(p))
 		}
 	}
 	sort.Strings(out)
@@ -133,12 +136,8 @@ func TakenRecordsOf(cloneRoot, session string) []string {
 // TaskHasState reports whether task id of project root has a state file. The id
 // is valid: the caller checked it.
 func TaskHasState(root, id string) bool {
-	return ValidID(id) && isFile(filepath.Join(root, AiDir, "workspace", "tasks", id, "state"))
-}
-
-// TaskStatePath is where task id's state file is; the id is valid.
-func TaskStatePath(root, id string) string {
-	return filepath.Join(root, AiDir, "workspace", "tasks", id, "state")
+	path, err := TaskStatePath(root, id)
+	return err == nil && isFile(path)
 }
 
 // TaskIDsWithState are the ids of the workspaces of root that hold a state
@@ -166,7 +165,8 @@ func TaskIDsWithState(root string) []string {
 // TaskFileExists reports whether the task's workspace holds the regular file
 // name.
 func TaskFileExists(root, id, name string) bool {
-	return ValidID(id) && isFile(filepath.Join(root, AiDir, "workspace", "tasks", id, name))
+	dir, err := TaskDirPath(root, id)
+	return err == nil && isFile(filepath.Join(dir, name))
 }
 
 // ReadText is the text of the file at path.
@@ -219,8 +219,17 @@ func CfgLayered(root, key string, localKey bool, def string) string {
 // HasConfig reports whether root holds .ai/config.yaml.
 func HasConfig(root string) bool { return isFile(filepath.Join(root, AiDir, "config.yaml")) }
 
-// TaskWorkspaceRel is the project-relative directory of task id's workspace.
-func TaskWorkspaceRel(id string) string { return AiDir + "/workspace/tasks/" + id }
+// TaskWorkspaceRel is the project-relative directory of task id's workspace;
+// an invalid id has none.
+func TaskWorkspaceRel(id string) (string, error) {
+	if !ValidID(id) {
+		return "", fmt.Errorf("%w: %s", ErrInvalidID, id)
+	}
+	return TasksRel + "/" + id, nil
+}
+
+// TasksRel is the project-relative directory that holds every task workspace.
+const TasksRel = AiDir + "/workspace/tasks"
 
 // WriteFileTmp writes body to `<path>.tmp.<pid>` and renames it over path, the
 // way the shell writers do (`tmp` then `mv`), with the file mode a redirect
@@ -253,14 +262,9 @@ func IsSymlink(path string) bool {
 	return err == nil && info.Mode()&os.ModeSymlink != 0
 }
 
-// TaskDirPath is where task id's workspace directory is.
-func TaskDirPath(root, id string) string {
-	return filepath.Join(root, AiDir, "workspace", "tasks", id)
-}
-
 // TasksDirPath is the directory that holds every task workspace of root.
 func TasksDirPath(root string) string {
-	return filepath.Join(root, AiDir, "workspace", "tasks")
+	return Slash(filepath.Join(root, AiDir, "workspace", "tasks"))
 }
 
 // DirEntryNames are the names in dir, sorted; none when it cannot be read.
@@ -275,4 +279,26 @@ func DirEntryNames(dir string) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// AutopilotLog is _task_autopilot_log: one `<UTC>\t<event>\t<text>` line
+// appended to the task's autopilot journal through a copy and a rename, and the
+// clone's revision raised. The task's directory has been checked by the caller.
+func AutopilotLog(root, id, event, text string, clk clock.Clock) error {
+	dir, err := TaskDirPath(root, id)
+	if err != nil {
+		return err
+	}
+	file := dir + "/autopilot"
+	old, _ := ReadText(file)
+	if !WriteFileTmp(file, old+clk.UTC()+"\t"+event+"\t"+text+"\n") {
+		return fmt.Errorf("cannot write %s", file)
+	}
+	return RevisionBump(root, clk)
+}
+
+// RuntimeDirOfTasks is the runtime directory beside a borrowed tasks directory
+// (forgecache_file): `<ai>/runtime` for `<ai>/workspace/tasks`.
+func RuntimeDirOfTasks(tasks string) string {
+	return strings.TrimSuffix(tasks, "/workspace/tasks") + "/runtime"
 }

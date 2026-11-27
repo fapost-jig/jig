@@ -48,5 +48,5 @@
 # A pause honoured at the stage boundary: bash runs `task pause --if-requested`, which runs `queue cancel`, as
 # nested jig processes, each recording itself as this checkout's last command; a port pauses in-process
 # (spec stack-migration: no mixed code), so the records keep the command the person ran.
-*	context/test_context_resolve_with_a_stage_honours_a_pause_request/0002	files/_T_/.ai/runtime/checkout	^command: (queue cancel task:t1 pause --json|context resolve --task t1 --stage implement --files x)$	the checkout records the command that was run, not the last nested jig process bash started to pause the task
-*	context/test_context_resolve_with_a_stage_honours_a_pause_request/0002	files/_T_/.ai/runtime/working/t1	^command: (task pause t1 --if-requested --stage implement|context resolve --task t1 --stage implement --files x)$	the work record names the command that was run, not the nested task pause bash started
+go	context/test_context_resolve_with_a_stage_honours_a_pause_request/0002	files/_T_/.ai/runtime/checkout	^command: (queue cancel task:t1 pause --json|context resolve --task t1 --stage implement --files x)$	the checkout records the command that was run, not the last nested jig process bash started to pause the task
+go	context/test_context_resolve_with_a_stage_honours_a_pause_request/0002	files/_T_/.ai/runtime/working/t1	^command: (task pause t1 --if-requested --stage implement|context resolve --task t1 --stage implement --files x)$	the work record names the command that was run, not the nested task pause bash started

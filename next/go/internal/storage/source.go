@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 )
 
 // IsSourceRoot is jig_is_source_root: dir is a framework source checkout when
@@ -79,5 +80,17 @@ func PhysicalDir(dir string) string {
 	if err != nil {
 		return ""
 	}
-	return abs
+	return Slash(abs)
+}
+
+// Slash is p with the operating system's separator written as `/`: the form
+// every path takes when storage hands it to core, so that core's string
+// operations (prefix, join, relative) hold on Windows too.
+func Slash(p string) string { return slashWith(p, filepath.Separator) }
+
+func slashWith(p string, sep rune) string {
+	if sep == '/' {
+		return p
+	}
+	return strings.ReplaceAll(p, string(sep), "/")
 }

@@ -196,21 +196,69 @@ func TestOnlyStorageTouchesTheFileSystem(t *testing.T) {
 	}
 }
 
+// workspacePathLiteral reports whether a string literal's value builds or names
+// a task workspace path: a bare `workspace` path segment, or anything holding
+// `workspace/` or `/workspace`. The output label `workspace:` and prose that
+// merely uses the word are not paths.
+func workspacePathLiteral(v string) bool {
+	return v == "workspace" || strings.Contains(v, "workspace/") || strings.Contains(v, "/workspace")
+}
+
+// workspaceLiterals are the positions of the string literals of f that
+// workspacePathLiteral reports.
+func workspaceLiterals(fset *token.FileSet, f *ast.File) []token.Position {
+	var out []token.Position
+	ast.Inspect(f, func(n ast.Node) bool {
+		lit, ok := n.(*ast.BasicLit)
+		if !ok || lit.Kind != token.STRING {
+			return true
+		}
+		if v, err := strconv.Unquote(lit.Value); err == nil && workspacePathLiteral(v) {
+			out = append(out, fset.Position(lit.Pos()))
+		}
+		return true
+	})
+	return out
+}
+
 func TestOnlyStorageKnowsWhereWorkspacesAre(t *testing.T) {
 	for _, s := range sources(t) {
 		if s.pkg == "internal/storage" {
 			continue
 		}
-		ast.Inspect(s.file, func(n ast.Node) bool {
-			lit, ok := n.(*ast.BasicLit)
-			if !ok || lit.Kind != token.STRING {
-				return true
-			}
-			if v, err := strconv.Unquote(lit.Value); err == nil && strings.Contains(v, "workspace/") {
-				t.Errorf("%s:%d: a string with a `workspace/` path outside internal/storage", s.rel, s.fset.Position(lit.Pos()).Line)
-			}
-			return true
-		})
+		for _, pos := range workspaceLiterals(s.fset, s.file) {
+			t.Errorf("%s:%d: a workspace path outside internal/storage", s.rel, pos.Line)
+		}
+	}
+}
+
+// The detector above is checked on planted samples: a file it must report and
+// one it must stay silent on (conventions/detectors.md).
+func TestWorkspaceDetectorReportsPathsAndStaysSilentOnLabels(t *testing.T) {
+	parse := func(src string) []token.Position {
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, "sample.go", src, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return workspaceLiterals(fset, f)
+	}
+	mustReport := `package x
+import "path/filepath"
+var a = filepath.Join(root, ".ai", "workspace", "tasks", id)
+var b = ".ai/workspace/tasks/" + id
+var c = root + "/workspace"
+`
+	if got := parse(mustReport); len(got) != 3 {
+		t.Errorf("planted paths: %d reported, want 3", len(got))
+	}
+	mustStaySilent := `package x
+var row = "workspace:"
+var msg = "no task workspace; nothing tracked"
+var prose = "unknown task: workspaces are per checkout"
+`
+	if got := parse(mustStaySilent); len(got) != 0 {
+		t.Errorf("planted labels: %d reported, want none", len(got))
 	}
 }
 

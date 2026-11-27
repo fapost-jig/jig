@@ -17,6 +17,9 @@ type Ctx struct {
 	Clock clock.Clock
 	// Env answers an environment variable; "" when it is not set.
 	Env func(key string) string
+	// FileClock is the real clock, which a file's mtime is compared against; the
+	// zero value is the machine's. JIG_NOW pins Clock, never this one.
+	FileClock clock.Clock
 	// Cwd is the directory the program was started in; "" is ".".
 	Cwd string
 	// Stdin is what `-` reads (a file list on stdin); nil is an empty input.

@@ -98,6 +98,39 @@ test_next_go_launcher_prints_the_version_jig_prints() {
   assert_eq "$want" "$OUT"
 }
 
+# The launcher builds only when it must: a second run leaves the binary as it is, and a newer
+# Go source makes it build again.
+_ng_mtime() {
+  stat -f %m "$1" 2>/dev/null || stat -c %Y "$1"
+}
+
+test_next_go_launcher_builds_only_when_a_source_is_newer() {
+  _ng_go
+  # A copy of the framework's launcher and module of its own: dating a source ahead in the release
+  # copy would make every other test's launcher rebuild.
+  local fw="$JIG_TEST_TMP/fw" bin first second third src
+  mkdir -p "$fw/scripts" "$fw/next"
+  cp "$JIG_HOME/scripts/jig-next-go" "$fw/scripts/"
+  cp -R "$JIG_HOME/next/go" "$fw/next/"
+  rm -rf "$fw/next/go/.build"
+  bin="$JIG_TEST_TMP/build/jig-next"
+  src="$fw/next/go/cmd/jig-next/main.go"
+  run env JIG_NEXT_BUILD_DIR="$JIG_TEST_TMP/build" "$fw/scripts/jig-next-go" --help
+  _ng_ok "first run"
+  # Dated ahead of every source, so that nothing is newer than it and a rebuild shows in the time.
+  touch -t 203001010000 "$bin"
+  first=$(_ng_mtime "$bin")
+  run env JIG_NEXT_BUILD_DIR="$JIG_TEST_TMP/build" "$fw/scripts/jig-next-go" --help
+  _ng_ok "second run"
+  second=$(_ng_mtime "$bin")
+  assert_eq "$first" "$second"
+  touch -t 203101010000 "$src"
+  run env JIG_NEXT_BUILD_DIR="$JIG_TEST_TMP/build" "$fw/scripts/jig-next-go" --help
+  _ng_ok "run after a source changed"
+  third=$(_ng_mtime "$bin")
+  [ "$third" != "$first" ] || fail "a newer Go source did not rebuild the binary"
+}
+
 test_next_go_launcher_prints_help() {
   _ng_go
   run env JIG_NEXT_BUILD_DIR="$JIG_TEST_TMP/build" "$JIG_HOME/scripts/jig-next-go" --help

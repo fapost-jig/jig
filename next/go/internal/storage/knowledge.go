@@ -35,7 +35,7 @@ func KnowledgeDocs(root string) []string {
 				}
 			}
 		}
-		docs = append(docs, path)
+		docs = append(docs, Slash(path))
 		return nil
 	})
 	sort.Strings(docs)

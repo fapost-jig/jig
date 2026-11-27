@@ -29,11 +29,9 @@ func currentBranch(ctx Ctx, p Project) string {
 
 // taskCandidates is _task_candidates_for_branch: the ids, sorted, of the tasks
 // whose branch is branch, whose status is active or ready and which are not
-// paused. A ready task on the staging flow may be parked, which this port does
-// not read yet: that is a refusal, not a guess.
-func taskCandidates(p Project, branch string) ([]string, error) {
-	var list []string
-	ready := false
+// paused; a ready task parked at the staging branch is not one.
+func taskCandidates(ctx Ctx, p Project, branch string) ([]string, error) {
+	var list, ready []string
 	for _, id := range storage.TaskIDsWithState(p.Root) {
 		if br, _ := storage.TaskStateGet(p.Root, id, "branch"); br != branch {
 			continue
@@ -46,12 +44,19 @@ func taskCandidates(p Project, branch string) ([]string, error) {
 			continue
 		}
 		if st == "ready" {
-			ready = true
+			ready = append(ready, id)
 		}
 		list = append(list, id)
 	}
-	if ready && storage.CfgLayered(p.Root, "git.flow", false, "direct") == "staging" {
-		return nil, errs.New(errs.Failed, "a ready task on the staging flow may be parked, which this implementation does not read yet")
+	// A ready task waiting at the staging branch holds no current-task slot.
+	if parked := parkedIDs(ctx, p, ready); len(parked) > 0 {
+		var kept []string
+		for _, id := range list {
+			if !parked[id] {
+				kept = append(kept, id)
+			}
+		}
+		list = kept
 	}
 	sort.Strings(list)
 	return list, nil
@@ -69,7 +74,7 @@ type currentTask struct {
 // taskCurrent is task_current for the checkout p.
 func taskCurrent(ctx Ctx, p Project) (currentTask, error) {
 	branch := currentBranch(ctx, p)
-	cands, err := taskCandidates(p, branch)
+	cands, err := taskCandidates(ctx, p, branch)
 	if err != nil {
 		return currentTask{}, err
 	}
@@ -88,17 +93,39 @@ func taskCurrent(ctx Ctx, p Project) (currentTask, error) {
 	return currentTask{Status: 2, Stderr: b.String()}, nil
 }
 
+// taskDirOf is task_dir: the task's workspace directory, and what the shell
+// dies with for an id that is not one.
+func taskDirOf(root, id string) (string, error) {
+	d, err := storage.TaskDirPath(root, id)
+	if err != nil {
+		return "", errs.New(errs.Failed, "invalid task id: %s", id)
+	}
+	return d, nil
+}
+
+// workspaceRel is the project-relative directory of the task's workspace.
+func workspaceRel(id string) (string, error) {
+	d, err := storage.TaskWorkspaceRel(id)
+	if err != nil {
+		return "", errs.New(errs.Failed, "invalid task id: %s", id)
+	}
+	return d, nil
+}
+
 // guardWrite is _task_guard_write: the check every writer of a task's workspace
 // passes. The tasks directory must physically be the one of a checkout of this
 // repository, and the task's directory the entry named after it, or a link to
 // its workspace in a worktree of this repository. The error is what the shell
 // dies with, naming cmd.
 func guardWrite(ctx Ctx, p Project, id, cmd string) error {
-	dir := storage.TaskDirPath(p.Root, id)
+	dir, err := taskDirOf(p.Root, id)
+	if err != nil {
+		return err
+	}
 	if !storage.IsFile(dir + "/state") {
 		return errs.New(errs.NotFound, "%s: unknown task: %s", cmd, id)
 	}
-	tasksRel := strings.TrimSuffix(storage.TaskWorkspaceRel(""), "/")
+	tasksRel := storage.TasksRel
 	tasksRoot := storage.PhysicalDir(storage.TasksDirPath(p.Root))
 	if tasksRoot == "" {
 		return errs.New(errs.Failed, "%s: cannot inspect %s", cmd, tasksRel)

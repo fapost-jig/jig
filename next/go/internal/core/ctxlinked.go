@@ -61,8 +61,8 @@ func refDir(p Project, r taskRef) (string, string) {
 		}
 		return d, ""
 	}
-	d := storage.TaskDirPath(abs, r.id)
-	if !storage.IsFile(d + "/task.md") {
+	d, err := storage.TaskDirPath(abs, r.id)
+	if err != nil || !storage.IsFile(d+"/task.md") {
 		return "", "no task " + r.id + " in " + abs + " (a task workspace exists only in the clone that filed it)"
 	}
 	return d, ""
@@ -91,11 +91,15 @@ func linkedRows(p Project, id string) []linkRow {
 	if id == "" {
 		return nil
 	}
-	md, ok := storage.ReadText(storage.TaskDirPath(p.Root, id) + "/task.md")
-	if !ok || !storage.IsFile(storage.TaskDirPath(p.Root, id)+"/task.md") {
+	dir, err := storage.TaskDirPath(p.Root, id)
+	if err != nil {
 		return nil
 	}
-	own := storage.PhysicalDir(storage.TaskDirPath(p.Root, id))
+	md, ok := storage.ReadText(dir + "/task.md")
+	if !ok || !storage.IsFile(dir+"/task.md") {
+		return nil
+	}
+	own := storage.PhysicalDir(dir)
 	var rows []linkRow
 	for _, ref := range taskLinks(md) {
 		r, why := parseTaskRef(ref)

@@ -68,6 +68,13 @@ scripts/jig-next-go*            next-go:: dispatcher:: gh:: parity-ports:: parit
 # The Go port of `jig context` is held to the bash recordings of the tests that call it
 # (task pilot-context-go); its own file is mapped here.
 tests/parity-context-go.t.sh    parity-context-go::
+# And so is any change to what those recordings are taken from: the bash command, its tests, and
+# the libraries a recorded call runs that are named after a test file of their own (common.sh has
+# none, so the built-in rule already runs everything for it).
+scripts/lib/context.sh          context:: parity-context-go::
+tests/context.t.sh              context:: parity-context-go::
+scripts/lib/checkout.sh         checkout:: parity-context-go::
+scripts/lib/frontmatter.sh      frontmatter:: parity-context-go::
 
 adapters/**                     adapters::
 profiles/**                     profiles:: verify::

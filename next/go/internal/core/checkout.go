@@ -3,7 +3,6 @@ package core
 import (
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/fapost-jig/jig/next/go/internal/clock"
 	"github.com/fapost-jig/jig/next/go/internal/storage"
@@ -121,7 +120,11 @@ func checkoutNameFromArgs(ctx Ctx, p Project, head string, words []string) strin
 // taskElsewhere is _jig_checkout_task_elsewhere: the task's branch is checked
 // out in a worktree that is not this one.
 func taskElsewhere(p Project, id, head, list string) bool {
-	branch, _ := storage.RecordGet(storage.TaskStatePath(p.Root, id), "branch")
+	state, err := storage.TaskStatePath(p.Root, id)
+	if err != nil {
+		return false
+	}
+	branch, _ := storage.RecordGet(state, "branch")
 	if branch == "" || list == "" || branch == head {
 		return false
 	}
@@ -135,7 +138,10 @@ func checkoutNameFromHead(p Project, head string) string {
 		return ""
 	}
 	for _, id := range storage.TaskIDsWithState(p.Root) {
-		state := storage.TaskStatePath(p.Root, id)
+		state, err := storage.TaskStatePath(p.Root, id)
+		if err != nil {
+			continue
+		}
 		if br, _ := storage.RecordGet(state, "branch"); br != head {
 			continue
 		}
@@ -276,7 +282,8 @@ func checkoutTake(ctx Ctx, p Project, words []string) {
 	if v, ok := storage.RecordGet(file, "since"); ok {
 		since = v
 		mtime, got := storage.MTime(file)
-		if !got || time.Now().Unix()-mtime > checkoutTTL(p) {
+		// real clock: against a file mtime
+		if !got || ctx.FileClock.Now().Unix()-mtime > checkoutTTL(p) {
 			since = ""
 		}
 	}

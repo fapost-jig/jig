@@ -40,18 +40,12 @@ func pauseIfRequested(ctx Ctx, p Project, id, stage string) (text string, paused
 	if v, _ := storage.TaskStateGet(p.Root, id, "paused"); v == "true" {
 		return "", false, nil
 	}
-	at, reason, ok := storage.PauseRequest(p.Root, id)
-	if !ok {
+	if _, _, ok := storage.PauseRequest(p.Root, id); !ok {
 		return "", false, nil
 	}
-	if v, _ := storage.TaskStateGet(p.Root, id, "autopilot"); v == "on" {
-		return "", false, errors.New("task pause: the autopilot journal is not written by this implementation yet")
-	}
-	if err := storage.QueueCancelRequest(p.Root, "task:"+id, "pause", ctx.Clock); err != nil {
-		if errors.Is(err, storage.ErrNoRequest) {
-			return "", false, nil
-		}
-		return "", false, fmt.Errorf("task pause: cannot take the pause request of %s out of the queue: %v", id, err)
+	at, reason, terr := takePauseRequest(ctx, p, id)
+	if terr != nil || at == "" {
+		return "", false, terr
 	}
 	why := "pause requested at " + at
 	if reason != "" {
@@ -62,5 +56,37 @@ func pauseIfRequested(ctx Ctx, p Project, id, stage string) (text string, paused
 			return "", false, fmt.Errorf("task pause: cannot write the state of %s: %v", id, err)
 		}
 	}
+	if v, _ := storage.TaskStateGet(p.Root, id, "autopilot"); v == "on" {
+		if err := storage.AutopilotLog(p.Root, id, "pause", stage+" not entered: "+why, ctx.Clock); err != nil && !errors.Is(err, storage.ErrRevisionNotRaised) {
+			return "", false, fmt.Errorf("task pause: cannot write the autopilot journal of %s: %v", id, err)
+		}
+	}
 	return fmt.Sprintf("paused: %s (%s); stage %s not entered", id, why, stage), true, nil
+}
+
+// takePauseRequest is _task_pause_take_request: the request leaves the queue
+// through the queue's own write, which is claimed against the revision it was
+// read at. A write that landed in between is read again, up to three times;
+// then the request stays. It answers when the request was made and why, and ""
+// when there is none (or somebody cancelled it first).
+func takePauseRequest(ctx Ctx, p Project, id string) (at, reason string, err error) {
+	for tries := 0; ; {
+		var ok bool
+		if at, reason, ok = storage.PauseRequest(p.Root, id); !ok {
+			return "", "", nil
+		}
+		cerr := storage.QueueCancelRequest(p.Root, "task:"+id, "pause", ctx.Clock)
+		switch {
+		case cerr == nil:
+			return at, reason, nil
+		case errors.Is(cerr, storage.ErrNoRequest):
+			return "", "", nil
+		case errors.Is(cerr, storage.ErrStaleRevision):
+			if tries++; tries >= 3 {
+				return "", "", fmt.Errorf("task pause: the queue kept changing; the pause request of %s stays", id)
+			}
+		default:
+			return "", "", fmt.Errorf("task pause: cannot take the pause request of %s out of the queue: %v", id, cerr)
+		}
+	}
 }

@@ -4,7 +4,8 @@
 #   scripts/jig-next-go [--version | --help]
 #
 # Builds next/go/cmd/jig-next into .ai/runtime/jig-next-go/, which git already
-# ignores (Go's build cache makes a repeat nearly free), and runs it with the
+# ignores, unless the binary there is newer than every Go source, go.mod and go.sum
+# of the module (a repeat run then starts no build at all), and runs it with the
 # arguments given. The program has no commands yet beyond --version and --help;
 # it grows beside the bash implementation and calls nothing of it.
 #
@@ -32,7 +33,17 @@ module="$root/next/go"
 out="${JIG_NEXT_BUILD_DIR:-$root/.ai/runtime/jig-next-go}"
 mkdir -p "$out" || die "cannot make $out"
 
-(cd "$module" && CGO_ENABLED=0 go build -o "$out/jig-next" ./cmd/jig-next) || die "go build failed"
+# Built only when it is out of date: the binary is missing, or a Go source, go.mod or go.sum
+# of the module is newer than it. One find, whose first hit is enough (BSD and GNU alike).
+bin="$out/jig-next"
+rebuild=1
+if [ -x "$bin" ]; then
+  newer=$(cd "$module" && find . \( -name '*.go' -o -name go.mod -o -name go.sum \) -newer "$bin" -print 2>/dev/null | head -n 1) || newer=""
+  [ -z "$newer" ] && rebuild=0
+fi
+if [ "$rebuild" -eq 1 ]; then
+  (cd "$module" && CGO_ENABLED=0 go build -o "$bin" ./cmd/jig-next) || die "go build failed"
+fi
 
 JIG_NEXT_ROOT="$root"
 export JIG_NEXT_ROOT

@@ -15,13 +15,20 @@ type ledger struct {
 	stage map[string]string
 }
 
-func ledgerFile(p Project, id string) string { return storage.TaskDirPath(p.Root, id) + "/context" }
+func ledgerFile(p Project, id string) (string, error) {
+	dir, err := taskDirOf(p.Root, id)
+	return dir + "/context", err
+}
 
 // readLedger reads the task's ledger; ok is false when there is none. A path
 // that is in the ledger twice keeps its last line, as the awk that reads it does.
 func readLedger(p Project, id string) (ledger, bool) {
-	text, ok := storage.ReadText(ledgerFile(p, id))
-	if !ok || !storage.IsFile(ledgerFile(p, id)) {
+	file, err := ledgerFile(p, id)
+	if err != nil {
+		return ledger{}, false
+	}
+	text, ok := storage.ReadText(file)
+	if !ok || !storage.IsFile(file) {
 		return ledger{}, false
 	}
 	l := ledger{hash: map[string]string{}, stage: map[string]string{}}

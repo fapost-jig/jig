@@ -160,7 +160,7 @@ func ctxStateless(ctx Ctx, p Project, args []string, out *Output) error {
 	var rows []row
 	for _, g := range storage.GlobalDocs() {
 		if storage.IsFile(p.Root + "/.ai/knowledge/" + g) {
-			rows = append(rows, row{"global", ".ai/knowledge/" + g, ""})
+			rows = append(rows, row{"global:", ".ai/knowledge/" + g, ""})
 		}
 	}
 	matched, err := matchedDocs(p, files, domains, showAll)
@@ -169,15 +169,19 @@ func ctxStateless(ctx Ctx, p Project, args []string, out *Output) error {
 	}
 	for _, m := range matched {
 		path, reason, _ := strings.Cut(m, "\t")
-		rows = append(rows, row{"matched", path, reason})
+		rows = append(rows, row{"matched:", path, reason})
 	}
 	if taskID != "" {
+		wdir, err := workspaceRel(taskID)
+		if err != nil {
+			return err
+		}
 		if storage.TaskFileExists(p.Root, taskID, "task.md") {
-			rows = append(rows, row{"workspace", storage.TaskWorkspaceRel(taskID) + "/task.md", ""})
+			rows = append(rows, row{"workspace:", wdir + "/task.md", ""})
 		}
 		for _, wf := range workspaceArtifacts {
 			if storage.TaskFileExists(p.Root, taskID, wf) {
-				rows = append(rows, row{"workspace", storage.TaskWorkspaceRel(taskID) + "/" + wf, ""})
+				rows = append(rows, row{"workspace:", wdir + "/" + wf, ""})
 			}
 		}
 	}
@@ -191,9 +195,9 @@ func ctxStateless(ctx Ctx, p Project, args []string, out *Output) error {
 		case format == "paths":
 			b.WriteString(r.path + "\n")
 		case r.reason != "":
-			fmt.Fprintf(&b, "%-10s %s  (%s)\n", r.label+":", r.path, r.reason)
+			fmt.Fprintf(&b, "%-10s %s  (%s)\n", r.label, r.path, r.reason)
 		default:
-			fmt.Fprintf(&b, "%-10s %s\n", r.label+":", r.path)
+			fmt.Fprintf(&b, "%-10s %s\n", r.label, r.path)
 		}
 	}
 	out.stdout(b.String())

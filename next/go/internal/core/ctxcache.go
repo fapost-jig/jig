@@ -5,7 +5,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/fapost-jig/jig/next/go/internal/proc"
 	"github.com/fapost-jig/jig/next/go/internal/storage"
 )
 
@@ -45,11 +44,7 @@ func (h *hasher) list(dir string, names []string) ([]string, error) {
 	}
 	h.ask()
 	if h.sha256 {
-		c := proc.Cmd{Name: "git", Args: []string{"hash-object", "--no-filters", "--stdin-paths"}, Dir: dir, Stdin: strings.Join(names, "\n") + "\n"}
-		if h.gitDir != "" {
-			c.Env = []string{"GIT_DIR=" + h.gitDir}
-		}
-		r, err := h.ctx.Exec.Run(c)
+		r, err := h.ctx.Exec.GitIn(dir, h.gitDir, strings.Join(names, "\n")+"\n", "hash-object", "--no-filters", "--stdin-paths")
 		if err != nil || r.Code != 0 {
 			return nil, fmt.Errorf("git hash-object failed")
 		}
@@ -123,8 +118,9 @@ func (h *hasher) hashPaths(paths []string) ([]hashedPath, error) {
 
 const cacheMark = "=== rows ==="
 
-func cacheFile(p Project, id string) string {
-	return storage.TaskDirPath(p.Root, id) + "/context-cache"
+func cacheFile(p Project, id string) (string, error) {
+	dir, err := taskDirOf(p.Root, id)
+	return dir + "/context-cache", err
 }
 
 // fingerprint is _ctx_cache_fingerprint: every selector the selection reads and
@@ -155,7 +151,11 @@ func fingerprint(h *hasher, p Project, s *ctxSel) (string, error) {
 // cacheRead is _ctx_cache_read: the cached rows, when a cache for these
 // selectors exists and its fingerprint still matches the documents on disk.
 func cacheRead(h *hasher, p Project, s *ctxSel) ([]ctxRow, bool) {
-	text, ok := storage.ReadText(cacheFile(p, s.task))
+	file, err := cacheFile(p, s.task)
+	if err != nil {
+		return nil, false
+	}
+	text, ok := storage.ReadText(file)
 	if !ok {
 		return nil, false
 	}
@@ -208,5 +208,7 @@ func cacheWrite(ctx Ctx, h *hasher, p Project, s *ctxSel, rows []ctxRow) {
 	for _, r := range rows {
 		b.WriteString(r.rel + "\t" + r.reason + "\n")
 	}
-	storage.WriteFileTmp(cacheFile(p, s.task), b.String())
+	if file, err := cacheFile(p, s.task); err == nil {
+		storage.WriteFileTmp(file, b.String())
+	}
 }

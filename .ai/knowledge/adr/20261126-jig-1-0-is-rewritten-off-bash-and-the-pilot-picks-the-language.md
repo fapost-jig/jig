@@ -75,6 +75,14 @@ beside TypeScript. The shape, the stress test and the failure hunt are in the sp
   rollback to 0.51.2 must stay safe — a YAML parser, even in failsafe mode, reads `{selection}` in
   `profile.yaml`, `: ` inside a `state` value and `a#b` differently from bash. This covers both
   skeletons, TypeScript and Go, and replaces the failsafe reading of those files above.
+  *Amendment, decided by the agent of task pilot-context-go on 2026-11-27 (unattended run; the owner
+  may reverse it at the Phase 2 comparison):* a file 0.51.2 reads — `state`, knowledge frontmatter,
+  the queue, the context ledger and cache, the checkout records — is read by a port exactly as
+  0.51.2 reads it, and is never refused on read for a value 0.51.2 accepts: a frontmatter with
+  `load: sometimes` is resolved by the rules 0.51.2 applies to it, in both. The schemas describe
+  these files and check what 1.0 writes and its `--json` answers; validating a 0.51.2 file on read
+  would make 1.0 refuse projects 0.51.2 works in, which the rollback rule above forbids. The
+  skeletons' validating loaders stay for the files and answers 1.0 owns.
 - **Formats do not change in 1.0**, `profile.yaml` included. A test holds the invariant "1.0 writes
   only what every bash release it upgrades from reads". Which bash releases 1.0 upgrades from is
   fixed by the cut-over task of `jig upgrade` (Phase 6), not by this ADR.

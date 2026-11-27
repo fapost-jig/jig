@@ -89,7 +89,11 @@ func ctxAcknowledge(ctx Ctx, p Project, args []string, out *Output) error {
 	}
 
 	linked := linkedDocs(p, taskID)
-	old, haveLedger := storage.ReadText(ledgerFile(p, taskID))
+	ledgerPath, err := ledgerFile(p, taskID)
+	if err != nil {
+		return err
+	}
+	old, haveLedger := storage.ReadText(ledgerPath)
 	haveSet := map[string]bool{}
 	var oldLines []string
 	if haveLedger {
@@ -152,7 +156,7 @@ func ctxAcknowledge(ctx Ctx, p Project, args []string, out *Output) error {
 	if body != "" {
 		body += "\n"
 	}
-	if !storage.WriteFileTmp(ledgerFile(p, taskID), body) {
+	if !storage.WriteFileTmp(ledgerPath, body) {
 		return errs.New(errs.Failed, "context acknowledge: cannot write the ledger")
 	}
 	switch {

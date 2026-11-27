@@ -248,3 +248,46 @@ func RevisionBump(root string, clk clock.Clock) error {
 	}
 	return fmt.Errorf("%w in %s; a reader may miss this change", ErrRevisionNotRaised, dir)
 }
+
+// ErrStaleRevision says the clone changed since the revision a write was read
+// against.
+var ErrStaleRevision = errors.New("the clone changed since the revision it was read at")
+
+// RevisionClaim is jig_revision_claim: claim the revision above expected, a
+// file created exclusively, only if the clone is still at expected. The claim
+// raises the revision before the caller's write lands, so the caller moves its
+// file into place and raises it again. ErrStaleRevision when another write
+// landed; another error when the counter cannot be made. A claim of 0 claims
+// the time in seconds and stands only alone.
+func RevisionClaim(root string, expected uint64, clk clock.Clock) error {
+	dir := RevisionDir(root)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("cannot claim the clone revision in %s", dir)
+	}
+	seen, found, _ := scanRevision(dir)
+	var next uint64
+	if expected == 0 {
+		if found {
+			return ErrStaleRevision
+		}
+		next = uint64(clk.Now().Unix())
+	} else {
+		if !found || seen != expected {
+			return ErrStaleRevision
+		}
+		next = expected + 1
+	}
+	name := filepath.Join(dir, strconv.FormatUint(next, 10))
+	if !claimRevisionFile(name) {
+		return ErrStaleRevision
+	}
+	high, _, others := scanRevision(dir)
+	if high == next {
+		if expected == 0 && len(others) > 0 {
+			return ErrStaleRevision
+		}
+		return nil
+	}
+	_ = removeRevisionFile(name)
+	return ErrStaleRevision
+}

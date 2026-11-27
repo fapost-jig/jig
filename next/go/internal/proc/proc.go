@@ -51,6 +51,18 @@ func (e Exec) Git(dir string, args ...string) (Result, error) {
 	return e.Run(Cmd{Name: "git", Args: argv})
 }
 
+// GitIn runs git in dir like Git, feeding it stdin, and, when gitDir is not
+// empty, against that git directory (`--git-dir`) instead of the one dir
+// belongs to: what hashing a file outside the project in the project's hash
+// space needs.
+func (e Exec) GitIn(dir, gitDir, stdin string, args ...string) (Result, error) {
+	argv := []string{"-c", "core.fsmonitor=false", "-C", dir}
+	if gitDir != "" {
+		argv = append(argv, "--git-dir="+gitDir)
+	}
+	return e.Run(Cmd{Name: "git", Args: append(argv, args...), Stdin: stdin})
+}
+
 // Real runs processes on this machine with os/exec, without a shell.
 func Real() Exec {
 	return Exec{run: func(c Cmd) (Result, error) {

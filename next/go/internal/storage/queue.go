@@ -3,6 +3,7 @@ package storage
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -170,21 +171,39 @@ func PauseRequest(root, id string) (at, reason string, ok bool) {
 // ErrNoRequest says the queue holds no such request.
 var ErrNoRequest = errors.New("no such request")
 
-// QueueCancelRequest is `jig queue cancel <ref> <kind>`: the queue rewritten in
-// canonical order (_queue_apply) without the request, and landed through the
-// clone's revision, which is raised before the file moves and after it. A
-// queue of another format version, or one with no such request, is an error.
+// queueBeforeClaim is a hook for a test: it runs between the read of the queue
+// and the claim of the revision, where another write may land.
+var queueBeforeClaim = func() {}
+
+// QueueCancelRequest is one attempt of `jig queue cancel <ref> <kind>` as
+// _queue_write and _queue_commit make it: the revision is read before the
+// queue, the queue is rewritten in canonical order (_queue_apply) into a
+// temporary, the revision above the one read is claimed, and only then does the
+// file move into place, after which the revision is raised again. A clone that
+// changed meanwhile is ErrStaleRevision with the queue untouched; a queue of
+// another format version, or one with no such request, is another error.
 func QueueCancelRequest(root, ref, kind string, clk clock.Clock) error {
 	path := filepath.Join(cloneRoot(root), AiDir, "runtime", "queue")
+	expected := RevisionRead(root)
 	text, _ := ReadText(path)
 	out, err := queueCanonical(splitLines(text), ref, kind)
 	if err != nil {
 		return err
 	}
-	if err := RevisionBump(root, clk); err != nil && !errors.Is(err, ErrRevisionNotRaised) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("queue: cannot create %s", filepath.Dir(path))
+	}
+	tmp := path + ".tmp." + strconv.Itoa(os.Getpid())
+	if err := os.WriteFile(tmp, []byte(out), 0o666); err != nil {
+		return fmt.Errorf("queue: cannot write %s", tmp)
+	}
+	queueBeforeClaim()
+	if err := RevisionClaim(root, expected, clk); err != nil {
+		_ = os.Remove(tmp)
 		return err
 	}
-	if !WriteFileTmp(path, out) {
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
 		return fmt.Errorf("queue: cannot write %s", path)
 	}
 	_ = RevisionBump(root, clk)
