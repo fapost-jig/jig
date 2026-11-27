@@ -145,8 +145,13 @@ The owner's colleagues, 2026-11-23:
   a database changes one module.
 - Schemas: zod describes every state file and every `--json` answer; validation on read, the types
   and committed JSON Schemas come from it — the contract Jig UI can check.
-- Reading today's files: the `yaml` library with its failsafe schema (every value a string), with
-  `parseDocument` keeping comments and giving line numbers. Rejected: a hand-written reader.
+- Reading today's files: the flat files — `state`, `config.yaml`, `config.local.yaml`,
+  `profile.yaml` — are read by a line reader that reproduces bash exactly, so 1.0 reads what 0.51.2
+  reads and a rollback stays safe; the `yaml` library with its failsafe schema reads only knowledge
+  frontmatter, with `parseDocument` keeping comments and giving line numbers, and its differences
+  from bash's `fm_get`/`fm_list` listed as intended (owner, 2026-11-26, at the `ts-skeleton` gate).
+  Rejected: the `yaml` failsafe reader everywhere — it reads `{selection}` in `profile.yaml`, `: `
+  inside a `state` value and `a#b` differently from bash, which silently changes settings.
 - Errors carry a closed code (`dirty-tree`, `review-stale`, …) that is stable in `--json`; skills
   and Jig UI match the code, not the text.
 - Formats do not change in 1.0, `profile.yaml` included; the invariant "1.0 writes only what 0.51.2

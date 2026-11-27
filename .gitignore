@@ -20,3 +20,7 @@ CLAUDE.local.md
 # Claude Code sessions create worktrees inside the repository; one such
 # nested worktree once reached the index as a gitlink.
 .claude/worktrees/
+
+# The TypeScript skeleton (next/ts): installed dependencies and the bundle.
+next/ts/node_modules
+next/ts/dist

@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "issue": {
+      "type": "string"
+    },
+    "branch": {
+      "type": "string"
+    },
+    "base_commit": {
+      "type": "string"
+    },
+    "base_branch": {
+      "type": "string"
+    },
+    "executor_implement_runtime": {
+      "type": "string"
+    },
+    "executor_review_runtime": {
+      "type": "string"
+    },
+    "executor_implement_model": {
+      "type": "string"
+    },
+    "executor_review_model": {
+      "type": "string"
+    },
+    "executor_implement_runtime_source": {
+      "type": "string"
+    },
+    "executor_review_runtime_source": {
+      "type": "string"
+    },
+    "executor_implement_model_source": {
+      "type": "string"
+    },
+    "executor_review_model_source": {
+      "type": "string"
+    },
+    "class": {
+      "type": "string"
+    },
+    "class_lowered_from": {
+      "type": "string"
+    },
+    "class_lowered_reason": {
+      "type": "string"
+    },
+    "out_of_order_over": {
+      "type": "string"
+    },
+    "out_of_order_reason": {
+      "type": "string"
+    },
+    "route_evidence": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string"
+    },
+    "abandoned_at": {
+      "type": "string"
+    },
+    "abandoned_reason": {
+      "type": "string"
+    },
+    "moved_to": {
+      "type": "string"
+    },
+    "archived_at": {
+      "type": "string"
+    },
+    "archived_reason": {
+      "type": "string"
+    },
+    "absorbed_into": {
+      "type": "string"
+    },
+    "absorbs": {
+      "type": "string"
+    },
+    "absorbs_partly": {
+      "type": "string"
+    },
+    "partly_in": {
+      "type": "string"
+    },
+    "archived_from": {
+      "type": "string"
+    },
+    "knowledge_consolidated": {
+      "type": "string"
+    },
+    "autopilot": {
+      "type": "string"
+    },
+    "autopilot_handover": {
+      "type": "string"
+    },
+    "autopilot_answered": {
+      "type": "string"
+    },
+    "autopilot_repairs": {
+      "type": "string"
+    },
+    "autopilot_mode": {
+      "type": "string"
+    },
+    "autopilot_phase": {
+      "type": "string"
+    },
+    "gate": {
+      "type": "string"
+    },
+    "gate_design": {
+      "type": "string"
+    },
+    "gate_by": {
+      "type": "string"
+    },
+    "share": {
+      "type": "string"
+    },
+    "setup": {
+      "type": "string"
+    },
+    "notes_through": {
+      "type": "string"
+    },
+    "pr_url": {
+      "type": "string"
+    },
+    "pr_into": {
+      "type": "string"
+    },
+    "promote_url": {
+      "type": "string"
+    },
+    "park_resumed_at": {
+      "type": "string"
+    },
+    "triage_task": {
+      "type": "string"
+    },
+    "triage_of": {
+      "type": "string"
+    },
+    "route_depth": {
+      "type": "string"
+    },
+    "domains": {
+      "type": "string"
+    },
+    "paused": {
+      "type": "string"
+    },
+    "paused_at": {
+      "type": "string"
+    },
+    "paused_reason": {
+      "type": "string"
+    },
+    "paused_stash": {
+      "type": "string"
+    },
+    "paused_stash_applied": {
+      "type": "string"
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "updated_at": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

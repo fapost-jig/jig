@@ -155,6 +155,36 @@ repository detection, config reader and error helpers; sourcing them once in the
 dispatcher removes that boilerplate from each command and gives one place for `--help`
 and version.
 
+## The new implementation (epic stack-migration)
+
+Jig 1.0 is written beside the bash code on `epic/stack-migration`, in TypeScript or Go chosen by the
+Phase 2 pilot (adr-20261126-jig-1-0-is-rewritten-off-bash-and-the-pilot-picks-the-language). Until
+cut-over it is a separate implementation: no bash command calls it, and it calls only itself.
+
+- **Where it lives.** Each language under `next/<lang>/` (`next/ts/`: package.json, lockfile,
+  tsconfig, `src/`, `test/`, `tools/`, generated `schemas/`). Its launcher is
+  `scripts/jig-next-<lang>` plus a `.cmd` for Windows; the pilot's winner is renamed `jig-next`.
+  `scripts/` is copied whole into projects by `init`, so Phase 6 removes or renames the
+  `jig-next-*` files before 1.0 is released.
+- **Layers (TypeScript).** `src/cli` parses arguments and prints; `src/core` is plain functions
+  taking a context (`root`, `exec`, `clock`, `env`); `src/core/exec.ts` is the only module that
+  spawns a process (`git`, `gh`, `glab`: no shell, hidden window, `git -c core.fsmonitor=false -C
+  <dir>`; tests inject a table-driven fake); `src/core/storage/` is the only code that touches the
+  file system or the YAML parser; `src/schemas` holds the zod schemas whose JSON Schemas are
+  committed under `next/ts/schemas/`. Core never imports cli. `test/architecture.test.ts` enforces
+  these boundaries over the imports, and `tools/check-deps.ts` the dependency rules (exact pins,
+  lockfile, licences, no native module in what is bundled into `dist/jig.mjs`).
+- **Reading today's files.** `state`, `config.yaml`, `config.local.yaml` and `profile.yaml` are read
+  line by line exactly as bash reads them; only knowledge frontmatter goes through the YAML parser,
+  its differences from `fm_get`/`fm_list` listed in `next/ts/test/fixtures/frontmatter-differences.md`.
+  A write produces the bytes `jig task set` would, and `test/invariant.test.ts` reads it back with
+  the real `scripts/jig`.
+- **Under `jig verify`.** The node profile leaves an unnarrowable run to CI, and CI does not test
+  pull requests into the epic, so the TypeScript checks run as a bash test: `tests/next-ts.t.sh`,
+  which `.ai/verify/shell.map` maps `next/ts/**` and `scripts/jig-next-ts*` to. It installs
+  `node_modules` with `npm ci` when the lockfile is newer and runs `npm run check`. Node 22.18 or
+  later is required on the epic: without it the test fails rather than skips.
+
 ## Adapter contract
 
 `adapters/<name>/adapter.sh` is sourced by `init`, `upgrade` and `status`, and defines:

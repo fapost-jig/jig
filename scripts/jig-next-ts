@@ -1,0 +1,57 @@
+#!/usr/bin/env node
+// jig-next-ts — launcher of the TypeScript implementation of Jig (spec stack-migration, Phase 1).
+//
+// Plain JavaScript on purpose: no bash, so it runs where Node does, and no `require`, so it behaves
+// the same whether the package.json above it says "commonjs" or "module". It checks the Node version,
+// then runs the bundled `jig.mjs` beside it (the layout of a release) or, in a framework checkout,
+// the TypeScript source directly (`../next/ts/src/cli/main.ts`, type stripping needs no build).
+//
+// Nothing in the bash implementation calls this file. The Go skeleton has its own launcher,
+// `jig-next-go`; the winner of Phase 2 takes the name `jig-next`.
+'use strict';
+
+function nodeIsNewEnough(version) {
+  const parts = version.split('.');
+  const major = Number(parts[0]);
+  const minor = Number(parts[1]);
+  // Type stripping is on without a flag from 22.18 and from 23.6.
+  return (major === 22 && minor >= 18) || (major === 23 && minor >= 6) || major >= 24;
+}
+
+function fail(message) {
+  process.stderr.write('jig: error: ' + message + '\n');
+  process.exit(1);
+}
+
+if (!nodeIsNewEnough(process.versions.node)) {
+  fail('Node 22.18 or later is needed, found ' + process.versions.node);
+}
+
+// Node says on stderr that type stripping is experimental (22.18 to 23.x). That is noise in a tool's output.
+const emitWarning = process.emitWarning;
+process.emitWarning = function (warning, ...rest) {
+  const type = typeof rest[0] === 'string' ? rest[0] : rest[0] && rest[0].type;
+  const text = typeof warning === 'string' ? warning : warning && warning.message;
+  if (type === 'ExperimentalWarning' && /type stripping/i.test(String(text))) return;
+  return emitWarning.call(process, warning, ...rest);
+};
+
+async function main() {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const url = await import('node:url');
+
+  // `.ai/scripts` is a link to `scripts/`, and a launcher may be linked onto PATH: the real file decides.
+  const here = path.dirname(fs.realpathSync(process.argv[1]));
+  const bundled = path.join(here, 'jig.mjs');
+  const source = path.resolve(here, '..', 'next', 'ts', 'src', 'cli', 'main.ts');
+  const target = fs.existsSync(bundled) ? bundled : fs.existsSync(source) ? source : '';
+  if (target === '') {
+    fail('jig-next-ts: neither jig.mjs nor next/ts/src/cli/main.ts was found beside ' + here);
+  }
+  await import(url.pathToFileURL(target).href);
+}
+
+main().catch(function (error) {
+  fail(error && error.message ? error.message : String(error));
+});

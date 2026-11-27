@@ -14,6 +14,7 @@ paths:
   - "profiles/**"
   - "adapters/**"
   - "hooks/**"
+  - "next/**"
 summary: Why Jig 1.0 leaves bash for TypeScript or Go chosen by a measured pilot, which decisions of the stack-migration spec hold whatever the language, and why the remaining bash keeps ADR-0002's rules until cut-over.
 supersedes: adr-0002-shell-implementation-zero-dependencies
 reviewed_at: 2026-11-26
@@ -68,6 +69,12 @@ beside TypeScript. The shape, the stress test and the failure hunt are in the sp
   committed JSON Schemas; the library waits for the language. Today's files are read with every value
   a string (failsafe semantics), keeping comments and line numbers. Errors carry a closed code that is
   stable in `--json`.
+  *Amendment, decided by the owner on 2026-11-26:* `state`, `config.yaml`, `config.local.yaml` and
+  `profile.yaml` are read by line readers reproducing 0.51.2 exactly; a YAML library reads only
+  knowledge frontmatter, its differences from bash's `fm_get`/`fm_list` listed as intended. Reason:
+  rollback to 0.51.2 must stay safe — a YAML parser, even in failsafe mode, reads `{selection}` in
+  `profile.yaml`, `: ` inside a `state` value and `a#b` differently from bash. This covers both
+  skeletons, TypeScript and Go, and replaces the failsafe reading of those files above.
 - **Formats do not change in 1.0**, `profile.yaml` included. A test holds the invariant "1.0 writes
   only what every bash release it upgrades from reads". Which bash releases 1.0 upgrades from is
   fixed by the cut-over task of `jig upgrade` (Phase 6), not by this ADR.
@@ -140,7 +147,11 @@ force for every bash release; they are revisited at cut-over, not by this ADR.
   the ports would leak local assumptions (mkdir locks, atomic rename) anyway.
 - **Bun** — rejected: less mature on Windows and less common.
 - **Zero dependencies or a hand-written parser** — rejected: a parser of our own is the workaround
-  this rewrite exists to end.
+  this rewrite exists to end. *Amended 2026-11-26 by the owner:* a line reader reproducing bash for
+  the flat files is not such a parser — it is how 0.51.2 reads them, kept so a rollback stays safe;
+  real YAML still goes through a library.
+- **A YAML library in failsafe mode for every file of today** — rejected by the owner on 2026-11-26:
+  it reads the flat files differently from 0.51.2.
 
 ## Consequences
 
