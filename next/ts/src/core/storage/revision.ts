@@ -63,7 +63,7 @@ function commondirOf(gitdir: string): string | undefined {
 }
 
 /** The main checkout of the clone root belongs to (_jig_config_clone_root_find); root itself otherwise. */
-function cloneRoot(root: string): string {
+export function cloneRoot(root: string): string {
   const gitdir = gitdirOf(root);
   if (gitdir === undefined) return root;
   const common = commondirOf(gitdir);
@@ -223,4 +223,49 @@ export function revisionBump(root: string, clock: Clock): RevisionRaise {
     }
   }
   return { raised: false, warning: `could not raise the clone revision in ${dir}; a reader may miss this change` };
+}
+
+/** What `revisionClaim` answers: bash's exit 0, 1 and 2. */
+export type RevisionClaim = "claimed" | "stale" | "unwritable";
+
+/**
+ * jig_revision_claim: claim the revision right above `expected`, for a write that must be refused when the clone
+ * changed after its caller read `expected` (adr-20261019-the-queue-is-one-file-written-against-a-revision). Before the
+ * claim the highest name must be `expected` (for 0, there must be no name at all), else the call is stale and claims
+ * nothing. After it the claim must be the highest name; when a higher one appeared in between it is withdrawn.
+ * The claim raises the revision before the caller's write lands, so the caller raises it again after the write
+ * (`revisionBump`). A claim of 0 takes the time in seconds, and stands only alone.
+ */
+export function revisionClaim(root: string, clock: Clock, expected: number): RevisionClaim {
+  const dir = revisionDir(root);
+  if (!isDir(dir)) {
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+    } catch {
+      return "unwritable";
+    }
+  }
+  const before = scan(dir);
+  let next: number;
+  if (expected === 0) {
+    if (before.highest !== undefined) return "stale";
+    next = clock.epoch();
+  } else {
+    if (before.highest !== expected) return "stale";
+    next = expected + 1;
+  }
+  const name = path.join(dir, String(next));
+  if (!claimFile(name)) return "stale";
+  const after = scan(dir);
+  if (after.highest === next) {
+    // For 0 the names two writers claim differ, so the claim alone excludes nobody: it stands only alone.
+    if (expected !== 0 || after.others.length === 0) return "claimed";
+    return "stale";
+  }
+  try {
+    fs.unlinkSync(name);
+  } catch {
+    // withdrawn best effort, as `rm -f`
+  }
+  return "stale";
 }

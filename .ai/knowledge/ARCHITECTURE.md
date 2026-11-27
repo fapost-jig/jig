@@ -192,6 +192,23 @@ cut-over it is a separate implementation: no bash command calls it, and it calls
   which `.ai/verify/shell.map` maps `next/ts/**` and `scripts/jig-next-ts*` to. It installs
   `node_modules` with `npm ci` when the lockfile is newer and runs `npm run check`. Node 22.18 or
   later is required on the epic: without it the test fails rather than skips.
+- **The pilot command in TypeScript (`jig context`, task pilot-context-ts).** `src/cli/context.ts`
+  parses the five forms; the core is `src/core/context/` (stateless, selectors, required rows and
+  cache, resolve, linked documents, ledger), with `core/knowledge`, `core/task` (current task by
+  branch, workspace guard), `core/staging` (parked tasks, read from the local forge cache only),
+  `core/queue`, `core/git` and `core/checkout/record.ts` (the dispatcher prelude every working
+  command runs). A pause requested of a task is honoured in-process, without the nested
+  `task pause` / `queue cancel` processes bash starts; the queue write takes the revision claim as
+  `_queue_commit` does. A knowledge document the YAML reader refuses is read with a port of bash's
+  `fm_get`/`fm_list` line reader (`storage/frontmatter-bash.ts`), so the port never refuses a file
+  0.51.2 reads. Not ported: the status-page redraw of `jig_record_changed`. The bundle loads `yaml`
+  and `zod` lazily and is built unminified (`tools/bundle.ts`), so a reader of `jig.mjs` finds the
+  code by its `// src/core/context/<file>.ts` markers and function names.
+  `tests/parity-context-ts.t.sh` replays every recorded `jig context` call on the port in shares;
+  it runs the port from the checkout (`$ROOT/scripts/jig-next-ts`), because the release copy has no
+  `node_modules`, and installs them through `tests/lib/next-ts.sh`, shared with `tests/next-ts.t.sh`.
+  It records in the C locale: several of bash's sorts in `context.sh` follow the caller's locale,
+  the port sorts by bytes in every locale (the spec's "sorting is byte order").
 
 ## Adapter contract
 

@@ -51,6 +51,10 @@ export async function bundle(outDir: string, opts: BundleOpts = {}): Promise<Bun
     define: { __JIG_VERSION__: JSON.stringify(declaredJigVersion()) },
     // yaml names two built-ins without the `node:` prefix; the bundle imports only `node:*` (check-deps).
     alias: { process: "node:process", buffer: "node:buffer" },
+    // Never minified (owner decision, spec PR #682): a person reads the bundle in the installed project to understand a
+    // failure, so names stay and each module keeps its `// src/...` marker.
+    minify: false,
+    keepNames: true,
     legalComments: "none",
     metafile: true,
     logLevel: "warning",

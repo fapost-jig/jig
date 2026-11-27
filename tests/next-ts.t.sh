@@ -13,99 +13,9 @@
 # with the reason; it does not skip them, because a skip would read as a pass for the TypeScript half.
 # shellcheck shell=bash
 
-# _nts_root — the checkout under test. The runner tests a release copy of the framework (JIG_HOME),
-# which has no node_modules; the dependencies are installed once, in the checkout itself, and
-# survive the run.
-_nts_root() {
-  printf '%s\n' "${ROOT:-$JIG_HOME}"
-}
-
-# _nts_need_node — fail, saying why, unless Node 22.18 or later and npm are on PATH.
-_nts_need_node() {
-  local v major minor rest
-  command -v node >/dev/null 2>&1 \
-    || fail "node was not found: the TypeScript skeleton needs Node 22.18 or later (https://nodejs.org)"
-  command -v npm >/dev/null 2>&1 \
-    || fail "npm was not found: it comes with Node 22.18 or later (https://nodejs.org)"
-  v=$(node -p 'process.versions.node') || fail "node does not run"
-  major=${v%%.*}
-  rest=${v#*.}
-  minor=${rest%%.*}
-  if [ "$major" -lt 22 ] || { [ "$major" -eq 22 ] && [ "$minor" -lt 18 ]; }; then
-    fail "Node $v is too old: the TypeScript skeleton needs Node 22.18 or later"
-  fi
-}
-
-# _nts_lock_take <dir> — claim <dir>/.check.lock for this test: a file made by exclusive create
-# (`set -C`, the claim of jig_claim_file in scripts/lib/common.sh) that holds the holder's pid.
-# The lock stands for everything that changes next/ts in place: the install replaces node_modules
-# and `npm run check` builds dist/. `jig verify` has its own lock, which a direct
-# `tests/run.sh next-ts::` in the same checkout does not take; this one is taken by both.
-# A lock whose pid is gone is stale: it is removed and claimed once more. A live holder fails the
-# test at once, naming its pid: no waiting, so no loop to hang. The window between a claim and the
-# pid reaching the file is read as a live holder, never as a stale lock.
-_nts_lock_take() {
-  local lock="$1/.check.lock" pid holder
-  # The pid of this test's own subshell: `$$` is the runner's shell, which outlives the test, and
-  # bash 3.2 has no BASHPID. A simple command's child is forked by this shell itself, so its PPID is
-  # this shell; inside `$(...)` it would be the substitution's subshell, gone at once.
-  sh -c 'echo $PPID' > "$JIG_TEST_TMP/lock.pid" || fail "cannot tell this test's pid"
-  read -r pid < "$JIG_TEST_TMP/lock.pid" || fail "cannot tell this test's pid"
-  _NTS_LOCK_PID="$pid"
-  if ( set -C; printf '%s\n' "$pid" > "$lock" ) 2>/dev/null; then
-    return 0
-  fi
-  holder=$(cat "$lock" 2>/dev/null) || holder=""
-  if [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; then
-    rm -f "$lock"
-    if ( set -C; printf '%s\n' "$pid" > "$lock" ) 2>/dev/null; then
-      return 0
-    fi
-    holder=$(cat "$lock" 2>/dev/null) || holder=""
-  fi
-  fail "next/ts is in use by another run (pid ${holder:-unknown}, lock $lock); wait for it, or remove the lock if that run is gone"
-}
-
-# _nts_lock_release <dir> — give the lock back, if it is still this test's own.
-# The test library has no cleanup hook, so every path out of a locked section calls this first.
-_nts_lock_release() {
-  local lock="$1/.check.lock" holder
-  holder=$(cat "$lock" 2>/dev/null) || return 0
-  [ "$holder" != "${_NTS_LOCK_PID:-}" ] || rm -f "$lock"
-}
-
-# _nts_install <dir> — `npm ci` of the locked dependencies, unless node_modules is there and not older
-# than the lockfile. Without scripts: no package of the skeleton may run code when it is installed.
-# Called with the lock held. The install goes to a staging directory beside node_modules, which
-# `npm ci` would otherwise delete first and rebuild in place while a reader (a launcher test, a
-# bundle) looks at it; the finished tree is then swapped in by rename, so a reader sees the old
-# tree, or the new one, and no half of either (apart from the instant between the two renames).
-# Returns non-zero, with the log's tail printed, when the install fails.
-_nts_install() {
-  local dir="$1" log="$JIG_TEST_TMP/npm-ci.log" stage="$1/.deps.stage" old="$1/.deps.old" f
-  if [ -f "$dir/node_modules/.package-lock.json" ] \
-     && [ ! "$dir/package-lock.json" -nt "$dir/node_modules/.package-lock.json" ]; then
-    return 0
-  fi
-  # Leftovers of a run that was killed: the lock is ours, so nobody is using them.
-  rm -rf "$stage" "$old"
-  mkdir "$stage" || return 1
-  for f in package.json package-lock.json .npmrc; do
-    if [ -f "$dir/$f" ]; then cp "$dir/$f" "$stage/$f" || return 1; fi
-  done
-  if ! (cd "$stage" && npm ci --ignore-scripts --no-audit --no-fund) > "$log" 2>&1; then
-    tail -n 30 "$log"
-    rm -rf "$stage"
-    return 1
-  fi
-  if [ -e "$dir/node_modules" ]; then mv "$dir/node_modules" "$old" || { rm -rf "$stage"; return 1; }; fi
-  if ! mv "$stage/node_modules" "$dir/node_modules"; then
-    [ ! -e "$old" ] || mv "$old" "$dir/node_modules"
-    rm -rf "$stage"
-    return 1
-  fi
-  rm -rf "$old" "$stage"
-}
+# The helpers (_nts_root, _nts_need_node, the lock, the install) are in tests/lib/next-ts.sh.
+# shellcheck source=lib/next-ts.sh
+. "$JIG_HOME/tests/lib/next-ts.sh"
 
 test_next_ts_checks_pass() {
   local dir log="$JIG_TEST_TMP/npm-check.log"
@@ -113,6 +23,9 @@ test_next_ts_checks_pass() {
   dir="$(_nts_root)/next/ts"
   assert_dir "$dir" "the skeleton is missing"
   assert_file "$dir/package-lock.json" "the lockfile is missing"
+  # The install waits for a parity test of the same run that is installing them (_nts_deps); the
+  # check itself then takes the lock and fails at once on a live holder, as before.
+  _nts_deps "$dir"
   _nts_lock_take "$dir"
   if ! _nts_install "$dir"; then
     _nts_lock_release "$dir"
@@ -120,6 +33,8 @@ test_next_ts_checks_pass() {
   fi
   # typecheck, schema drift, unit and integration tests, bundle, dependency rules.
   if ! (cd "$dir" && npm run check) > "$log" 2>&1; then
+    # Every failed test by name first: the tail alone shows only the last of them.
+    grep '^not ok ' "$log" || true
     tail -n 80 "$log"
     _nts_lock_release "$dir"
     fail "npm run check failed in next/ts"

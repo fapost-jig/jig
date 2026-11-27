@@ -9,12 +9,19 @@ declare const __JIG_VERSION__: string | undefined;
 
 const baked = typeof __JIG_VERSION__ === "string" ? __JIG_VERSION__ : undefined;
 
+async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
+  return Buffer.concat(chunks).toString("utf8");
+}
+
 process.exitCode = await run({
   argv: process.argv.slice(2),
   env: process.env,
   cwd: process.cwd(),
   entryDir: path.dirname(fileURLToPath(import.meta.url)),
   bakedVersion: baked,
+  stdin: readStdin,
   io: {
     out: (text) => process.stdout.write(text),
     err: (text) => process.stderr.write(text),

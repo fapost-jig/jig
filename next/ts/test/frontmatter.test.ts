@@ -3,8 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { JigError } from "../src/core/errors.ts";
-import { parseFrontmatter, readFrontmatter } from "../src/core/storage/frontmatter.ts";
+import { loadYaml, parseFrontmatter, readFrontmatter } from "../src/core/storage/frontmatter.ts";
 import { repoRoot, tmpDir } from "./helpers.ts";
+
+await loadYaml();
 
 const DOC = `---
 id: convention-x

@@ -31,3 +31,12 @@ export async function revisionAt(ctx: Pick<Ctx, "exec">, cwd: string): Promise<n
   const root = await projectRoot(ctx, cwd);
   return root === undefined ? 0 : revisionRead(root);
 }
+
+/** `[ -f <root>/.ai/config.yaml ]`: the mark of a project Jig was initialised in. */
+export function isInitialised(root: string): boolean {
+  try {
+    return fs.statSync(`${root}/.ai/config.yaml`).isFile();
+  } catch {
+    return false;
+  }
+}

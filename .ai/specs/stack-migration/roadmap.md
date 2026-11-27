@@ -37,7 +37,7 @@ new code passes against its recordings, locally and on the manual Windows run.
 Goal: the language is chosen on numbers. Done when: the comparison is written and the owner has
 chosen, or the work is stopped by the gate.
 
-- [ ] `pilot-context-ts` — `jig context` in TypeScript — passes its recordings and its own in-process tests (after: Parity check — it is proven against the recordings; TypeScript skeleton — it runs on it)
+- [x] `pilot-context-ts` — `jig context` in TypeScript — passes its recordings and its own in-process tests (after: Parity check — it is proven against the recordings; TypeScript skeleton — it runs on it)
 - [ ] `pilot-context-go` — `jig context` in Go — the same, in Go (after: Parity check — the same proof; Go skeleton — it runs on it)
 - [ ] `pilot-comparison` — The comparison and the choice — Windows test time with `git` counted, hook start time, code size and review rounds, what lies in the project; the gate of 3× decides whether to go on (after: both pilots — it compares them)
 

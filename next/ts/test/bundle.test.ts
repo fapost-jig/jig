@@ -51,9 +51,10 @@ test("zod and yaml bundle, load and run from the bundle", async (t) => {
   const probe = path.join(dir, "probe.ts");
   fs.writeFileSync(
     probe,
-    `import { parseFrontmatter } from "../../src/core/storage/frontmatter.ts";
+    `import { loadYaml, parseFrontmatter } from "../../src/core/storage/frontmatter.ts";
 import { TaskState, JsonEnvelope } from "../../src/schemas/index.ts";
 import { configValue } from "../../src/core/storage/flat.ts";
+await loadYaml();
 const fm = parseFrontmatter("---\\nid: x\\nlist: [a, b]\\n---\\nbody");
 console.log(JSON.stringify({
   fm: fm?.data,
@@ -83,4 +84,17 @@ console.log(JSON.stringify({
   assert.ok(names.has("zod") && names.has("yaml"), `bundled packages: ${[...names].join(", ")}`);
   const pkg = JSON.parse(fs.readFileSync(path.join(packageRoot, "package.json"), "utf8")) as Parameters<typeof bundleProblems>[1];
   assert.deepEqual(bundleProblems(metafile as Metafile, pkg, path.join(packageRoot, "node_modules")), []);
+});
+
+test("the bundle is readable: original names of the context code and a marker for each of its modules", async (t) => {
+  const dir = scratch(t);
+  const { outfile } = await bundle(dir);
+  const text = fs.readFileSync(outfile, "utf8");
+  for (const name of ["statelessContext", "requiredRows", "acknowledge", "resolveContext", "recordCheckout", "cancelPauseRequest"]) {
+    assert.match(text, new RegExp(`function ${name}\\(`), `${name} keeps its name`);
+  }
+  for (const marker of ["src/core/context/stateless.ts", "src/core/context/required.ts", "src/core/context/ledger.ts", "src/cli/context.ts"]) {
+    assert.ok(text.includes(`// ${marker}\n`), `a marker for ${marker}`);
+  }
+  assert.ok(text.split("\n").length > 10000, "the bundle is not squeezed into a few lines");
 });

@@ -8,9 +8,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { JigError } from "../src/core/errors.ts";
-import { parseFrontmatter } from "../src/core/storage/frontmatter.ts";
+import { loadYaml, parseFrontmatter } from "../src/core/storage/frontmatter.ts";
 import { bashFrontmatter, repoRoot, tmpDir } from "./helpers.ts";
 import type { BashFm } from "./helpers.ts";
+
+await loadYaml();
 
 type Answer = { kind: "scalar"; value: string } | { kind: "list"; items: string[] } | { kind: "error" };
 
