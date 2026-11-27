@@ -19,4 +19,34 @@
 # compared call in a run but which covers no difference is stale and fails the run.
 # A wrong field count or an empty reason is a usage error (exit 2) that names file:line.
 #
-# No entry yet: `jig version` of the TypeScript and the Go port is compared by tests/parity-ports.t.sh and is equal to the bash jig, so nothing is intended to differ.
+
+# jig context (tasks pilot-context-go, pilot-context-ts).
+#
+# bash leaves its temporary rows and id-map files behind in TMPDIR when resolve dies (jig_die ends the
+# shell before its rm runs); their names carry the pid, so even bash differs from its own recording.
+*	context/test_context_resolve_ids_dies_when_the_selected_stub_source_is_missing/*	changes	^A[[:space:]]<T>\.tmpdir/jig-context-(required|idmap)\.[0-9]+$	a port that dies leaves no temporary file behind; bash leaks its rows and id-map files
+*	context/test_context_resolve_ids_dies_when_the_selected_stub_source_is_missing/*	files/_T_.tmpdir/jig-context-*	-	the content of a temporary file bash leaks when resolve dies; a port leaves none
+*	context/test_context_resolve_ids_refuses_a_still_proposed_source_stub/*	changes	^A[[:space:]]<T>\.tmpdir/jig-context-(required|idmap)\.[0-9]+$	a port that dies leaves no temporary file behind; bash leaks its rows and id-map files
+*	context/test_context_resolve_ids_refuses_a_still_proposed_source_stub/*	files/_T_.tmpdir/jig-context-*	-	the content of a temporary file bash leaks when resolve dies; a port leaves none
+*	context/test_context_resolve_required_via_paths_dies_when_the_selected_stub_source_is_missing/*	changes	^A[[:space:]]<T>\.tmpdir/jig-context-(required|idmap)\.[0-9]+$	a port that dies leaves no temporary file behind; bash leaks its rows and id-map files
+*	context/test_context_resolve_required_via_paths_dies_when_the_selected_stub_source_is_missing/*	files/_T_.tmpdir/jig-context-*	-	the content of a temporary file bash leaks when resolve dies; a port leaves none
+*	context/test_context_resolve_requires_inactive_document_is_fatal/*	changes	^A[[:space:]]<T>\.tmpdir/jig-context-(required|idmap)\.[0-9]+$	a port that dies leaves no temporary file behind; bash leaks its rows and id-map files
+*	context/test_context_resolve_requires_inactive_document_is_fatal/*	files/_T_.tmpdir/jig-context-*	-	the content of a temporary file bash leaks when resolve dies; a port leaves none
+*	context/test_context_resolve_requires_proposed_document_is_fatal/*	changes	^A[[:space:]]<T>\.tmpdir/jig-context-(required|idmap)\.[0-9]+$	a port that dies leaves no temporary file behind; bash leaks its rows and id-map files
+*	context/test_context_resolve_requires_proposed_document_is_fatal/*	files/_T_.tmpdir/jig-context-*	-	the content of a temporary file bash leaks when resolve dies; a port leaves none
+*	context/test_context_resolve_requires_unknown_document_is_fatal/*	changes	^A[[:space:]]<T>\.tmpdir/jig-context-(required|idmap)\.[0-9]+$	a port that dies leaves no temporary file behind; bash leaks its rows and id-map files
+*	context/test_context_resolve_requires_unknown_document_is_fatal/*	files/_T_.tmpdir/jig-context-*	-	the content of a temporary file bash leaks when resolve dies; a port leaves none
+*	context/test_context_resolve_treats_a_source_swapped_for_a_symlink_as_missing/*	changes	^A[[:space:]]<T>\.tmpdir/jig-context-(required|idmap)\.[0-9]+$	a port that dies leaves no temporary file behind; bash leaks its rows and id-map files
+*	context/test_context_resolve_treats_a_source_swapped_for_a_symlink_as_missing/*	files/_T_.tmpdir/jig-context-*	-	the content of a temporary file bash leaks when resolve dies; a port leaves none
+*	context/test_context_resolve_treats_a_source_under_a_symlinked_directory_as_missing/*	changes	^A[[:space:]]<T>\.tmpdir/jig-context-(required|idmap)\.[0-9]+$	a port that dies leaves no temporary file behind; bash leaks its rows and id-map files
+*	context/test_context_resolve_treats_a_source_under_a_symlinked_directory_as_missing/*	files/_T_.tmpdir/jig-context-*	-	the content of a temporary file bash leaks when resolve dies; a port leaves none
+*	context/test_context_resolve_unknown_id_dies/*	changes	^A[[:space:]]<T>\.tmpdir/jig-context-(required|idmap)\.[0-9]+$	a port that dies leaves no temporary file behind; bash leaks its rows and id-map files
+*	context/test_context_resolve_unknown_id_dies/*	files/_T_.tmpdir/jig-context-*	-	the content of a temporary file bash leaks when resolve dies; a port leaves none
+*	context/test_sdd_stage_missing_dependencies_and_globals_fail_even_taskless/*	changes	^A[[:space:]]<T>\.tmpdir/jig-context-(required|idmap)\.[0-9]+$	a port that dies leaves no temporary file behind; bash leaks its rows and id-map files
+*	context/test_sdd_stage_missing_dependencies_and_globals_fail_even_taskless/*	files/_T_.tmpdir/jig-context-*	-	the content of a temporary file bash leaks when resolve dies; a port leaves none
+#
+# A pause honoured at the stage boundary: bash runs `task pause --if-requested`, which runs `queue cancel`, as
+# nested jig processes, each recording itself as this checkout's last command; a port pauses in-process
+# (spec stack-migration: no mixed code), so the records keep the command the person ran.
+*	context/test_context_resolve_with_a_stage_honours_a_pause_request/0002	files/_T_/.ai/runtime/checkout	^command: (queue cancel task:t1 pause --json|context resolve --task t1 --stage implement --files x)$	the checkout records the command that was run, not the last nested jig process bash started to pause the task
+*	context/test_context_resolve_with_a_stage_honours_a_pause_request/0002	files/_T_/.ai/runtime/working/t1	^command: (task pause t1 --if-requested --stage implement|context resolve --task t1 --stage implement --files x)$	the work record names the command that was run, not the nested task pause bash started

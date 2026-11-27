@@ -82,7 +82,6 @@ func TestStatelessParseErrors(t *testing.T) {
 		{[]string{"--task", "nope"}, "context: unknown task: nope"},
 		{[]string{"--task", "../x"}, "invalid task id: ../x"},
 		{[]string{"bogus"}, ctxUsage},
-		{[]string{"acknowledge"}, "context acknowledge: not ported yet"},
 	} {
 		out := ctxRun(t, root, "main", nil, tc.args...)
 		if out.Code != 1 || text(out) != "[err] jig: error: "+tc.msg+"\n" {

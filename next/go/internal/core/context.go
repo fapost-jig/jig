@@ -46,7 +46,7 @@ func runContext(ctx Ctx, args []string, out *Output) error {
 		case w == "guard":
 			return ctxGuard(ctx, p, args[1:], out)
 		case w == "acknowledge":
-			return errs.New(errs.Failed, "context %s: not ported yet", w)
+			return ctxAcknowledge(ctx, p, args[1:], out)
 		case w != "" && !strings.HasPrefix(w, "-"):
 			return errs.New(errs.Failed, "%s", ctxUsage)
 		}
