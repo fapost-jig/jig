@@ -62,6 +62,19 @@
 # filter: "0 passed" is not a green run, it is a run that checked nothing. An
 # empty argument is no filter; with no filter at all everything is selected.
 #
+# JIG_RECORD=<dir> runs the tests as usual and, for every outermost `jig` call a
+# test makes, keeps the raw call (arguments, working directory, environment,
+# stdin, output, exit code, file trees before and after, git state) and its
+# normalised views under <dir> (the stack recorder, tests/lib/recorder.sh; the
+# format is "jig-recording 1"). The directory is created when it is missing, a
+# FORMAT of another version refuses the run, it may not lie inside the run's own
+# results (they are removed at the end), and a test's earlier recording is
+# replaced by the new one. Recording reads nothing from the runner's stdin (it is
+# /dev/null for the whole run), pins JIG_NOW to the start of the run unless it is
+# set, and ends with `recorded: <N> calls in <M> tests; <K> tests with no call`
+# and the names of those K. It changes no test's outcome; one that depends on the
+# clock moving is named by comparing a recorded run with an ordinary one.
+#
 # Usage: tests/run.sh [name-filter ...]
 set -u
 
@@ -84,6 +97,57 @@ case "$RESULTS" in
   */jig-test-results.?*) [ -d "$RESULTS" ] || exit 1 ;;
   *) printf 'tests/run.sh: could not make the results directory\n' >&2; exit 1 ;;
 esac
+# Record mode (JIG_RECORD, see the header): the directory is checked before
+# anything else uses the run, the runner's own environment is kept for the
+# recorder to tell what a test added, and stdin is closed. The snapshot lives in
+# RESULTS and goes with it: it may hold a developer's secrets.
+RECORD_DIR=""
+if [ -n "${JIG_RECORD:-}" ]; then
+  case "$JIG_RECORD" in
+    /*) RECORD_DIR=$JIG_RECORD ;;
+    *) RECORD_DIR="$PWD/$JIG_RECORD" ;;
+  esac
+  RESULTS_PHYS=$(cd "$RESULTS" && pwd -P)
+  case "$RECORD_DIR/" in
+    "$RESULTS"/* | "$RESULTS_PHYS"/*)
+      printf 'tests/run.sh: JIG_RECORD may not lie inside the run'"'"'s results (%s)\n' "$RESULTS" >&2
+      exit 2
+      ;;
+  esac
+  mkdir -p "$RECORD_DIR" \
+    || { printf 'tests/run.sh: could not make JIG_RECORD %s\n' "$RECORD_DIR" >&2; exit 2; }
+  RECORD_DIR=$(cd "$RECORD_DIR" && pwd -P)
+  case "$RECORD_DIR" in
+    /?*) ;;
+    *) printf 'tests/run.sh: could not resolve JIG_RECORD\n' >&2; exit 2 ;;
+  esac
+  if [ -f "$RECORD_DIR/FORMAT" ]; then
+    record_format=""
+    IFS= read -r record_format < "$RECORD_DIR/FORMAT" || true
+    if [ "$record_format" != "jig-recording 1" ]; then
+      printf 'tests/run.sh: %s holds a recording of another format (%s); this runner writes "jig-recording 1"\n' \
+        "$RECORD_DIR" "$record_format" >&2
+      exit 2
+    fi
+  else
+    printf 'jig-recording 1\n' > "$RECORD_DIR/FORMAT" \
+      || { printf 'tests/run.sh: could not write %s/FORMAT\n' "$RECORD_DIR" >&2; exit 2; }
+  fi
+  if [ ! -f "$RECORD_DIR/store.git/HEAD" ]; then
+    git init --bare -q "$RECORD_DIR/store.git" \
+      || { printf 'tests/run.sh: could not make %s/store.git\n' "$RECORD_DIR" >&2; exit 2; }
+  fi
+  exec </dev/null
+  {
+    while IFS= read -r record_name; do
+      printf '%s=%s\000' "$record_name" "${!record_name}"
+    done < <(compgen -e)
+  } > "$RESULTS/record-base-env" || exit 2
+  export JIG_RECORD_DIR="$RECORD_DIR"
+  export JIG_RECORD_BASE_ENV="$RESULTS/record-base-env"
+  export JIG_RECORD_ROOT="$ROOT"
+fi
+
 JIG_TEST_CACHE="$RESULTS/cache"
 export JIG_TEST_CACHE
 
@@ -232,6 +296,12 @@ JIG_HOME=$(_run_release_home) && [ -n "$JIG_HOME" ] \
 # released one. The copy is this working tree's bytes, taken as the run starts.
 JIG_BIN="$JIG_HOME/scripts/jig"
 export JIG_HOME JIG_BIN
+# Recorded calls run on one pinned clock, so that two recordings of a test
+# normalise to the same text; a JIG_NOW the caller set is kept.
+if [ -n "$RECORD_DIR" ] && [ -z "${JIG_NOW:-}" ]; then
+  JIG_NOW=$(date +%s)
+  export JIG_NOW
+fi
 # An interrupted parallel run must not leave its workers running, and must give
 # the record back on the way out.
 trap 'kill $(jobs -p) 2>/dev/null; _run_release_busy; exit 130' INT TERM
@@ -391,6 +461,10 @@ run_test() {
     printf 'tests/run.sh: could not make a directory for %s\n' "$full" >&2
     return 1
   fi
+  if [ -n "$RECORD_DIR" ] && [ -n "${full%%::*}" ] && [ -n "${full#*::}" ]; then
+    # A test's recording is replaced by this run's, never added to.
+    rm -rf "$RECORD_DIR/calls/${full%%::*}/${full#*::}"
+  fi
   start=$SECONDS
   (
     # The runner's descriptors are the runner's: 3 is the semaphore, 4 is the
@@ -398,6 +472,12 @@ run_test() {
     # dispatch loop reads from — every inherited descriptor shares it.
     exec 3>&- 4<&-
     enter_test_env "$tmp"
+    if [ -n "$RECORD_DIR" ]; then
+      # The dispatcher of the framework copy hands every outermost call to the
+      # recorder of that copy (scripts/jig).
+      export JIG_RECORDER="$JIG_HOME/tests/lib/recorder.sh"
+      export JIG_RECORD_TEST="$full"
+    fi
     # shellcheck disable=SC1090
     . "$file"
     "$name"
@@ -693,6 +773,38 @@ $slowest
 EOF
   printf 'wall: %ss, %s job(s)\n' "$((SECONDS - start_all))" "$jobs"
   [ -z "${JIG_TEST_SHARD:-}" ] || printf 'shard: %s/%s %s\n' "$shard_i" "$shard_n" "$shard_by"
+fi
+
+# Record mode: what was kept, and the tests that made no call the hook could see
+# (skipped ones and ones that did not complete are not counted among them).
+if [ -n "$RECORD_DIR" ]; then
+  rec_calls=0
+  rec_tests=0
+  rec_none=""
+  rec_nonecount=0
+  while IFS="$t" read -r -u 4 idx file name full; do
+    rec_rc=missing
+    if [ -f "$RESULTS/$idx.result" ]; then
+      IFS="$t" read -r rec_rc _ < "$RESULTS/$idx.result" || true
+    fi
+    case "$rec_rc" in 77 | missing | '') continue ;; esac
+    rec_n=0
+    for rec_c in "$RECORD_DIR/calls/${full%%::*}/${full#*::}"/[0-9][0-9][0-9][0-9]; do
+      if [ -d "$rec_c" ]; then rec_n=$((rec_n + 1)); fi
+    done
+    rec_tests=$((rec_tests + 1))
+    if [ "$rec_n" -eq 0 ]; then
+      rec_nonecount=$((rec_nonecount + 1))
+      rec_none="$rec_none  $full"$'\n'
+    else
+      rec_calls=$((rec_calls + rec_n))
+    fi
+  done 4< "$list"
+  printf '\nrecorded: %d calls in %d tests; %d tests with no call\n' \
+    "$rec_calls" "$((rec_tests - rec_nonecount))" "$rec_nonecount"
+  if [ -n "$rec_none" ]; then
+    printf '%s' "$rec_none"
+  fi
 fi
 
 printf '\n%d passed, %d failed, %d skipped, %d not completed\n' \
