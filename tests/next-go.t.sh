@@ -131,6 +131,18 @@ test_next_go_launcher_says_when_go_is_missing() {
   assert_eq "jig-next-go: error: go is not installed" "$OUT"
 }
 
+# The Windows launcher hands its arguments to scripts/jig-next-go through Git
+# Bash, as scripts/jig.cmd does for scripts/jig; it is LF-only like jig.cmd.
+test_next_go_windows_launcher_runs_jig_next_go_through_git_bash() {
+  local cmd="$JIG_HOME/scripts/jig-next-go.cmd"
+  assert_file "$cmd"
+  assert_file_contains "$cmd" 'git --exec-path'
+  assert_file_contains "$cmd" '%~dp0jig-next-go"'
+  if LC_ALL=C grep -q "$(printf '\r')" "$cmd"; then
+    fail "scripts/jig-next-go.cmd has CRLF line endings"
+  fi
+}
+
 # Opt-in: asks the vulnerability database over the network. govulncheck is a `tool`
 # of next/go/go.mod, so its version is the one go.sum pins and nothing is installed.
 test_govulncheck() {

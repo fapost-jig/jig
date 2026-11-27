@@ -103,6 +103,32 @@ func TestOnlyProcImportsOsExec(t *testing.T) {
 	}
 }
 
+// A YAML library reads knowledge frontmatter only, and only storage reads
+// files (adr-20261126, amended by the owner on 2026-11-26): state,
+// config.yaml, config.local.yaml and profile.yaml are read by line readers. A
+// port that parsed one of them as YAML anywhere else would pass every other
+// test.
+var yamlModules = []string{"go.yaml.in/yaml/", "gopkg.in/yaml.", "sigs.k8s.io/yaml"}
+
+func isYAMLModule(p string) bool {
+	for _, m := range yamlModules {
+		if strings.HasPrefix(p, m) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestOnlyStorageImportsTheYAMLLibrary(t *testing.T) {
+	for _, s := range sources(t) {
+		for p := range imports(s) {
+			if isYAMLModule(p) && s.pkg != "internal/storage" {
+				t.Errorf("%s imports %s; only internal/storage reads YAML, and only for frontmatter", s.rel, p)
+			}
+		}
+	}
+}
+
 func TestPackagesImportOnlyWhatTheirLayerMay(t *testing.T) {
 	cli := modulePath + "/internal/cli"
 	core := modulePath + "/internal/core"

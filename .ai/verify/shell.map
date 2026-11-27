@@ -51,7 +51,7 @@ scripts/lib/prgitlab.sh         pr:: gh::
 # run them when anything under next/go changes. The launcher is also a file
 # under scripts/, which the guards of dispatcher:: and gh:: scan.
 next/go/**                      next-go::
-scripts/jig-next-go             next-go:: dispatcher:: gh::
+scripts/jig-next-go*            next-go:: dispatcher:: gh::
 
 adapters/**                     adapters::
 profiles/**                     profiles:: verify::

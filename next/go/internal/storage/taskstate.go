@@ -178,9 +178,11 @@ func TaskStateGet(root, id, key string) (value string, found bool) {
 
 // TaskStateSet writes key into task id's state, as StateSet builds it,
 // atomically: a temporary file beside the state, then a rename. The task must
-// have a state file.
+// have a state file. The clone's revision is raised after the write; an error
+// that is ErrRevisionNotRaised (errors.Is) means the write landed and only the
+// counter did not move.
 func TaskStateSet(root, id, key, value string, clk clock.Clock) error {
-	return rewriteState(root, id, func(text string) string {
+	return rewriteState(root, id, clk, func(text string) string {
 		return StateSet(text, key, value, clk.Today())
 	})
 }
@@ -188,12 +190,12 @@ func TaskStateSet(root, id, key, value string, clk clock.Clock) error {
 // TaskStateRemove removes the lines of keys from task id's state, as
 // StateWithout builds it, atomically.
 func TaskStateRemove(root, id string, keys []string, clk clock.Clock) error {
-	return rewriteState(root, id, func(text string) string {
+	return rewriteState(root, id, clk, func(text string) string {
 		return StateWithout(text, keys, clk.Today())
 	})
 }
 
-func rewriteState(root, id string, build func(string) string) error {
+func rewriteState(root, id string, clk clock.Clock, build func(string) string) error {
 	text, err := ReadTaskState(root, id)
 	if err != nil {
 		return err
@@ -202,7 +204,13 @@ func rewriteState(root, id string, build func(string) string) error {
 	if err != nil {
 		return err
 	}
-	return writeAtomic(path, []byte(build(text)))
+	if err := writeAtomic(path, []byte(build(text))); err != nil {
+		return err
+	}
+	// Every writer raises the clone's revision right after its write lands
+	// (adr-20261016, jig_record_changed). The write is not undone when that
+	// fails: the error is ErrRevisionNotRaised, which a caller warns about.
+	return RevisionBump(root, clk)
 }
 
 // writeAtomic writes data to a temporary file beside path and renames it over
