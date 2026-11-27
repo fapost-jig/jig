@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# jig-next-go — build and run the Go implementation of the next Jig (next/go).
+#
+#   scripts/jig-next-go [--version | --help]
+#
+# Builds next/go/cmd/jig-next into .ai/runtime/jig-next-go/, which git already
+# ignores (Go's build cache makes a repeat nearly free), and runs it with the
+# arguments given. The program has no commands yet beyond --version and --help;
+# it grows beside the bash implementation and calls nothing of it.
+#
+# The framework checkout the program belongs to is this script's, and it is
+# passed in JIG_NEXT_ROOT: the program reads the version from there, as
+# `jig --version` does.
+#
+# JIG_NEXT_BUILD_DIR   where the binary is built (default .ai/runtime/jig-next-go); a test
+#                      sets it so that two runs never build into one file.
+set -eu
+set -o pipefail
+
+die() {
+  printf 'jig-next-go: error: %s\n' "$*" >&2
+  exit 1
+}
+
+command -v go >/dev/null 2>&1 || die "go is not installed"
+
+here=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd) || die "cannot find the script's directory"
+root=$(cd -P "$here/.." && pwd) || die "cannot find the repository"
+module="$root/next/go"
+[ -f "$module/go.mod" ] || die "no Go module at $module"
+
+out="${JIG_NEXT_BUILD_DIR:-$root/.ai/runtime/jig-next-go}"
+mkdir -p "$out" || die "cannot make $out"
+
+(cd "$module" && CGO_ENABLED=0 go build -o "$out/jig-next" ./cmd/jig-next) || die "go build failed"
+
+JIG_NEXT_ROOT="$root"
+export JIG_NEXT_ROOT
+exec "$out/jig-next" "$@"

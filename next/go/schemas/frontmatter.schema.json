@@ -1,0 +1,97 @@
+{
+  "$id": "jig://schemas/frontmatter.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "date": {
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+      "type": "string"
+    },
+    "domains": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "id": {
+      "pattern": "^[a-z0-9-]+$",
+      "type": "string"
+    },
+    "load": {
+      "enum": [
+        "always",
+        "domain",
+        "matched",
+        "stage"
+      ],
+      "type": "string"
+    },
+    "paths": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "requires": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "reviewed_at": {
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+      "type": "string"
+    },
+    "source": {
+      "type": "string"
+    },
+    "source_hash": {
+      "type": "string"
+    },
+    "stages": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "status": {
+      "enum": [
+        "proposed",
+        "active",
+        "deprecated",
+        "superseded",
+        "rejected",
+        "accepted"
+      ],
+      "type": "string"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "supersedes": {
+      "type": "string"
+    },
+    "topics": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "type": {
+      "enum": [
+        "feature",
+        "adr",
+        "convention",
+        "domain",
+        "glossary",
+        "rule"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "type",
+    "status"
+  ],
+  "type": "object"
+}

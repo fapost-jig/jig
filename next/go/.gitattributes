@@ -1,0 +1,4 @@
+# The reader tests keep fixtures with CRLF line endings on purpose (a Windows
+# checkout's files); the root's `text=auto eol=lf` would turn them into LF on
+# commit, and the tests would then prove nothing about CRLF.
+internal/storage/testdata/** -text

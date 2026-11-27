@@ -1,0 +1,6 @@
+p: [generic, shell]
+q: [ "a b" , c, d ]
+r:
+  - x
+  - "y z"
+s: []
