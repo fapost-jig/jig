@@ -96,6 +96,33 @@ test_runner_filter_matching_nothing_is_an_error() {
   assert_not_contains "$OUT" "0 passed"
 }
 
+# A file bash cannot parse: sourcing it would stop at the error and its tests
+# would vanish from discovery while the run stays green. It fails the run and
+# names the file, with a filter that selects another file too.
+rn_write_unparsable_fixture() {
+  cat > root/tests/z.t.sh <<'EOF2'
+# shellcheck shell=bash
+test_1_before() { :; }
+test_2_broken() { if :; then :; }
+test_3_after() { :; }
+EOF2
+}
+
+test_runner_unparsable_file_fails_the_run_and_is_named() {
+  rn_build_suite
+  rn_write_ab_fixture
+  rn_write_unparsable_fixture
+
+  rn_run "" ""
+  assert_eq 1 "$RC" "a file that does not parse fails the run"
+  assert_contains "$OUT" "cannot parse tests/z.t.sh"
+  assert_not_contains "$OUT" "passed"
+
+  rn_run "" "" "a::"
+  assert_eq 1 "$RC" "a filter on another file does not hide the broken one"
+  assert_contains "$OUT" "cannot parse tests/z.t.sh"
+}
+
 test_runner_filter_error_names_the_filter_as_given() {
   rn_build_suite
   rn_write_ab_fixture
