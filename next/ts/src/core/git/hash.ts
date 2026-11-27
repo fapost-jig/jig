@@ -31,6 +31,15 @@ export async function hashList(ctx: GitCtx, base: string, paths: readonly string
   return text(r.stdout).split("\n").filter((l) => l !== "");
 }
 
+/**
+ * Whether `p` is an absolute path: bash tests a leading `/`, which is every absolute path Git Bash prints
+ * (`/c/...`); under Node on Windows the same document is spelled `C:\\...` or `C:/...`, so a drive letter
+ * followed by a separator counts too. A document a `Linked:` line reaches is the only absolute path here.
+ */
+export function isAbsolutePath(p: string): boolean {
+  return p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p);
+}
+
 export interface HashedPath {
   readonly hash: string;
   readonly path: string;
@@ -41,18 +50,23 @@ export interface HashedPath {
  * project root; absolute ones (documents a `Linked:` line reaches) by one process per directory, on bare file names.
  */
 export async function hashPaths(ctx: GitCtx, paths: readonly string[]): Promise<HashedPath[]> {
-  const rel = paths.filter((p) => p !== "" && !p.startsWith("/"));
-  const abs = paths.filter((p) => p.startsWith("/"));
+  const rel = paths.filter((p) => p !== "" && !isAbsolutePath(p));
+  const abs = paths.filter((p) => isAbsolutePath(p));
   const out: HashedPath[] = [];
   if (rel.length > 0) {
     const hashes = await hashList(ctx, ctx.root, rel);
     rel.forEach((p, i) => out.push({ hash: hashes[i] ?? "", path: p }));
   }
-  const dirs = sortBytes([...new Set(abs.map((p) => p.replace(/\/[^/]*$/, "")))]).filter((d) => d !== "");
+  // The directory is what comes before the last separator, `/` or (Windows) `\\`; the name, what follows it.
+  const split = (p: string): [string, string] => {
+    const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
+    return [p.slice(0, i), p.slice(i + 1)];
+  };
+  const dirs = sortBytes([...new Set(abs.map((p) => split(p)[0]))]).filter((d) => d !== "");
   for (const dir of dirs) {
-    const names = abs.filter((p) => p.startsWith(`${dir}/`) && !p.slice(dir.length + 1).includes("/")).map((p) => p.slice(dir.length + 1));
-    const hashes = await hashList(ctx, dir, names);
-    names.forEach((n, i) => out.push({ hash: hashes[i] ?? "", path: `${dir}/${n}` }));
+    const inDir = abs.filter((p) => split(p)[0] === dir);
+    const hashes = await hashList(ctx, dir, inDir.map((p) => split(p)[1]));
+    inDir.forEach((p, i) => out.push({ hash: hashes[i] ?? "", path: p }));
   }
   return out;
 }

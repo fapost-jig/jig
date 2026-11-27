@@ -5,7 +5,7 @@
 import path from "node:path";
 import type { JigCtx, Output } from "../context.ts";
 import { die } from "../errors.ts";
-import { hashPaths } from "../git/hash.ts";
+import { hashPaths, isAbsolutePath } from "../git/hash.ts";
 import { knowledgeDocs, scalar } from "../knowledge/docs.ts";
 import { statusResolvable } from "../knowledge/match.ts";
 import { byteCompare, sortBytes } from "../storage/bytes.ts";
@@ -36,7 +36,7 @@ function ledgerFile(ctx: JigCtx, id: string): string {
 function normalisePath(ctx: JigCtx, given: string, linked: readonly string[]): string {
   let p = given;
   while (p.startsWith("./")) p = p.slice(2);
-  if (!p.startsWith("/")) return p;
+  if (!isAbsolutePath(p)) return p;
   if (linked.includes(p)) return p;
   if (p.startsWith(`${ctx.root}/`)) return p.slice(ctx.root.length + 1);
   const dir = path.dirname(p);
@@ -64,7 +64,7 @@ const ABSOLUTE = (rel: string): string =>
 
 /** `_ctx_check_knowledge_path`: what is wrong with a path to acknowledge, or undefined. */
 function knowledgePathProblem(ctx: JigCtx, rel: string, linked: readonly string[]): string | undefined {
-  if (rel.startsWith("/")) {
+  if (isAbsolutePath(rel)) {
     if (linked.includes(rel)) return undefined;
     return ABSOLUTE(rel);
   }
@@ -84,7 +84,7 @@ function knowledgePathProblem(ctx: JigCtx, rel: string, linked: readonly string[
 
 /** `_ctx_check_revoked_path`: the shape check for a path whose acknowledgement is withdrawn. */
 function revokedPathProblem(rel: string, have: readonly string[]): string | undefined {
-  if (rel.startsWith("/")) {
+  if (isAbsolutePath(rel)) {
     if (!have.includes(rel)) return ABSOLUTE(rel);
   } else if (rel.includes("..")) {
     return `path may not contain '..': ${rel}`;
