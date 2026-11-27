@@ -1,0 +1,29 @@
+{
+  "name": "jig-next-ts",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Skeleton of the TypeScript implementation of Jig (spec stack-migration, Phase 1). Not shipped.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --test \"test/**/*.test.ts\"",
+    "bundle": "node tools/bundle.ts",
+    "gen-schemas": "node tools/gen-schemas.ts",
+    "check-schemas": "node tools/gen-schemas.ts --check",
+    "check-deps": "node tools/check-deps.ts",
+    "check": "npm run typecheck && npm run check-schemas && npm run test && npm run bundle && npm run check-deps",
+    "audit": "npm audit --omit=dev"
+  },
+  "dependencies": {
+    "yaml": "2.9.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.7",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2"
+  }
+}

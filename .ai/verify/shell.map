@@ -23,6 +23,12 @@ scripts/jig-session-hook        housekeeping::
 scripts/jig                     dispatcher::
 scripts/jig.cmd                 init:: install::
 
+# The TypeScript skeleton (spec stack-migration). Its checks are written in TypeScript and run by
+# Node; tests/next-ts.t.sh runs them (`npm run check`) and holds the launcher to `jig --version`.
+# Nothing in bash calls the skeleton, so no other suite reads these paths.
+next/ts/**                      next-ts::
+scripts/jig-next-ts*            next-ts::
+
 # The JSON layer and the housekeeping log reader are libraries with more than
 # one reader: json.sh writes every `--json` envelope (task list, spec list,
 # status), hklog.sh decides which housekeeping flags still stand for the status
