@@ -17,7 +17,7 @@ paths:
   - "next/**"
 summary: Why Jig 1.0 leaves bash for TypeScript or Go chosen by a measured pilot, which decisions of the stack-migration spec hold whatever the language, and why the remaining bash keeps ADR-0002's rules until cut-over.
 supersedes: adr-0002-shell-implementation-zero-dependencies
-reviewed_at: 2026-11-26
+reviewed_at: 2026-11-27
 ---
 # Jig 1.0 is rewritten off bash on an epic, and a measured pilot picks TypeScript or Go
 
