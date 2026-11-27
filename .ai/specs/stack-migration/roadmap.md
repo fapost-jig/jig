@@ -61,6 +61,7 @@ Goal: `jig task`, the largest command, is ported. Done when: it passes its recor
 has shipped tasks on this repository with `jig-next`.
 
 - [ ] fog: `jig task` — 10k lines of bash; cut into tasks by subcommand once Phase 4 has moved the code it shares
+- [ ] `review-without-loops` — Review that converges — P0–P2 fixed inside the task before ship and never a stop for a P2; P3 dismissed, not fixed; "matters when X" findings become conditions on roadmap item X, not ledger entries; a re-review reads the ledger of resolved findings and never records one that undoes a resolution unless it is P0/P1 with the reason; a task filed from findings files no findings task of its own; the autopilot decides leftovers itself and reports, never waits (owner, 2026-11-27; an intended difference from 0.51.2)
 
 ## Phase 6 — Cut-over
 
