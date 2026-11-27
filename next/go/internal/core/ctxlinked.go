@@ -43,8 +43,8 @@ func parseTaskRef(ref string) (taskRef, string) {
 
 func isLetter(c byte) bool { return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' }
 
-// refDir is jig_task_ref_dir: the directory of the referenced task or spec in
-// the neighbouring repository, or why it is not there.
+// refDir is jig_task_ref_dir: the neighbouring repository's root (links
+// resolved) when the referenced task or spec is there in it, or why it is not.
 func refDir(p Project, r taskRef) (string, string) {
 	dir := storage.CloneRoot(p.Root) + "/" + r.repo
 	abs := ""
@@ -55,17 +55,25 @@ func refDir(p Project, r taskRef) (string, string) {
 		return "", "no repository at " + dir
 	}
 	if r.kind == "spec" {
-		d := abs + "/" + storage.AiDir + "/specs/" + r.id
-		if !storage.IsFile(d+"/spec.md") && !storage.IsFile(d+"/roadmap.md") {
+		if !storage.IsFile(refFile(abs, r, "spec.md")) && !storage.IsFile(refFile(abs, r, "roadmap.md")) {
 			return "", "no spec " + r.id + " in " + abs
 		}
-		return d, ""
+		return abs, ""
 	}
-	d, err := storage.TaskDirPath(abs, r.id)
-	if err != nil || !storage.IsFile(d+"/task.md") {
+	if !storage.TaskFileExists(abs, r.id, "task.md") {
 		return "", "no task " + r.id + " in " + abs + " (a task workspace exists only in the clone that filed it)"
 	}
-	return d, ""
+	return abs, ""
+}
+
+// refFile is a file of the referenced task's workspace or spec directory in the
+// repository at abs.
+func refFile(abs string, r taskRef, name string) string {
+	if r.kind == "spec" {
+		return abs + "/" + storage.AiDir + "/specs/" + r.id + "/" + name
+	}
+	path, _ := storage.TaskFilePath(abs, r.id, name)
+	return path
 }
 
 // taskLinks is jig_task_links: the references `Linked: <ref>` lines of a
@@ -91,15 +99,11 @@ func linkedRows(p Project, id string) []linkRow {
 	if id == "" {
 		return nil
 	}
-	dir, err := storage.TaskDirPath(p.Root, id)
-	if err != nil {
+	md, ok := storage.TaskDoc(p.Root, id, "task.md")
+	if !ok {
 		return nil
 	}
-	md, ok := storage.ReadText(dir + "/task.md")
-	if !ok || !storage.IsFile(dir+"/task.md") {
-		return nil
-	}
-	own := storage.PhysicalDir(dir)
+	own := storage.TaskDirPhysical(p.Root, id)
 	var rows []linkRow
 	for _, ref := range taskLinks(md) {
 		r, why := parseTaskRef(ref)
@@ -107,12 +111,12 @@ func linkedRows(p Project, id string) []linkRow {
 			rows = append(rows, linkRow{"-", ref, "malformed link: " + why + "; the form is <repo>#<task-id> or <repo>#spec/<spec-id>"})
 			continue
 		}
-		dir, why := refDir(p, r)
+		abs, why := refDir(p, r)
 		if why != "" {
 			rows = append(rows, linkRow{"-", ref, why})
 			continue
 		}
-		if r.kind == "task" && own != "" && storage.PhysicalDir(dir) == own {
+		if r.kind == "task" && own != "" && storage.TaskDirPhysical(abs, r.id) == own {
 			rows = append(rows, linkRow{"-", ref, "this is the task itself"})
 			continue
 		}
@@ -121,8 +125,8 @@ func linkedRows(p Project, id string) []linkRow {
 			files = []string{"spec.md", "roadmap.md"}
 		}
 		for _, f := range files {
-			if storage.IsFile(dir + "/" + f) {
-				rows = append(rows, linkRow{dir + "/" + f, ref, ""})
+			if path := refFile(abs, r, f); storage.IsFile(path) {
+				rows = append(rows, linkRow{path, ref, ""})
 			}
 		}
 	}

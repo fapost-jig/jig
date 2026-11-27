@@ -75,7 +75,7 @@ func (h *hasher) hashPaths(paths []string) ([]hashedPath, error) {
 	for _, x := range paths {
 		switch {
 		case x == "":
-		case x[0] == '/':
+		case storage.IsAbs(x):
 			abs = append(abs, x)
 		default:
 			rel = append(rel, x)
@@ -118,11 +118,6 @@ func (h *hasher) hashPaths(paths []string) ([]hashedPath, error) {
 
 const cacheMark = "=== rows ==="
 
-func cacheFile(p Project, id string) (string, error) {
-	dir, err := taskDirOf(p.Root, id)
-	return dir + "/context-cache", err
-}
-
 // fingerprint is _ctx_cache_fingerprint: every selector the selection reads and
 // the content of every knowledge document.
 func fingerprint(h *hasher, p Project, s *ctxSel) (string, error) {
@@ -151,11 +146,7 @@ func fingerprint(h *hasher, p Project, s *ctxSel) (string, error) {
 // cacheRead is _ctx_cache_read: the cached rows, when a cache for these
 // selectors exists and its fingerprint still matches the documents on disk.
 func cacheRead(h *hasher, p Project, s *ctxSel) ([]ctxRow, bool) {
-	file, err := cacheFile(p, s.task)
-	if err != nil {
-		return nil, false
-	}
-	text, ok := storage.ReadText(file)
+	text, ok := storage.CacheRead(p.Root, s.task)
 	if !ok {
 		return nil, false
 	}
@@ -208,7 +199,5 @@ func cacheWrite(ctx Ctx, h *hasher, p Project, s *ctxSel, rows []ctxRow) {
 	for _, r := range rows {
 		b.WriteString(r.rel + "\t" + r.reason + "\n")
 	}
-	if file, err := cacheFile(p, s.task); err == nil {
-		storage.WriteFileTmp(file, b.String())
-	}
+	storage.CacheWrite(p.Root, s.task, b.String())
 }

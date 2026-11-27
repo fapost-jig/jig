@@ -89,11 +89,10 @@ func ctxAcknowledge(ctx Ctx, p Project, args []string, out *Output) error {
 	}
 
 	linked := linkedDocs(p, taskID)
-	ledgerPath, err := ledgerFile(p, taskID)
+	old, haveLedger, err := storage.LedgerRead(p.Root, taskID)
 	if err != nil {
-		return err
+		return errs.New(errs.Failed, "invalid task id: %s", taskID)
 	}
-	old, haveLedger := storage.ReadText(ledgerPath)
 	haveSet := map[string]bool{}
 	var oldLines []string
 	if haveLedger {
@@ -156,7 +155,7 @@ func ctxAcknowledge(ctx Ctx, p Project, args []string, out *Output) error {
 	if body != "" {
 		body += "\n"
 	}
-	if !storage.WriteFileTmp(ledgerPath, body) {
+	if storage.LedgerWrite(p.Root, taskID, body) != nil {
 		return errs.New(errs.Failed, "context acknowledge: cannot write the ledger")
 	}
 	switch {
@@ -186,7 +185,7 @@ func normalisePath(p Project, path string, linked []string) string {
 	for strings.HasPrefix(path, "./") {
 		path = path[2:]
 	}
-	if !strings.HasPrefix(path, "/") {
+	if !storage.IsAbs(path) {
 		return path
 	}
 	for _, l := range linked {
@@ -213,7 +212,7 @@ const absoluteRefused = "path must be repository-relative: %s (an absolute path 
 // before it is acknowledged, or "".
 func checkKnowledgePath(p Project, rel string, linked []string) string {
 	switch {
-	case strings.HasPrefix(rel, "/"):
+	case storage.IsAbs(rel):
 		for _, l := range linked {
 			if l == rel {
 				return ""
@@ -250,7 +249,7 @@ func checkKnowledgePath(p Project, rel string, linked []string) string {
 // withdrawn must be in the ledger.
 func checkRevokedPath(rel string, have map[string]bool) string {
 	switch {
-	case strings.HasPrefix(rel, "/"):
+	case storage.IsAbs(rel):
 		if !have[rel] {
 			return fmt.Sprintf(absoluteRefused, rel)
 		}

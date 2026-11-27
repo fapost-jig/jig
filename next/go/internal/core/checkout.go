@@ -41,7 +41,8 @@ func CheckoutRecord(ctx Ctx, words []string) {
 	if name == "" || !storage.ValidID(name) {
 		return
 	}
-	if !storage.MakeDir(runtime + "/working") {
+	file, err := storage.WorkingRecordPath(p.Root, name)
+	if err != nil || !storage.MakeDir(runtime+"/working") {
 		return
 	}
 	cmd := oneLine(strings.Join(words, " "), "\n", "\r")
@@ -49,7 +50,7 @@ func CheckoutRecord(ctx Ctx, words []string) {
 	if session := checkoutSession(ctx, p); session != "" && session != name {
 		body += "session: " + session + "\n"
 	}
-	storage.WriteRecord(runtime+"/working/"+name, body)
+	storage.WriteRecord(file, body)
 }
 
 // oneLine replaces each of the characters in s by a space.
@@ -273,11 +274,10 @@ func checkoutTake(ctx Ctx, p Project, words []string) {
 		return
 	}
 	root := storage.CloneRoot(p.Root)
-	dir := storage.RuntimeDir(root) + "/taken/" + id
-	if !storage.MakeDir(dir) {
+	file, err := storage.TakenRecordPath(root, id, session)
+	if err != nil || !storage.MakeDir(file[:strings.LastIndex(file, "/")]) {
 		return
 	}
-	file := dir + "/" + session
 	since := ""
 	if v, ok := storage.RecordGet(file, "since"); ok {
 		since = v

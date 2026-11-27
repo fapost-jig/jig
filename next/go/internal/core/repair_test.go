@@ -89,10 +89,37 @@ func TestAnInvalidTaskIDBuildsNoPath(t *testing.T) {
 		t.Error("a workspace path was built for an invalid id")
 	}
 	root := progressiveFixture(t)
-	if _, err := ledgerFile(Project{Root: root}, ".."); err == nil {
-		t.Error("a ledger path was built for an invalid id")
+	if _, ok := readLedger(Project{Root: root}, ".."); ok {
+		t.Error("a ledger was read for an invalid id")
 	}
-	if _, err := cacheFile(Project{Root: root}, "x/y"); err == nil {
-		t.Error("a cache path was built for an invalid id")
+	if rows, ok := cacheRead(newHasher(Ctx{}, Project{Root: root}), Project{Root: root}, &ctxSel{task: "x/y"}); ok || rows != nil {
+		t.Error("a cache was read for an invalid id")
+	}
+}
+
+func TestADriveLetterPathIsAbsoluteEverywhereItIsDecided(t *testing.T) {
+	root := progressiveFixture(t)
+	p := Project{Root: root}
+	linked := []string{"C:/work/other/.ai/workspace/tasks/x1/task.md"}
+	if got := normalisePath(p, linked[0], linked); got != linked[0] {
+		t.Errorf("a linked document was rewritten: %q", got)
+	}
+	if got := normalisePath(p, `C:\elsewhere\a.md`, linked); got != `C:\elsewhere\a.md` {
+		t.Errorf("%q", got)
+	}
+	if pr := checkKnowledgePath(p, linked[0], linked); pr != "" {
+		t.Errorf("a linked drive path was refused: %s", pr)
+	}
+	if pr := checkKnowledgePath(p, "D:/other.md", linked); !strings.HasPrefix(pr, "path must be repository-relative: D:/other.md") {
+		t.Errorf("%q", pr)
+	}
+	if pr := checkRevokedPath("D:/other.md", map[string]bool{}); !strings.HasPrefix(pr, "path must be repository-relative") {
+		t.Errorf("%q", pr)
+	}
+	// hashPaths takes it for an absolute path: it asks its own directory, never the project's.
+	ctx, _ := ctxFor(root, "feat", nil, nil)
+	_, err := newHasher(ctx, p).hashPaths([]string{"C:/work/other/a.md"})
+	if err == nil || !strings.Contains(err.Error(), "C:/work/other/a.md") || strings.Contains(err.Error(), root) {
+		t.Errorf("hashed as a relative path: %v", err)
 	}
 }

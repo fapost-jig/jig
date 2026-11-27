@@ -118,11 +118,10 @@ func workspaceRel(id string) (string, error) {
 // its workspace in a worktree of this repository. The error is what the shell
 // dies with, naming cmd.
 func guardWrite(ctx Ctx, p Project, id, cmd string) error {
-	dir, err := taskDirOf(p.Root, id)
-	if err != nil {
+	if _, err := taskDirOf(p.Root, id); err != nil {
 		return err
 	}
-	if !storage.IsFile(dir + "/state") {
+	if !storage.TaskHasState(p.Root, id) {
 		return errs.New(errs.NotFound, "%s: unknown task: %s", cmd, id)
 	}
 	tasksRel := storage.TasksRel
@@ -133,14 +132,14 @@ func guardWrite(ctx Ctx, p Project, id, cmd string) error {
 	if !worktreeHolds(ctx, p, tasksRoot, tasksRel) {
 		return errs.New(errs.Failed, "%s: %s leads to %s, which is no checkout of this repository", cmd, tasksRel, tasksRoot)
 	}
-	if storage.IsSymlink(dir) {
-		real := storage.PhysicalDir(dir)
+	if storage.TaskDirIsLink(p.Root, id) {
+		real := storage.TaskDirPhysical(p.Root, id)
 		if real == "" || !worktreeHolds(ctx, p, real, tasksRel+"/"+id) {
 			return errs.New(errs.Failed, "%s: linked task workspace is unsupported unless it is this task's workspace in another worktree", cmd)
 		}
 		return nil
 	}
-	real := storage.PhysicalDir(dir)
+	real := storage.TaskDirPhysical(p.Root, id)
 	if real == "" {
 		return errs.New(errs.Failed, "%s: cannot inspect workspace", cmd)
 	}

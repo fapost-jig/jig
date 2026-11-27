@@ -47,16 +47,13 @@ func ctxResolve(ctx Ctx, p Project, args []string, out *Output) error {
 		}
 	}
 	if s.task != "" {
-		wdir, err := workspaceRel(s.task)
-		if err != nil {
-			return err
-		}
-		if storage.TaskFileExists(p.Root, s.task, "task.md") {
-			fmt.Fprintf(&b, "%-10s %s\n", "workspace:", wdir+"/task.md")
-		}
-		for _, wf := range workspaceArtifacts {
+		for _, wf := range append([]string{"task.md"}, workspaceArtifacts...) {
 			if storage.TaskFileExists(p.Root, s.task, wf) {
-				fmt.Fprintf(&b, "%-10s %s\n", "workspace:", wdir+"/"+wf)
+				rel, err := storage.TaskWorkspaceFileRel(s.task, wf)
+				if err != nil {
+					return errs.New(errs.Failed, "invalid task id: %s", s.task)
+				}
+				fmt.Fprintf(&b, "%-10s %s\n", "workspace:", rel)
 			}
 		}
 	}

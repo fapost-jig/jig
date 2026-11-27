@@ -112,27 +112,6 @@ func MTime(path string) (int64, bool) {
 	return info.ModTime().Unix(), true
 }
 
-// TakenRecordsOf are the files `runtime/taken/*/<session>` of the clone at
-// cloneRoot, in the order of the shell's glob.
-func TakenRecordsOf(cloneRoot, session string) []string {
-	dirs, err := os.ReadDir(filepath.Join(RuntimeDir(cloneRoot), "taken"))
-	if err != nil {
-		return nil
-	}
-	var out []string
-	for _, d := range dirs {
-		if strings.HasPrefix(d.Name(), ".") {
-			continue
-		}
-		p := filepath.Join(RuntimeDir(cloneRoot), "taken", d.Name(), session)
-		if isFile(p) {
-			out = append(out, Slash(p))
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
 // TaskHasState reports whether task id of project root has a state file. The id
 // is valid: the caller checked it.
 func TaskHasState(root, id string) bool {
@@ -165,8 +144,8 @@ func TaskIDsWithState(root string) []string {
 // TaskFileExists reports whether the task's workspace holds the regular file
 // name.
 func TaskFileExists(root, id, name string) bool {
-	dir, err := TaskDirPath(root, id)
-	return err == nil && isFile(filepath.Join(dir, name))
+	path, err := TaskFilePath(root, id, name)
+	return err == nil && isFile(path)
 }
 
 // ReadText is the text of the file at path.

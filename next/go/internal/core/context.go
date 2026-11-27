@@ -172,16 +172,13 @@ func ctxStateless(ctx Ctx, p Project, args []string, out *Output) error {
 		rows = append(rows, row{"matched:", path, reason})
 	}
 	if taskID != "" {
-		wdir, err := workspaceRel(taskID)
-		if err != nil {
-			return err
-		}
-		if storage.TaskFileExists(p.Root, taskID, "task.md") {
-			rows = append(rows, row{"workspace:", wdir + "/task.md", ""})
-		}
-		for _, wf := range workspaceArtifacts {
+		for _, wf := range append([]string{"task.md"}, workspaceArtifacts...) {
 			if storage.TaskFileExists(p.Root, taskID, wf) {
-				rows = append(rows, row{"workspace:", wdir + "/" + wf, ""})
+				rel, err := storage.TaskWorkspaceFileRel(taskID, wf)
+				if err != nil {
+					return errs.New(errs.Failed, "invalid task id: %s", taskID)
+				}
+				rows = append(rows, row{"workspace:", rel, ""})
 			}
 		}
 	}

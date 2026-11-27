@@ -65,7 +65,7 @@ func ReadKnowledgeDoc(path string) (doc *Doc, ok bool) {
 // is false when src is not a regular file inside the repository: a path that
 // could leave it, a symlink, or a file reached through a symlinked directory.
 func KnowledgeReadPath(root, src string) bool {
-	if strings.HasPrefix(src, "/") || strings.HasPrefix(src, "../") ||
+	if IsAbs(src) || strings.HasPrefix(src, "../") ||
 		strings.Contains(src, "/../") || strings.HasSuffix(src, "..") {
 		return false
 	}
