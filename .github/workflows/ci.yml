@@ -395,6 +395,22 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # next/ts needs Node 22.18 or later (`engines.node` in next/ts/package.json;
+      # tests/next-ts.t.sh fails without it), and the floor is what is pinned, so
+      # the run tests what engines promises. next/go's version is read from its
+      # go.mod: one source, no second copy. Without go the next-go tests would
+      # skip, and a green run would have checked nothing. Caches are off so the
+      # run depends on nothing a previous run left (and the test's HOME is empty
+      # anyway, so an npm cache would be unused).
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.18'
+          package-manager-cache: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: next/go/go.mod
+          cache: false
+
       # The ubuntu image ships shellcheck and the macOS image does not, and
       # nothing here installed it: the smoke step below therefore ran the real
       # linter on Linux and found none on macOS, where every check skipped and
@@ -411,8 +427,10 @@ jobs:
 
       # Printed, not asserted. The point is that a disagreement between
       # platforms is legible in the log rather than being a mystery — pinning
-      # a version is impossible anyway, since jig has no dependency manager
-      # (ADR-0002) and takes whatever the machine provides.
+      # a version is impossible anyway for the bash tools, since jig has no
+      # dependency manager (ADR-0002) and takes whatever the machine provides.
+      # Node and Go of the next/ stacks are pinned above, since each has its
+      # own manifest.
       - name: Toolchain versions
         run: |
           bash --version | head -n 1
@@ -421,6 +439,16 @@ jobs:
             shellcheck --version | sed -n 's/^version: /shellcheck /p'
           else
             echo "shellcheck: not installed"
+          fi
+          if command -v node >/dev/null 2>&1; then
+            echo "node $(node --version)"
+          else
+            echo "node: not installed"
+          fi
+          if command -v go >/dev/null 2>&1; then
+            go version
+          else
+            echo "go: not installed"
           fi
 
       - uses: actions/download-artifact@v8
@@ -522,6 +550,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Node and Go are pinned as for `test`.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.18'
+          package-manager-cache: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: next/go/go.mod
+          cache: false
+
       - name: Toolchain versions
         run: |
           bash --version | head -n 1
@@ -531,6 +569,16 @@ jobs:
             shellcheck --version | sed -n 's/^version: /shellcheck /p'
           else
             echo "shellcheck: not installed"
+          fi
+          if command -v node >/dev/null 2>&1; then
+            echo "node $(node --version)"
+          else
+            echo "node: not installed"
+          fi
+          if command -v go >/dev/null 2>&1; then
+            go version
+          else
+            echo "go: not installed"
           fi
 
       # Real-time scanning inspects every process the suite starts, and it
