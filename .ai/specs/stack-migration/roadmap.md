@@ -28,6 +28,7 @@ new code passes against its recordings, locally and on the manual Windows run.
 - [ ] `recorder-hardening` — Recorder on Windows — path-safe placeholders, no inherited secrets in snapshots, no lost recorder errors (findings of `stack-recorder`)
 - [ ] `ts-skeleton-revision` — TypeScript skeleton level with Go — storage raises the clone revision, test install under a lock, real revision in --json errors, stricter boundary scan (findings of `ts-skeleton`)
 - [ ] `oracle-at-baseline` — Invariant oracle at 0.51.2 — both skeletons check against the bash libraries of the pinned baseline, not the epic checkout (findings of `go-skeleton`)
+- [ ] `pilot-ci-runtimes` — Pinned runtimes in CI — Node and Go versions fixed for the next/ tests before the manual Windows run (finding of `ts-skeleton`)
 
 ## Phase 2 — Pilot and the language
 
