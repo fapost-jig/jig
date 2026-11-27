@@ -24,8 +24,11 @@ _pp_record() {
   PP_REC="$JIG_TEST_TMP/rec"
   mkdir -p "$PP_REC"
   (
+    # The outer run's share, skip list, report and durations are CI's for the outer suite
+    # (tests/runner.t.sh clears them the same way): a share of 3/4 would leave this nested run
+    # of two tests one call or none.
     unset JIG_RECORD JIG_RECORD_DIR JIG_RECORD_TEST JIG_RECORD_ROOT JIG_RECORD_BASE_ENV \
-      JIG_RECORDING JIG_RECORDER
+      JIG_RECORDING JIG_RECORDER JIG_TEST_SHARD JIG_TEST_SKIP JIG_TEST_REPORT JIG_TEST_DURATIONS
     cd "$JIG_HOME" || exit 1
     JIG_TEST_JOBS=1 JIG_RECORD="$PP_REC" "$JIG_HOME/tests/run.sh" \
       dispatcher::test_version_prints_semver \

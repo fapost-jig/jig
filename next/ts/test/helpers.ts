@@ -54,7 +54,7 @@ export function proc(cmd: string, args: readonly string[], opts: { cwd?: string;
 
 /** A temporary directory removed with the test; its real path (macOS /var is a link). */
 export function tmpDir(t: { after(fn: () => void): void }, prefix = "jig-ts-"): string {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+  const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   return dir;
 }
@@ -115,7 +115,7 @@ export function baselineLib(): string {
     return r.stdout;
   };
   const files = git("ls-tree", "--name-only", BASELINE_TAG, "scripts/lib/").toString("utf8").split("\n").filter((f) => f !== "");
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "jig-oracle-baseline-")));
+  const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "jig-oracle-baseline-")));
   process.on("exit", () => fs.rmSync(dir, { recursive: true, force: true }));
   for (const f of files) fs.writeFileSync(path.join(dir, path.basename(f)), git("cat-file", "blob", `${BASELINE_TAG}:${f}`));
   fs.writeFileSync(path.join(dir, "clock.sh"), clockSection(fs.readFileSync(path.join(repoRoot, "scripts", "lib", "common.sh"), "utf8")));

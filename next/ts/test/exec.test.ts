@@ -53,7 +53,7 @@ test("real git: stdout and stderr are bytes, an exit status is returned, a name 
   const ok = await git(ctx, dir, ["rev-parse", "--show-toplevel"]);
   assert.equal(ok.code, 0);
   assert.ok(Buffer.isBuffer(ok.stdout));
-  assert.equal(fs.realpathSync(text(ok.stdout).trim()), dir);
+  assert.equal(fs.realpathSync.native(text(ok.stdout).trim()), dir);
 
   const bad = await git(ctx, dir, ["rev-parse", "--verify", "no-such-ref"]);
   assert.notEqual(bad.code, 0);
@@ -78,7 +78,7 @@ test("real git: the location variables of the environment are not passed on", as
   try {
     const r = await git(ctxFor(dir), dir, ["rev-parse", "--show-toplevel"]);
     assert.equal(r.code, 0);
-    assert.equal(fs.realpathSync(text(r.stdout).trim()), dir);
+    assert.equal(fs.realpathSync.native(text(r.stdout).trim()), dir);
   } finally {
     if (before === undefined) delete process.env["GIT_DIR"];
     else process.env["GIT_DIR"] = before;

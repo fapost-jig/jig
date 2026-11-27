@@ -120,7 +120,10 @@ test_next_ts_checks_pass() {
   fi
   # typecheck, schema drift, unit and integration tests, bundle, dependency rules.
   if ! (cd "$dir" && npm run check) > "$log" 2>&1; then
-    tail -n 80 "$log"
+    # The whole log is too long to print: the failing subtests (node's TAP `not ok` blocks) go
+    # first, then the tail, so a failure far up the log is still read (a CI run shows no file).
+    awk '/^ *not ok /{n=30} n>0{print; n--}' "$log" | head -n 300
+    tail -n 40 "$log"
     _nts_lock_release "$dir"
     fail "npm run check failed in next/ts"
   fi

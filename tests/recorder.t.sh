@@ -27,6 +27,14 @@ _rec_begin() {
   export JIG_RECORD_DIR="$REC" JIG_RECORD_BASE_ENV="$JIG_TEST_TMP.outenv"
   export JIG_RECORD_ROOT="$JIG_HOME" JIG_RECORD_TEST="recorder::$REC_NAME"
   unset JIG_RECORDING JIG_RECORDER
+  # The fake runner environment above holds three variables, so every other inherited one is
+  # recorded as changed; one holding a SHA (GITHUB_SHA on CI) would be numbered in the call's
+  # `shas` and break the tests that read it. The machine's own SHAs say nothing here.
+  local n
+  for n in $(compgen -e); do
+    [[ ${!n} =~ [0-9a-f]{40} ]] && unset "$n"
+  done
+  return 0
 }
 
 # _rec_fake <name> — a script of the test's own to record, body on stdin.
@@ -113,8 +121,16 @@ EOF
   case "$id" in ????????????????????????????????????????) ;; *) fail "no blob id for data.bin: [$id]" ;; esac
   git --git-dir="$REC/store.git" cat-file blob "$id" > "$JIG_TEST_TMP.outx"
   cmp -s "$JIG_TEST_TMP.outx" "$JIG_TEST_TMP/data.bin" || fail "blob differs from the file"
-  assert_contains "$(_rec_list "$d/tree.after")" "$(printf 'f\t755\t%s\t%s' "$id" "<T>/data.bin")"
-  assert_contains "$(_rec_list "$d/tree.after")" "$(printf 'l\t-\tdata.bin\t%s' "<T>/link")"
+  # The tree says what the disk holds. NTFS under Git Bash keeps no execute bit for a file
+  # without a `#!` and `ln -s` copies the file, so there the mode is 644 and the link a file.
+  local mode=644
+  [ ! -x "$JIG_TEST_TMP/data.bin" ] || mode=755
+  assert_contains "$(_rec_list "$d/tree.after")" "$(printf 'f\t%s\t%s\t%s' "$mode" "$id" "<T>/data.bin")"
+  if [ -L "$JIG_TEST_TMP/link" ]; then
+    assert_contains "$(_rec_list "$d/tree.after")" "$(printf 'l\t-\tdata.bin\t%s' "<T>/link")"
+  else
+    assert_contains "$(_rec_list "$d/tree.after")" "$(printf 'f\t%s\t%s\t%s' "$mode" "$id" "<T>/link")"
+  fi
   assert_contains "$(_rec_list "$d/tree.after")" "$(printf 'd\t-\t-\t%s' "<T>/sub")"
   # a name with a newline in it is stored and listed too
   id=$(git --git-dir="$REC/store.git" hash-object --no-filters "$JIG_TEST_TMP/name with
@@ -193,7 +209,11 @@ EOF
   _rec_call "$fake" > /dev/null
   d=$(_rec_d 0001)
   changes=$(_rec_list "$d/changes")
-  assert_eq "$(printf 'A\t<T>/repo/.git/hooks/post-x\nA\t<T>/repo/a.txt\nM\t<T>/repo/b.txt\nD\t<T>/repo/c.txt\nT\t<T>/repo/d')" "$changes" \
+  # A file that became a link changed its type (T); where `ln -s` copies (Git Bash on NTFS), it
+  # is a file whose content changed (M).
+  local dtype=M
+  [ ! -L "$JIG_TEST_TMP/repo/d" ] || dtype=T
+  assert_eq "$(printf 'A\t<T>/repo/.git/hooks/post-x\nA\t<T>/repo/a.txt\nM\t<T>/repo/b.txt\nD\t<T>/repo/c.txt\n%s\t<T>/repo/d' "$dtype")" "$changes" \
     "objects, index, HEAD, refs, logs and COMMIT_EDITMSG are not changes; hooks are"
   # the raw tree still has the git files, byte for byte
   assert_contains "$(_rec_list "$d/tree.after")" "<T>/repo/.git/COMMIT_EDITMSG"

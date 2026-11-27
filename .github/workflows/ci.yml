@@ -416,6 +416,13 @@ jobs:
           go-version-file: next/go/go.mod
           cache: false
 
+      # tests/next-go.t.sh and tests/parity-ports.t.sh use the machine's module cache and expect it
+      # warm, as on a developer's machine: a cold one prints `go: downloading ...` into the
+      # launcher's answer and leaves the archtest licence check too few modules to read.
+      - name: Download the Go modules
+        working-directory: next/go
+        run: go mod download
+
       # The ubuntu image ships shellcheck and the macOS image does not, and
       # nothing here installed it: the smoke step below therefore ran the real
       # linter on Linux and found none on macOS, where every check skipped and
@@ -569,6 +576,13 @@ jobs:
         with:
           go-version-file: next/go/go.mod
           cache: false
+
+      # tests/next-go.t.sh and tests/parity-ports.t.sh use the machine's module cache and expect it
+      # warm, as on a developer's machine: a cold one prints `go: downloading ...` into the
+      # launcher's answer and leaves the archtest licence check too few modules to read.
+      - name: Download the Go modules
+        working-directory: next/go
+        run: go mod download
 
       - name: Toolchain versions
         run: |
