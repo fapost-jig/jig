@@ -85,10 +85,10 @@ func TestGoWritersBuildWhatTheBashWritersBuild(t *testing.T) {
 	}
 	env := []string{"JIG_NOW=" + pinnedNow, "JIG_PROJECT=" + t.TempDir()}
 	dir := t.TempDir()
-	keepsCR := bashKeepsCR(t)
+	keepsCR := bashWriterKeepsCR(t, env)
 	for name, state := range fixtureStates(t) {
 		if !keepsCR && strings.Contains(state, "\r") {
-			t.Logf("%s: not compared, this platform's bash drops the CR the fixture holds", name)
+			t.Logf("%s: not compared, this platform's bash writers drop the CR the fixture holds", name)
 			continue
 		}
 		src := filepath.Join(dir, "src-"+name)

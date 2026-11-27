@@ -91,7 +91,7 @@ test_every_kind_of_call_is_equal_on_the_program_that_made_it() {
   _pt_begin
   multi=$(_pt_fake multi <<'EOF'
 case "$1" in
-  write)
+  (write)
     printf 'out %s\n' "$*"
     printf 'err line\n' >&2
     printf 'made\n' > made.txt
@@ -99,11 +99,11 @@ case "$1" in
     printf 'x\n' > sub/inner.txt
     exit 3
     ;;
-  read)
+  (read)
     cat > got.txt
     printf 'read %s\n' "$(cat got.txt)"
     ;;
-  mixed)
+  (mixed)
     printf '1\n'
     printf '2\n' >&2
     printf '3\n'

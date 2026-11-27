@@ -190,13 +190,18 @@ func runBash(t *testing.T, script string, env []string, stdin string, args ...st
 	return out.Bytes()
 }
 
-// bashKeepsCR reports whether this platform's bash keeps a carriage return
-// that `read` reads at the end of a line. Bash on Linux and macOS does; Git for
-// Windows' (MSYS) bash drops it, so there the bash writers cannot be the oracle
-// of what happens to a CRLF state file.
-func bashKeepsCR(t *testing.T) bool {
+// bashWriterKeepsCR reports whether this platform's bash writers keep the
+// carriage return of a line they do not touch. Bash on Linux and macOS does; on
+// Git for Windows (MSYS) the CR is lost on the way, so there the bash writers
+// cannot be the oracle of what happens to a CRLF state file.
+func bashWriterKeepsCR(t *testing.T, env []string) bool {
 	t.Helper()
-	return string(runBash(t, `IFS= read -r l; printf '%s' "$l"`, nil, "a\r\n")) == "a\r"
+	dir := t.TempDir()
+	src, dst := filepath.Join(dir, "src"), filepath.Join(dir, "dst")
+	if err := os.WriteFile(src, []byte("task_id: t1\r\nstatus: active\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return strings.Contains(string(runBash(t, bashBuild, env, "", "without", src, dst, "absent_key")), "\r")
 }
 
 // bashPath is a path bash printed in the form Go gives: on Windows Git Bash
