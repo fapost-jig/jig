@@ -331,3 +331,45 @@ test_ci_workflow_test_jobs_pin_node_and_go_for_the_next_stacks() {
       fail "$job must read the Go version from next/go/go.mod"
   done
 }
+
+# A manual dispatch's `tests` input: empty by default (the branch's default: an epic's own suites,
+# else everything), `all` the whole suite, anything else the filters. It reaches the scope script
+# through env, never interpolated into it, and the filters go to the plan.
+test_ci_workflow_a_dispatch_input_selects_tests() {
+  local block
+  awk '/^  workflow_dispatch:/ { f = 1; next } f && /^  [a-z_]+:/ { exit } f { print }' "$(cw_file)" \
+    > "$JIG_TEST_TMP/dispatch"
+  cw_has "$(cat "$JIG_TEST_TMP/dispatch")" "default: ''" || fail "the tests input must default to empty"
+  block=$(cw_job_block scope)
+  # shellcheck disable=SC2016 # workflow lines, matched literally
+  cw_has "$block" 'DISPATCH_TESTS: ${{ inputs.tests }}' || fail "scope must read the input through env"
+  [ "$(printf '%s\n' "$block" | grep -c 'inputs\.tests')" -eq 1 ] ||
+    fail "inputs.tests must appear once, in env, and not in the run script"
+  # shellcheck disable=SC2016
+  assert_contains "$block" 'all) line="full ($EVENT runs everything)" ;;' "all must stay the whole suite"
+  # shellcheck disable=SC2016
+  assert_contains "$block" 'for f in $tests; do printf' "the tests' words must become the filters"
+}
+
+# A push to an epic, and a dispatch on one with an empty input, ask ci-epic-tests.sh for the epic's
+# own suites; main is never asked (its scope is ci-scope.sh's and ci-reuse.sh's, unchanged).
+test_ci_workflow_an_epic_runs_its_own_suites() {
+  local block
+  block=$(cw_job_block scope)
+  # shellcheck disable=SC2016
+  assert_contains "$block" '.github/scripts/ci-epic-tests.sh "$BRANCH"' "scope must ask ci-epic-tests.sh"
+  # shellcheck disable=SC2016
+  assert_contains "$block" 'push:*:full* | push:*:selected* | workflow_dispatch::*)' \
+    "only a tested push and a dispatch without tests ask for the epic's suites"
+}
+
+# Both test jobs warm the Go module cache before the tests: next-go and parity-ports expect the
+# warm cache of a developer's machine, and a cold one prints `go: downloading` into their answers.
+test_ci_workflow_test_jobs_download_the_go_modules() {
+  local job block
+  for job in test test-windows; do
+    block=$(cw_job_block "$job")
+    cw_has "$block" 'run: go mod download' || fail "$job must download the Go modules"
+    cw_has "$block" 'working-directory: next/go' || fail "$job must download them in next/go"
+  done
+}

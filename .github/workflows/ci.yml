@@ -19,6 +19,16 @@ on:
     branches: [main, 'epic/**']
   pull_request:
   workflow_dispatch:
+    # `tests` picks what a manual run tests, on every platform: empty (the default) is the branch's
+    # own default — an epic's suites (.github/scripts/ci-epic-tests.sh), everything elsewhere;
+    # `all` is the whole suite; anything else is tests/run.sh filters (`<file>::` or
+    # `<file>::<test>`, space-separated).
+    inputs:
+      tests:
+        description: "empty: the branch's default (an epic's own suites, else all); `all`: the whole suite; or tests/run.sh filters, space-separated"
+        required: false
+        default: ''
+        type: string
   # Every night the whole suite runs on main, unless an earlier nightly run
   # already tested main's very tree whole; a mistake in the verify map that
   # lets a change skip the tests it needed shows up within a day.
@@ -73,7 +83,8 @@ jobs:
   # ci-scope.sh asks the shell profile which tests the change reaches, the
   # same answer a local `jig verify` acts on, and anything the profile cannot
   # name runs the whole suite (`suite: all`), as do the nightly run (unless it
-  # already tested main's tree, below), a manual one, a change of JIG_VERSION,
+  # already tested main's tree, below), a manual one (unless its `tests` input names
+  # filters), a change of JIG_VERSION,
   # the test harness and CI itself
   # (adr-20261110-a-pull-request-runs-the-tests-its-change-reaches). A map
   # line that lets a change skip a test it needed is found by the next
@@ -109,7 +120,8 @@ jobs:
   # a green whole-suite run closes it, so while it is open the nightly runs
   # everything), the night is light — the knowledge check only
   # (.github/scripts/ci-nightly-tested.sh, which has tests). A manual
-  # dispatch is always full.
+  # dispatch is full unless its `tests` input names filters: then it runs
+  # those on every platform.
   scope:
     runs-on: ubuntu-latest
     permissions:
@@ -139,6 +151,7 @@ jobs:
           BRANCH: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
+          DISPATCH_TESTS: ${{ inputs.tests }}
         run: |
           # A pull request's run checks out refs/pull/<n>/merge: the pull
           # request merged into its base branch as the base is now. Its first
@@ -209,6 +222,17 @@ jobs:
                 line=$(.github/scripts/ci-scope.sh "$push_base")
               fi
               ;;
+            workflow_dispatch)
+              # The `tests` input: `all` is the whole suite, filters are what the shares run (one
+              # per word), and empty is the branch's default — an epic's own suites, below, or
+              # everything.
+              tests=$(printf '%s' "${DISPATCH_TESTS:-}" | tr -s '[:space:]' ' ' | sed 's/^ //; s/ $//')
+              case "$tests" in
+                all) line="full ($EVENT runs everything)" ;;
+                '') line="full ($EVENT runs everything unless the branch is an epic)" ;;
+                *) line="selected ($EVENT input; tests: $tests)" ;;
+              esac
+              ;;
             *) line="full ($EVENT runs everything)" ;;
           esac
           if [ "$EVENT:$BRANCH" = schedule:main ]; then
@@ -219,6 +243,28 @@ jobs:
               tested*) line="light (nightly: ${nightly#tested })" ;;
             esac
           fi
+          # An epic changes no bash: a push to it, and a dispatch on it with an empty `tests`
+          # input, run the epic's own suites, never the whole bash suite
+          # (.github/scripts/ci-epic-tests.sh, which has tests). A light push stays light, and
+          # main is never an epic. The selected tests' filters go to the plan.
+          epic=""
+          case "$EVENT:${tests-unset}:$line" in
+            push:*:full* | push:*:selected* | workflow_dispatch::*)
+              epic=$(.github/scripts/ci-epic-tests.sh "$BRANCH") || epic="whole (ci-epic-tests.sh failed)"
+              echo "epic tests: $epic"
+              case "$epic" in
+                tests\ *) tests=${epic#tests }; line="selected (epic $BRANCH runs its own suites; tests: $tests)" ;;
+              esac
+              ;;
+          esac
+          case "$line" in
+            selected\ \(epic* | selected\ \(workflow_dispatch\ input*)
+              set -f
+              : > "$CI_SCOPE_FILTERS"
+              for f in $tests; do printf '%s\n' "$f" >> "$CI_SCOPE_FILTERS"; done
+              set +f
+              ;;
+          esac
           echo "scope: $line"
 
           # Whether a pull request's run already tested this tree, what this
@@ -416,6 +462,13 @@ jobs:
           go-version-file: next/go/go.mod
           cache: false
 
+      # tests/next-go.t.sh and tests/parity-ports.t.sh use the machine's module cache and expect it
+      # warm, as on a developer's machine: a cold one prints `go: downloading ...` into the
+      # launcher's answer and leaves the archtest licence check too few modules to read.
+      - name: Download the Go modules
+        working-directory: next/go
+        run: go mod download
+
       # The ubuntu image ships shellcheck and the macOS image does not, and
       # nothing here installed it: the smoke step below therefore ran the real
       # linter on Linux and found none on macOS, where every check skipped and
@@ -569,6 +622,13 @@ jobs:
         with:
           go-version-file: next/go/go.mod
           cache: false
+
+      # tests/next-go.t.sh and tests/parity-ports.t.sh use the machine's module cache and expect it
+      # warm, as on a developer's machine: a cold one prints `go: downloading ...` into the
+      # launcher's answer and leaves the archtest licence check too few modules to read.
+      - name: Download the Go modules
+        working-directory: next/go
+        run: go mod download
 
       - name: Toolchain versions
         run: |

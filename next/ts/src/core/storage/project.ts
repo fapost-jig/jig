@@ -17,7 +17,7 @@ export async function projectRoot(ctx: Pick<Ctx, "exec">, cwd: string): Promise<
     const r = await git(ctx, cwd, ["rev-parse", "--show-toplevel"]);
     if (r.code !== 0) return undefined;
     const top = text(r.stdout).replace(/\r?\n$/, "");
-    return top === "" ? undefined : fs.realpathSync(top);
+    return top === "" ? undefined : fs.realpathSync.native(top);
   } catch {
     return undefined;
   }

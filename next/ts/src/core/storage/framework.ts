@@ -32,7 +32,7 @@ export function readTextIfFile(p: string): string | undefined {
 }
 
 export function realPath(p: string): string {
-  return fs.realpathSync(p);
+  return fs.realpathSync.native(p);
 }
 
 /**

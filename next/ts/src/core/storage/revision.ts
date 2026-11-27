@@ -56,7 +56,7 @@ function commondirOf(gitdir: string): string | undefined {
   const line = firstLine(path.join(gitdir, "commondir"));
   if (line === undefined || line === "") return undefined;
   try {
-    return fs.realpathSync(path.isAbsolute(line) ? line : path.join(gitdir, line));
+    return fs.realpathSync.native(path.isAbsolute(line) ? line : path.join(gitdir, line));
   } catch {
     return undefined;
   }
@@ -82,7 +82,7 @@ function oddCommon(root: string): string | undefined {
     here = common;
   } else {
     try {
-      here = fs.realpathSync(gitdir);
+      here = fs.realpathSync.native(gitdir);
     } catch {
       return undefined;
     }

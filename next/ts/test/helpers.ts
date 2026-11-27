@@ -1,6 +1,7 @@
 // Shared by the tests. The tests may start processes themselves (bash, git, node): the rule that only
 // core/exec.ts imports node:child_process holds for src/, not for the checks of it.
 
+import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -52,9 +53,20 @@ export function proc(cmd: string, args: readonly string[], opts: { cwd?: string;
   return { code: r.status ?? 128, stdout: r.stdout, stderr: r.stderr };
 }
 
+/**
+ * A path bash printed, in the form Node gives: on Windows Git Bash prints `/c/Users/...`, which
+ * `cygpath -w` turns into `C:\\Users\\...`; elsewhere it is returned as it is.
+ */
+export function nativePath(p: string): string {
+  if (process.platform !== "win32") return p;
+  const r = proc("cygpath", ["-w", p]);
+  assert.equal(r.code, 0, r.stderr);
+  return r.stdout.replace(/\r?\n$/, "");
+}
+
 /** A temporary directory removed with the test; its real path (macOS /var is a link). */
 export function tmpDir(t: { after(fn: () => void): void }, prefix = "jig-ts-"): string {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+  const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   return dir;
 }
@@ -115,7 +127,7 @@ export function baselineLib(): string {
     return r.stdout;
   };
   const files = git("ls-tree", "--name-only", BASELINE_TAG, "scripts/lib/").toString("utf8").split("\n").filter((f) => f !== "");
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "jig-oracle-baseline-")));
+  const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "jig-oracle-baseline-")));
   process.on("exit", () => fs.rmSync(dir, { recursive: true, force: true }));
   for (const f of files) fs.writeFileSync(path.join(dir, path.basename(f)), git("cat-file", "blob", `${BASELINE_TAG}:${f}`));
   fs.writeFileSync(path.join(dir, "clock.sh"), clockSection(fs.readFileSync(path.join(repoRoot, "scripts", "lib", "common.sh"), "utf8")));

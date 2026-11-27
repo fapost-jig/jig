@@ -32,7 +32,13 @@ module="$root/next/go"
 out="${JIG_NEXT_BUILD_DIR:-$root/.ai/runtime/jig-next-go}"
 mkdir -p "$out" || die "cannot make $out"
 
-(cd "$module" && CGO_ENABLED=0 go build -o "$out/jig-next" ./cmd/jig-next) || die "go build failed"
+# The build's own output (`go: downloading ...` on a cold module cache) stays out of the
+# command's stderr, which is the port's answer; it is shown only when the build fails.
+log="$out/build.log"
+if ! (cd "$module" && CGO_ENABLED=0 go build -o "$out/jig-next" ./cmd/jig-next) > "$log" 2>&1; then
+  cat "$log" >&2
+  die "go build failed"
+fi
 
 JIG_NEXT_ROOT="$root"
 export JIG_NEXT_ROOT

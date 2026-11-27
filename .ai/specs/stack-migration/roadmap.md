@@ -30,7 +30,7 @@ new code passes against its recordings, locally and on the manual Windows run.
 - [x] `oracle-at-baseline` — Invariant oracle at 0.51.2 — both skeletons check against the bash libraries of the pinned baseline, not the epic checkout (findings of `go-skeleton`)
 - [x] `pilot-ci-runtimes` — Pinned runtimes in CI — Node and Go versions fixed for the next/ tests before the manual Windows run (finding of `ts-skeleton`)
 - [x] `trivial-port` — A trivial command on both skeletons — `jig --version` in `jig-next-ts` and `jig-next-go` passes its recordings through `tests/lib/parity.sh`, checked by a test in `jig verify`, not only a demonstration (after: `parity-check`, both skeletons)
-- [ ] `windows-phase1-run` — The manual Windows run — workflow_dispatch on the epic: the bash suite recorded, `trivial-port` checked against those recordings, and the next/ts and next/go tests, all on Windows Git Bash; the run is linked in the roadmap (after: `trivial-port`, `pilot-ci-runtimes`)
+- [x] `windows-phase1-run` — The manual Windows run — workflow_dispatch on the epic: the bash suite recorded, `trivial-port` checked against those recordings, and the next/ts and next/go tests, all on Windows Git Bash; the run is linked in the roadmap (after: `trivial-port`, `pilot-ci-runtimes`) — green: [run 46038910347](https://github.com/fapost-jig/jig/actions/runs/46038910347) (the epic's suites, recorded on Windows, Linux and macOS, at 51e8bf64)
 
 ## Phase 2 — Pilot and the language
 
