@@ -44,6 +44,15 @@ scripts/lib/forgecache.sh       housekeeping::test_housekeeping_keeps_the_forge 
 # pr.sh's; gh.t.sh's guards against a bare gh or git fetch read every script.
 scripts/lib/prgitlab.sh         pr:: gh::
 
+# The Go skeleton of the next implementation (spec stack-migration, task
+# go-skeleton): its own tests are `go test ./...` in next/go, run by
+# tests/next-go.t.sh together with the cross builds and the launcher. The
+# profile `go` is not on in .ai/config.yaml, so this line is what makes `jig verify`
+# run them when anything under next/go changes. The launcher is also a file
+# under scripts/, which the guards of dispatcher:: and gh:: scan.
+next/go/**                      next-go::
+scripts/jig-next-go*            next-go:: dispatcher:: gh::
+
 adapters/**                     adapters::
 profiles/**                     profiles:: verify::
 # One template is read by a third suite: tests/adapters.t.sh opens

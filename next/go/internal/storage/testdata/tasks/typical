@@ -1,0 +1,6 @@
+task_id: t1
+status: active
+class: T1
+knowledge_consolidated: false
+created_at: 2026-11-01
+updated_at: 2026-11-02

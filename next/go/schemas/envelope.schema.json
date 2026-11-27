@@ -1,0 +1,132 @@
+{
+  "$id": "jig://schemas/envelope.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "not": {
+        "required": [
+          "error"
+        ]
+      },
+      "required": [
+        "data"
+      ]
+    },
+    {
+      "not": {
+        "required": [
+          "data"
+        ]
+      },
+      "required": [
+        "error"
+      ]
+    }
+  ],
+  "properties": {
+    "data": true,
+    "error": {
+      "properties": {
+        "code": {
+          "enum": [
+            "usage",
+            "not-a-repository",
+            "not-initialised",
+            "stale-revision",
+            "not-found",
+            "not-paused",
+            "already-paused",
+            "wrong-checkout",
+            "stash-conflict",
+            "not-closable",
+            "already-exists",
+            "already-filed",
+            "git-not-allowed",
+            "write-busy",
+            "branch-checked-out",
+            "branch-diverged",
+            "branch-has-other-commits",
+            "base-not-on-origin",
+            "write-still-waits",
+            "tree-in-the-way",
+            "commit-refused",
+            "epic-missing",
+            "not-linkable",
+            "not-proposed",
+            "not-on-base",
+            "not-on-branch",
+            "source-missing",
+            "upgrade-blocked",
+            "unreleased-source",
+            "unknown-key",
+            "not-local",
+            "invalid-value",
+            "secret-key",
+            "not-merged",
+            "not-on-staging",
+            "behind-staging",
+            "carries-staging",
+            "base-conflict",
+            "shallow-clone",
+            "forge-unavailable",
+            "ci-red",
+            "ci-pending",
+            "ci-none",
+            "not-approved",
+            "review-required",
+            "conflict",
+            "draft",
+            "mergeable-unknown",
+            "forge-refused",
+            "no-pull-request",
+            "pull-request-closed",
+            "wrong-flow",
+            "not-ready",
+            "not-shipped",
+            "notes-stale",
+            "reviewer-unknown",
+            "autopilot-running",
+            "autopilot-stopped",
+            "no-gate",
+            "already-archived",
+            "not-archived",
+            "wrong-status",
+            "already-closed",
+            "ship-running",
+            "git-level",
+            "failed"
+          ],
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    "generated_at": {
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+      "type": "string"
+    },
+    "revision": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "schema": {
+      "enum": [
+        1
+      ],
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema",
+    "revision",
+    "generated_at"
+  ],
+  "type": "object"
+}

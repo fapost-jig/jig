@@ -1,0 +1,116 @@
+{
+  "$id": "jig://schemas/task-state.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "abandoned_at": {
+      "type": "string"
+    },
+    "abandoned_reason": {
+      "type": "string"
+    },
+    "absorbed_into": {
+      "type": "string"
+    },
+    "archived_at": {
+      "type": "string"
+    },
+    "archived_from": {
+      "type": "string"
+    },
+    "archived_reason": {
+      "type": "string"
+    },
+    "autopilot": {
+      "type": "string"
+    },
+    "autopilot_mode": {
+      "type": "string"
+    },
+    "autopilot_phase": {
+      "type": "string"
+    },
+    "autopilot_repairs": {
+      "pattern": "^[0-9]+$",
+      "type": "string"
+    },
+    "base_branch": {
+      "type": "string"
+    },
+    "base_commit": {
+      "type": "string"
+    },
+    "branch": {
+      "type": "string"
+    },
+    "class": {
+      "pattern": "^T[0-4]$",
+      "type": "string"
+    },
+    "created_at": {
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+      "type": "string"
+    },
+    "domains": {
+      "type": "string"
+    },
+    "gate": {
+      "type": "string"
+    },
+    "gate_by": {
+      "type": "string"
+    },
+    "gate_design": {
+      "type": "string"
+    },
+    "knowledge_consolidated": {
+      "enum": [
+        "true",
+        "false"
+      ],
+      "type": "string"
+    },
+    "notes_through": {
+      "type": "string"
+    },
+    "pr_into": {
+      "type": "string"
+    },
+    "pr_url": {
+      "type": "string"
+    },
+    "route_evidence": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "active",
+        "ready",
+        "consolidated",
+        "abandoned",
+        "archived"
+      ],
+      "type": "string"
+    },
+    "task_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "triage_of": {
+      "type": "string"
+    },
+    "triage_task": {
+      "type": "string"
+    },
+    "updated_at": {
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "task_id",
+    "status",
+    "created_at",
+    "updated_at"
+  ],
+  "type": "object"
+}
