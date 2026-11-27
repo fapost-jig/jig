@@ -4,7 +4,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { cfg, cfgList, layeredConfig, localConfigFile, projectConfigFile } from "../src/core/storage/config.ts";
 import { readLocalKeyLists } from "../src/core/storage/framework.ts";
-import { bashLib, makeProject, repoRoot, tmpDir } from "./helpers.ts";
+import { bashLib, baselineLib, makeProject, repoRoot, tmpDir } from "./helpers.ts";
 
 const keys = readLocalKeyLists(path.join(repoRoot, "scripts", "lib", "config.sh"));
 
@@ -15,12 +15,14 @@ test("the key lists are read from scripts/lib/config.sh and are not empty", () =
 });
 
 test("the key lists equal what bash itself holds", (t) => {
+  // Bash here is the baseline's, so the file read is the baseline's too.
+  const baselineKeys = readLocalKeyLists(path.join(baselineLib(), "config.sh"));
   const dir = tmpDir(t);
   const r = bashLib(dir, 'printf "%s\\n" "$JIG_CFG_LOCAL_KEYS"; printf "%s\\n" "$JIG_CFG_LOCAL_ONLY_KEYS"');
   assert.equal(r.code, 0, r.stderr);
   const [local, only] = r.stdout.split("\n").map((l) => l.split(/\s+/).filter((w) => w !== ""));
-  assert.deepEqual([...keys.local], local);
-  assert.deepEqual([...keys.localOnly], only);
+  assert.deepEqual([...baselineKeys.local], local);
+  assert.deepEqual([...baselineKeys.localOnly], only);
 });
 
 function project(t: { after(fn: () => void): void }): string {

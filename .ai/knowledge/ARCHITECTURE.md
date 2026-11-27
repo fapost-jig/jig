@@ -179,6 +179,14 @@ cut-over it is a separate implementation: no bash command calls it, and it calls
   its differences from `fm_get`/`fm_list` listed in `next/ts/test/fixtures/frontmatter-differences.md`.
   A write produces the bytes `jig task set` would, and `test/invariant.test.ts` reads it back with
   the real `scripts/jig`.
+- **The bash oracle is the rollback baseline.** The storage tests of both skeletons that source bash
+  libraries (Go `internal/storage/bash_test.go`, TypeScript `test/helpers.ts` `bashLib`) source
+  `scripts/lib` as at tag `v0.51.2`, extracted once per test run with `git cat-file`, never the epic
+  checkout: an epic edit to a bash reader or writer must not move the oracle together with the new
+  code. The one piece taken from the checkout is the clock seam: its clock section (`JIG_NOW`) is
+  sourced after the baseline, and a `date` shell function lays it over the baseline's own `date`
+  reads. A missing tag fails the tests (CI's test jobs fetch it); the whole-CLI helper (`bashJig`)
+  stays on the checkout, since it tests the command surface.
 - **Under `jig verify`.** The node profile leaves an unnarrowable run to CI, and CI does not test
   pull requests into the epic, so the TypeScript checks run as a bash test: `tests/next-ts.t.sh`,
   which `.ai/verify/shell.map` maps `next/ts/**` and `scripts/jig-next-ts*` to. It installs

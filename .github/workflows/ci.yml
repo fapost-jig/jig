@@ -395,6 +395,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # The Go and TS storage oracles read scripts/lib at the pinned rollback baseline
+      # (adr-20261126-jig-1-0-is-rewritten-off-bash-and-the-pilot-picks-the-language).
+      - name: Fetch the rollback baseline
+        run: git fetch --no-tags --depth=1 origin +refs/tags/v0.51.2:refs/tags/v0.51.2
+
       # The ubuntu image ships shellcheck and the macOS image does not, and
       # nothing here installed it: the smoke step below therefore ran the real
       # linter on Linux and found none on macOS, where every check skipped and
@@ -521,6 +526,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+
+      # The Go and TS storage oracles read scripts/lib at the pinned rollback baseline
+      # (adr-20261126-jig-1-0-is-rewritten-off-bash-and-the-pilot-picks-the-language).
+      - name: Fetch the rollback baseline
+        run: git fetch --no-tags --depth=1 origin +refs/tags/v0.51.2:refs/tags/v0.51.2
 
       - name: Toolchain versions
         run: |

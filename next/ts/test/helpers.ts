@@ -73,24 +73,91 @@ export function ctxFor(root: string, env: Record<string, string> = {}): Ctx {
   return { root, exec, clock: systemClock(env), env };
 }
 
-/** The bash `jig`, run from the framework checkout this test lives in, against the project `cwd`. */
+/**
+ * The bash `jig`, run from the framework checkout this test lives in, against the project `cwd`. It stays on the checkout:
+ * it tests the command surface (the epic's JIG_NOW refusal, which 0.51.2 lacks), not the storage readers and writers.
+ */
 export function bashJig(cwd: string, args: readonly string[], env: Record<string, string> = {}): Proc {
   return proc("bash", [jigBin, ...args], { cwd, env: cleanEnv({ HOME: cwd, ...env }) });
 }
 
+/**
+ * The rollback baseline of the rewrite (adr-20261126-jig-1-0-is-rewritten-off-bash-and-the-pilot-picks-the-language):
+ * the bash the storage readers and writers are checked against is `scripts/lib` at this tag, not the checkout, which is an
+ * epic branch that keeps changing bash.
+ */
+const BASELINE_TAG = "v0.51.2";
+
+let baselineDir: string | undefined;
+
+/** The clock section of common.sh: from its heading to `jig_today`, its last line. */
+function clockSection(common: string): string {
+  const lines = common.split("\n");
+  const from = lines.findIndex((l) => l.startsWith("# --- the clock ---"));
+  const to = lines.findIndex((l, i) => i >= from && l.startsWith("jig_today() {"));
+  if (from < 0 || to < 0) throw new Error("the clock section is not in scripts/lib/common.sh");
+  return `${lines.slice(from, to + 1).join("\n")}\n`;
+}
+
+/**
+ * `scripts/lib` as at the baseline tag plus `clock.sh`, this checkout's clock section, extracted once per process into a
+ * temporary directory that goes with the process. Files come from `git cat-file`, the committed bytes whatever autocrlf says.
+ */
+export function baselineLib(): string {
+  if (baselineDir !== undefined) return baselineDir;
+  const git = (...args: string[]): Buffer => {
+    const r = spawnSync("git", ["-C", repoRoot, ...args], { maxBuffer: 64 * 1024 * 1024 });
+    if (r.error || r.status !== 0) {
+      throw new Error(
+        `the bash oracle needs the rollback baseline tag ${BASELINE_TAG}: run \`git fetch origin tag ${BASELINE_TAG}\` (git ${args.join(" ")}: ${r.error?.message ?? r.stderr.toString().trim()})`,
+      );
+    }
+    return r.stdout;
+  };
+  const files = git("ls-tree", "--name-only", BASELINE_TAG, "scripts/lib/").toString("utf8").split("\n").filter((f) => f !== "");
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "jig-oracle-baseline-")));
+  process.on("exit", () => fs.rmSync(dir, { recursive: true, force: true }));
+  for (const f of files) fs.writeFileSync(path.join(dir, path.basename(f)), git("cat-file", "blob", `${BASELINE_TAG}:${f}`));
+  fs.writeFileSync(path.join(dir, "clock.sh"), clockSection(fs.readFileSync(path.join(repoRoot, "scripts", "lib", "common.sh"), "utf8")));
+  baselineDir = dir;
+  return dir;
+}
+
+// The baseline reads the clock through `date` and knows nothing of JIG_NOW; the checkout's clock section (clock.sh) is the
+// clock seam, and the `date` function lays it over the baseline: with JIG_NOW set, a `date` that reads "now" answers the
+// pinned instant. Pinning is blanket: it also pins the few reads the baseline makes for waits and mtimes, which these
+// tests do not call. The pinned form of jig_now_date runs `date -d @N` / `date -r N`, which carry -d / -r and so go to the
+// real `date` (no recursion).
 const FRAMEWORK = `
 set -eu
-export JIG_LIB="$JIG_HOME/scripts/lib"
+export JIG_LIB
 . "$JIG_LIB/version.sh"
 . "$JIG_LIB/common.sh"
 . "$JIG_LIB/config.sh"
+. "$JIG_LIB/clock.sh"
+date() {
+  local a
+  if [ -n "\${JIG_NOW:-}" ]; then
+    for a in "$@"; do
+      case "$a" in
+        -d* | -r* | -j | -f*) command date "$@"; return ;;
+      esac
+    done
+    jig_now_date "$@"
+    return
+  fi
+  command date "$@"
+}
 `;
 
-/** Runs a bash body with the framework's libraries sourced; the body can use $JIG_HOME. */
+/**
+ * Runs a bash body with the baseline's libraries sourced and the epic's clock laid over them; $JIG_HOME is this checkout,
+ * $JIG_LIB the baseline.
+ */
 export function bashLib(cwd: string, body: string, args: readonly string[] = [], env: Record<string, string> = {}): Proc {
   return proc("bash", ["-c", `${FRAMEWORK}\n${body}`, "bash", ...args], {
     cwd,
-    env: cleanEnv({ HOME: cwd, JIG_HOME: repoRoot, ...env }),
+    env: cleanEnv({ HOME: cwd, JIG_HOME: repoRoot, JIG_LIB: baselineLib().replaceAll("\\", "/"), ...env }),
   });
 }
 
