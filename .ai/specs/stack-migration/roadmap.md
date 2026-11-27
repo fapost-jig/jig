@@ -26,6 +26,7 @@ new code passes against its recordings, locally and on the manual Windows run.
 - [ ] `ts-skeleton` — TypeScript skeleton — runtime choice, `jig-next`, core and CLI split, the process executor, the storage module reading today's files, zod schemas, the invariant test, the bundle into `jig.mjs` with the dependency rules checked
 - [x] `go-skeleton` — Go skeleton — the same pieces in Go, enough to port the pilot
 - [ ] `recorder-hardening` — Recorder on Windows — path-safe placeholders, no inherited secrets in snapshots, no lost recorder errors (findings of `stack-recorder`)
+- [ ] `ts-skeleton-revision` — TypeScript skeleton level with Go — storage raises the clone revision, test install under a lock, real revision in --json errors, stricter boundary scan (findings of `ts-skeleton`)
 
 ## Phase 2 — Pilot and the language
 
