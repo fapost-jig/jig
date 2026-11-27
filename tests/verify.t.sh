@@ -2216,7 +2216,7 @@ test_verify_map_apply_unmatched_path_gets_question_mark() {
   map=$(_run_out .map)
   printf 'docs/** -\n' > "$map"
   out=$(_map_apply "$map" "scripts/lib/task.sh")
-  assert_eq "$(printf 'scripts/lib/spec.sh\t?')" "$out"
+  assert_eq "$(printf 'scripts/lib/task.sh\t?')" "$out"
   rm -f "$map"
 }
 
