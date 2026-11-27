@@ -531,9 +531,19 @@ while [ "$k" -lt "$nfilters" ]; do
   fhit[k]=0
   k=$((k + 1))
 done
+# A file bash cannot parse is a broken suite, never an empty one: sourcing it
+# stops at the error, the tests after it vanish from discovery and the run
+# stayed green (tests/parity.t.sh never ran on macOS bash 3.2). The parse is
+# checked by the same `bash` that lists the tests.
+unparsed=0
 for file in "$ROOT"/tests/*.t.sh; do
   [ -e "$file" ] || continue
   base=$(basename "$file" .t.sh)
+  if ! parse_err=$(bash -n "$file" 2>&1); then
+    printf 'tests/run.sh: cannot parse tests/%s.t.sh:\n%s\n' "$base" "$parse_err" >&2
+    unparsed=1
+    continue
+  fi
   for name in $(list_tests "$file"); do
     full="$base::$name"
     if [ "$nfilters" -gt 0 ]; then
@@ -551,6 +561,8 @@ for file in "$ROOT"/tests/*.t.sh; do
     printf '%s\t%s\t%s\t%s\n' "$seq" "$file" "$name" "$full" >> "$selected"
   done
 done
+
+[ "$unparsed" -eq 0 ] || exit 1
 
 # Counted before the shard is applied: a share that happens to hold none of the
 # selected tests is an ordinary run, a filter that names no test is a mistake.
