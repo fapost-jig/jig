@@ -312,3 +312,22 @@ test_ci_workflow_a_dispatch_run_has_its_own_concurrency_group() {
   assert_contains "$group" "format('ci-dispatch-{0}', github.run_id)" "a dispatch must be grouped by its run"
   assert_contains "$group" "format('ci-{0}', github.ref)" "every other event must keep ci-<ref>"
 }
+
+# The jobs that run the next/ts and next/go tests pin Node and Go, so a red
+# run means code and not the runner image: next-ts fails without Node at its
+# engines floor and next-go skips without go. The Node pin is read from
+# next/ts/package.json, so it cannot drift from the floor engines promises.
+test_ci_workflow_test_jobs_pin_node_and_go_for_the_next_stacks() {
+  local floor job block
+  floor=$(sed -n 's/.*"node"[[:space:]]*:[[:space:]]*">=\([0-9][0-9.]*\)".*/\1/p' "$JIG_HOME/next/ts/package.json" | head -n 1)
+  [ -n "$floor" ] || fail "next/ts/package.json must declare engines.node as \">=X.Y\""
+  for job in test test-windows; do
+    block=$(cw_job_block "$job")
+    assert_contains "$block" 'uses: actions/setup-node@v7' "$job must set up Node"
+    assert_contains "$block" 'uses: actions/setup-go@v7' "$job must set up Go"
+    cw_has "$block" "node-version: '$floor'" ||
+      fail "$job must pin Node to the engines floor of next/ts ($floor)"
+    cw_has "$block" 'go-version-file: next/go/go.mod' ||
+      fail "$job must read the Go version from next/go/go.mod"
+  done
+}
