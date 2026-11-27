@@ -9,6 +9,7 @@ paths:
   - tests/run.sh
   - scripts/jig
 summary: Why the bash tests are recorded through an env-gated hook in scripts/jig, outermost calls only, on a pinned JIG_NOW, and why the recordings stay out of git until the first bash test is deleted.
+reviewed_at: 2026-11-27
 ---
 # The bash tests are recorded through a hook in the dispatcher, on a pinned clock, and kept outside git for now
 
@@ -38,7 +39,8 @@ left open where the recordings live and how large they are.
   test is deleted, because after that a recording cannot be taken again; the tree lists would then
   move into the blob store first.
 - **The format is `jig-recording 1`**, written down in `conventions/recordings.md`; a change raises the
-  number.
+  number. It is `jig-recording 2` since task `recorder-windows`: names under `norm/files/` carry no
+  byte NTFS forbids.
 
 ## Alternatives
 
@@ -58,6 +60,7 @@ left open where the recordings live and how large they are.
   a look before it is recorded.
 - `scripts/jig` carries test-only lines until cut-over, when the bash code goes and the hook with it.
 - A main fix carried into the epic means its tests are recorded again.
-- Open in the findings of task `stack-recorder`: placeholder names with `<` `>` in `norm/files/`
-  paths do not suit NTFS, and a stub that logs the whole inherited environment would put it in the
-  tree.
+- The findings of task `stack-recorder` on Windows and secrets were closed by task
+  `recorder-windows`: `norm/files/` names map `<>:"\|?*` to `_`, and the runner unsets inherited
+  variables named like a secret before every test, so a stub that logs its environment cannot put one
+  in a tree.

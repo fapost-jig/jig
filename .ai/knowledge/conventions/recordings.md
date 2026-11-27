@@ -6,9 +6,11 @@ domains: []
 paths:
   - tests/lib/recorder.sh
   - tests/recorder.t.sh
-summary: "The jig-recording 1 format tests/run.sh writes under JIG_RECORD: call directories, raw fields, the blob store, git by meaning, and the normalisation parity-check must apply to a port's output."
+  - tests/run.sh
+summary: "The jig-recording 2 format tests/run.sh writes under JIG_RECORD: call directories, raw fields, the blob store, git by meaning, NTFS-safe norm/files names, and the normalisation parity-check must apply to a port's output."
+reviewed_at: 2026-11-27
 ---
-# Recordings of the bash tests: format `jig-recording 1`
+# Recordings of the bash tests: format `jig-recording 2`
 
 What `JIG_RECORD=<dir> tests/run.sh [filters]` writes, and what `parity-check` and every port read.
 The writer is `tests/lib/recorder.sh`; the decisions behind it are in
@@ -20,7 +22,7 @@ The writer is `tests/lib/recorder.sh`; the decisions behind it are in
 **Layout.**
 
 ```
-<dir>/FORMAT                       "jig-recording 1\n"; a run refuses a directory with another
+<dir>/FORMAT                       "jig-recording 2\n"; a run refuses a directory with another
 <dir>/store.git/                   bare git repository: every file's content as a blob (`git cat-file blob <id>`)
 <dir>/calls/<file>/<test>/<NNNN>/  one outermost jig call; <file> without .t.sh, NNNN from 0001 in call order
 ```
@@ -34,18 +36,18 @@ and the path is always the last field, so it may hold TAB and newline. Names are
 
 | File | Holds |
 |---|---|
-| `meta` | `key=value` lines: `format=1`, `test`, `seq`, `exit`, `streams=separate\|merged`, `stdin=none\|data\|tty`, `clock=pinned\|real`, `concurrent=yes\|no`, `entry` (the jig that was called, normalised), and `recorder_error=<steps>` when a step of recording failed (its diagnostics are then in `recorder.log`) |
+| `meta` | `key=value` lines: `format=2`, `test`, `seq`, `exit`, `streams=separate\|merged`, `stdin=none\|data\|tty`, `clock=pinned\|real`, `concurrent=yes\|no`, `entry` (the jig that was called, normalised), and `recorder_error=<steps>` when a step of recording failed (its diagnostics are then in `recorder.log`) |
 | `argv` | the arguments after the program, raw |
 | `cwd` | the absolute working directory, raw |
 | `env` | `NAME=VALUE`: the recorded environment (below), raw |
 | `stdin` | the bytes given on stdin, when `stdin=data` |
-| `stdout`, `stderr` | the bytes the call wrote; with `streams=merged` (the caller sent both to one file) only `stdout`, in the order written |
+| `stdout`, `stderr` | the bytes the call wrote; with `streams=merged` (the caller sent both to one file) only `stdout`, in the order written. A stream the caller sent to a regular file inside the trees (`> $JIG_TEST_TMP/log`) is written by jig during the call: that file is also in `changes` and `norm/files/`, and a replay must redirect the stream to the same path |
 | `tree.before`, `tree.after` | `type TAB mode TAB ref TAB path`: type `f`/`l`/`d`/`o`; mode `755`/`644` for `f`, else `-`; ref the blob id for `f`, the link target for `l`, else `-`; path starting `<T>` for `$JIG_TEST_TMP` (`<T>/repo/a`, `<T>.gh/calls`) |
 | `git.before`, `git.after` | git by meaning, text: per git directory `[gitdir <path>]`, `HEAD ref: …` or `HEAD <sha>`, `ref <sha> <name>` lines, `config <key>=<value>` lines; per work tree `[worktree <path>]`, `branch <name>` or `(detached)`, `status <porcelain line>` lines |
 | `changes` | `A\|M\|D\|T TAB path`: what the call changed, outside git's own files |
 | `subst` | newline-terminated `placeholder TAB original` rows, in the order they are applied |
 | `shas` | `N TAB sha`: the real commit ids behind `<sha:N>` |
-| `norm/` | the normalised views: `argv`, `cwd`, `env`, `stdout`, `stderr`, `git.before`, `git.after`, `changes`, and `files/<normalised path>` for every file `changes` adds or modifies |
+| `norm/` | the normalised views: `argv`, `cwd`, `env`, `stdout`, `stderr`, `git.before`, `git.after`, `changes`, and `files/<name>` for every file `changes` adds or modifies: the name is its `norm/changes` path with each of `<` `>` `:` `"` `\` `\|` `?` `*` replaced by `_` (`<T>/repo/a` is `_T_/repo/a`), because NTFS forbids those bytes and recordings are made and compared on Windows |
 
 **The trees** cover `$JIG_TEST_TMP` and every `$JIG_TEST_TMP.*` beside it (stubs, their logs,
 `.tmpdir`, clones), except the `$JIG_TEST_TMP.out*` capture files and the record directory. The logs
@@ -53,6 +55,10 @@ of the stubs are files in these trees: a line a stub logged during the call is i
 `norm/files/`. To replay, restore `tree.before` from the store, set the recorded environment exactly
 (`env -i` plus `env`), and run with the recorded `PATH`, whose stub directories are in the tree; git
 itself runs for real.
+
+A stream the caller sent to a regular file inside the trees is in them too: jig writes it during the
+call, so the file is in `changes` and `norm/files/` besides `stdout`/`stderr`; a replay must redirect
+the stream to the same path.
 
 **git's own files** are left out of `changes` and compared through `git.*` instead: inside a git
 directory, `objects/`, `logs/`, `refs/`, `packed-refs`, `index`, `HEAD`, `ORIG_HEAD`, `FETCH_HEAD`,
@@ -62,8 +68,12 @@ directory, `objects/`, `logs/`, `refs/`, `packed-refs`, `index`, `HEAD`, `ORIG_H
 
 **The environment** recorded is every variable whose name or value differs from the runner's own at
 its start, plus always `PATH`, `LANG`, `LC_*`, `TZ` and `JIG_NOW`; never the recorder's own variables
-(`JIG_RECORD*`, `JIG_RECORDER`, `JIG_RECORDING`) nor bash's (`_`, `SHLVL`, `PWD`, `OLDPWD`). A token
-the developer's shell holds is the runner's and stays out; a fake token a test sets is in.
+(`JIG_RECORD*`, `JIG_RECORDER`, `JIG_RECORDING`) nor bash's (`_`, `SHLVL`, `PWD`, `OLDPWD`). Before
+every test, recorded or not, the runner unsets each inherited variable whose name contains `TOKEN`,
+`SECRET`, `PASSWORD`, `PASSWD`, `CREDENTIAL`, `API_KEY` or `ACCESS_KEY`, or ends in `_KEY` or
+`_PAT`, in any letter case, so neither `env` nor a tree (a stub that logs its environment) holds a
+variable named like a secret; a fake token a test sets itself differs from the runner's and is in. A
+secret under another name (a password inside a `DATABASE_URL`) is not caught.
 
 **Normalisation** (`tests/lib/recorder.sh normalise <call-dir> [<file>]`, stdin to stdout, the same
 filter the `norm/` views were made with): run a port's output through it with the recorded call's
@@ -86,7 +96,9 @@ Byte order (`LC_ALL=C`) everywhere.
 
 **Known limits.** A call marked `concurrent=yes` ran beside another of the same test: its trees are
 not its alone. The 18 test files that call library functions directly, `jig-session-hook`, and calls
-under `env -i` are not recorded; the run's last line names the tests with no call.
+under `env -i` are not recorded; the run's last line names the tests with no call. Two changed paths
+that differ only in `<>:"\|?*` share one `norm/files/` name; the later one wins (the paths stay apart
+in `changes`).
 
 ## Example
 

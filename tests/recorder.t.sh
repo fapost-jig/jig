@@ -20,7 +20,7 @@ _rec_begin() {
   REC_BIN="$JIG_HOME/tests/lib/recorder.sh"
   REC_NAME="${FUNCNAME[1]}"
   mkdir -p "$REC" "$JIG_TEST_TMP.outbin"
-  printf 'jig-recording 1\n' > "$REC/FORMAT"
+  printf 'jig-recording 2\n' > "$REC/FORMAT"
   printf 'PATH=%s\000HOME=/nonexistent-runner-home\000GH_TOKEN=runner-secret\000' "$PATH" \
     > "$JIG_TEST_TMP.outenv"
   export GH_TOKEN=runner-secret
@@ -66,7 +66,7 @@ EOF
   assert_eq "to stderr" "$(cat "$JIG_TEST_TMP.oute")" "stderr reaches the caller"
   d=$(_rec_d 0001)
   assert_dir "$d"
-  assert_eq 1 "$(sed -n 's/^format=//p' "$d/meta")" "format"
+  assert_eq 2 "$(sed -n 's/^format=//p' "$d/meta")" "format"
   assert_eq "recorder::$REC_NAME" "$(_rec_meta "$d" test)"
   assert_eq 0001 "$(_rec_meta "$d" seq)"
   assert_eq 3 "$(_rec_meta "$d" exit)"
@@ -88,7 +88,7 @@ EOF
   expected=$(printf 'A\t<T>/made.txt')
   assert_eq "$expected" "$(_rec_list "$d/changes")"
   assert_eq "$(printf 'A\t<T>/made.txt')" "$(cat "$d/norm/changes")"
-  assert_eq "made" "$(cat "$d/norm/files/<T>/made.txt")"
+  assert_eq "made" "$(cat "$d/norm/files/_T_/made.txt")"
   assert_eq "to stderr" "$(cat "$d/norm/stderr")"
   # no scratch left behind, and no call still marked active
   assert_no_file "$d/.tmp"
@@ -122,7 +122,7 @@ newline.txt")
   assert_contains "$(tr '\000' '|' < "$d/tree.after")" "f"$'\t'"644"$'\t'"$id"$'\t'"<T>/name with"$'\n'"newline.txt|"
   # the file has a NUL: its normalised view is `binary <id>`
   id=$(git hash-object --no-filters "$JIG_TEST_TMP/data.bin")
-  assert_eq "binary $id" "$(cat "$d/norm/files/<T>/data.bin")"
+  assert_eq "binary $id" "$(cat "$d/norm/files/_T_/data.bin")"
 }
 
 test_merged_streams_keep_the_order_the_caller_saw() {
@@ -208,9 +208,9 @@ EOF
   assert_contains "$(cat "$d/git.after")" " refs/heads/main"
   assert_contains "$(cat "$d/norm/git.after")" "[gitdir <T>/repo/.git]"
   assert_contains "$(cat "$d/norm/git.after")" "ref <sha:1> refs/heads/main"
-  assert_eq "changed" "$(cat "$d/norm/files/<T>/repo/b.txt")"
-  assert_eq "hook" "$(cat "$d/norm/files/<T>/repo/.git/hooks/post-x")"
-  assert_no_file "$d/norm/files/<T>/repo/c.txt"
+  assert_eq "changed" "$(cat "$d/norm/files/_T_/repo/b.txt")"
+  assert_eq "hook" "$(cat "$d/norm/files/_T_/repo/.git/hooks/post-x")"
+  assert_no_file "$d/norm/files/_T_/repo/c.txt"
 }
 
 test_only_the_tests_own_environment_is_recorded() {
@@ -411,7 +411,7 @@ test_two_recordings_of_the_same_scenario_normalise_to_the_same_bytes() {
   assert_contains "$(cat "$a/norm/git.after")" "ref <sha:1> refs/heads/main"
   assert_contains "$(cat "$a/norm/git.after")" "status ?? untracked.txt"
   assert_contains "$(cat "$a/norm/changes")" "A"$'\t'"<T>/repo/blob.bin"
-  case "$(cat "$a/norm/files/<T>/repo/blob.bin")" in binary\ ?*) ;; *) fail "blob.bin is not binary in norm/" ;; esac
+  case "$(cat "$a/norm/files/_T_/repo/blob.bin")" in binary\ ?*) ;; *) fail "blob.bin is not binary in norm/" ;; esac
 }
 
 test_a_recording_that_cannot_be_made_does_not_change_the_call() {
@@ -437,7 +437,7 @@ EOF
   assert_eq out "$(cat "$JIG_TEST_TMP.outo")"
   # the blob store is unusable: the call is still made and the failure is named
   mkdir -p "$REC.broken"
-  printf 'jig-recording 1\n' > "$REC.broken/FORMAT"
+  printf 'jig-recording 2\n' > "$REC.broken/FORMAT"
   printf 'not a repository\n' > "$REC.broken/store.git"
   rc=0
   JIG_RECORD_DIR="$REC.broken" _rec_call "$fake" > "$JIG_TEST_TMP.outo" 2> "$JIG_TEST_TMP.oute" || rc=$?
@@ -450,6 +450,96 @@ EOF
   assert_contains "$(_rec_meta "$d" recorder_error)" "store"
   out=$(cat "$d/stdout")
   assert_eq out "$out"
+}
+
+# _rec_git_wrapper <body> — a `git` first on the runner's PATH as the recorder sees
+# it (the base environment), outside the trees. $REAL is the real git and $LOG the
+# wrapper's log file; the body runs before git does.
+_rec_git_wrapper() {
+  local real
+  real=$(env -i PATH="$PATH" /bin/sh -c 'command -v git')
+  case "$real" in /*) ;; *) fail "no absolute git on PATH: $real" ;; esac
+  {
+    printf "#!/bin/sh\nREAL='%s'\nLOG='%s'\n" "$real" "$JIG_TEST_TMP.outgit.log"
+    printf '%s\n' "$1"
+    printf 'exec "$REAL" "$@"\n'
+  } > "$JIG_TEST_TMP.outbin/git"
+  chmod +x "$JIG_TEST_TMP.outbin/git"
+  printf 'PATH=%s:%s\000HOME=/nonexistent-runner-home\000GH_TOKEN=runner-secret\000' \
+    "$JIG_TEST_TMP.outbin" "$PATH" > "$JIG_TEST_TMP.outenv"
+}
+
+test_a_placeholder_in_a_norm_files_name_is_path_safe() {
+  local fake d name
+  _rec_begin
+  fake=$(_rec_fake plain <<'EOF'
+printf 'two\n' > plain.txt
+EOF
+)
+  _rec_call "$fake"
+  d=$(_rec_d 0001)
+  assert_eq "" "$(_rec_meta "$d" recorder_error)"
+  assert_contains "$(cat "$d/norm/changes")" "A"$'\t'"<T>/plain.txt"
+  assert_eq "two" "$(cat "$d/norm/files/_T_/plain.txt")"
+  name=$(cd "$d/norm/files" && find . | grep '[<>]' || true)
+  assert_eq "" "$name" "no placeholder bracket in a name under norm/files"
+}
+
+test_a_name_under_norm_files_holds_no_byte_ntfs_forbids() {
+  local fake d name
+  skip_unless_ntfs_forbidden_names
+  _rec_begin
+  fake=$(_rec_fake odd <<'EOF'
+mkdir 'we<ir>d'
+printf 'one\n' > 'we<ir>d/a:b"c|d?e*f.txt'
+EOF
+)
+  _rec_call "$fake"
+  d=$(_rec_d 0001)
+  assert_eq "" "$(_rec_meta "$d" recorder_error)"
+  assert_contains "$(cat "$d/norm/changes")" "A"$'\t'"<T>/we<ir>d/a:b\"c|d?e*f.txt"
+  assert_eq "one" "$(cat "$d/norm/files/_T_/we_ir_d/a_b_c_d_e_f.txt")"
+  name=$(cd "$d/norm/files" && find . | grep '[<>:"\\|?*]' || true)
+  assert_eq "" "$name" "no name under norm/files holds < > : \" \\ | ? *"
+}
+
+test_an_error_noted_in_a_step_subshell_reaches_meta() {
+  local fake d out rc=0
+  _rec_begin
+  _rec_git_wrapper 'case " $* " in *" cat-file blob "*) exit 1 ;; esac'
+  fake=$(_rec_fake adds <<'EOF'
+printf 'out\n'
+printf 'added\n' > added.txt
+exit 5
+EOF
+)
+  _rec_call "$fake" > "$JIG_TEST_TMP.outo" 2>&1 || rc=$?
+  assert_eq 5 "$rc" "the call's exit is unchanged"
+  assert_eq out "$(cat "$JIG_TEST_TMP.outo")" "the call's output is unchanged"
+  d=$(_rec_d 0001)
+  out=$(_rec_meta "$d" recorder_error)
+  assert_contains "$out" "blob-missing"
+  assert_not_contains "$out" "blob-missing,blob-missing" "each step is named once"
+  assert_eq "<T>.outbin/adds" "$(_rec_meta "$d" entry)" "the folded errors leave entry alone"
+  assert_no_file "$d/.errors"
+}
+
+test_blobs_are_hashed_from_paths_relative_to_the_trees_parent() {
+  local fake d id
+  _rec_begin
+  _rec_git_wrapper 'case " $* " in *" --stdin-paths "*) cat > "$LOG.in"; cat "$LOG.in" >> "$LOG"; exec "$REAL" "$@" < "$LOG.in" ;; esac'
+  fake=$(_rec_fake adds <<'EOF'
+printf 'added\n' > added.txt
+EOF
+)
+  _rec_call "$fake"
+  d=$(_rec_d 0001)
+  assert_eq "" "$(_rec_meta "$d" recorder_error)"
+  assert_file "$JIG_TEST_TMP.outgit.log"
+  if grep -q '^/' "$JIG_TEST_TMP.outgit.log"; then fail "an absolute path went through stdin"; fi
+  assert_contains "$(cat "$JIG_TEST_TMP.outgit.log")" "${JIG_TEST_TMP##*/}/added.txt"
+  id=$(_rec_list "$d/tree.after" | grep -F "<T>/added.txt" | cut -f 3)
+  assert_eq "added" "$(git --git-dir="$REC/store.git" cat-file blob "$id")"
 }
 
 test_output_to_a_file_is_written_as_jig_runs_not_after() {
