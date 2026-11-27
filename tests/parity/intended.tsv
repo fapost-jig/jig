@@ -1,0 +1,22 @@
+# The intended differences between the bash Jig and a port (tests/lib/parity.sh check).
+#
+# One entry per line, five fields separated by TAB:
+#
+#   <port>  <calls>  <view>  <lines>  <reason>
+#
+#   port    the port's name (--name; by default the basename of --port), or * for every port
+#   calls   a shell glob over <file>/<test>/<NNNN>, e.g. context/*/*
+#   view    exit, stdout, stderr, changes, git.after, files/<glob> (the normalised path
+#           after files/, e.g. files/_T_/repo/.ai/x, the
+#           NTFS-safe name of format 2) or * for any view
+#   lines   an extended regular expression: the difference is intended only when EVERY
+#           changed line of the diff (the - and + lines, without their sign and without
+#           the --- and +++ headers) matches it; - stands for any lines. For the view
+#           exit the text matched is `<bash exit> -> <port exit>`.
+#   reason  why the difference is intended; required, never empty
+#
+# Lines starting with # and blank lines are ignored. An entry whose port and calls fit a
+# compared call in a run but which covers no difference is stale and fails the run.
+# A wrong field count or an empty reason is a usage error (exit 2) that names file:line.
+#
+# No entry yet: no port has been compared.
