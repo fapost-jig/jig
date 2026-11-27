@@ -46,6 +46,7 @@ chosen, or the work is stopped by the gate.
 Goal: the commands nothing else calls are ported. Done when: each passes its recordings and its
 bash tests are deleted.
 
+- [ ] `replay-gaps` — Replay what the recorder cannot yet — calls that touch paths outside the recorded trees (a linked repository beside the test), directory modes (an unwritable runtime/), and the two process-count tests whose replay fails on tree.before; bash must match its own recordings for every recorded call before Phase 3 ports rely on them (found by `pilot-context-go`)
 - [ ] fog: the exact set of leaf commands — `knowledge`, `queue`, `spec`, `config`, `doctor` are the expected ones; the call graph decides when the tasks are filed
 
 ## Phase 4 — Verify, profiles and the middle
