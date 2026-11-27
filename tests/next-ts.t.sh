@@ -33,6 +33,8 @@ test_next_ts_checks_pass() {
   fi
   # typecheck, schema drift, unit and integration tests, bundle, dependency rules.
   if ! (cd "$dir" && npm run check) > "$log" 2>&1; then
+    # Every failed test by name first: the tail alone shows only the last of them.
+    grep '^not ok ' "$log" || true
     tail -n 80 "$log"
     _nts_lock_release "$dir"
     fail "npm run check failed in next/ts"

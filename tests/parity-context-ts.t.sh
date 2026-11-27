@@ -18,6 +18,12 @@
 # and the port needs its dependencies. The sources are this working tree's, as the copy's are, and
 # nothing `jig context` prints names the framework's directory.
 #
+# The recording is taken in the C locale. Several of bash's sorts in scripts/lib/context.sh carry no
+# `LC_ALL=C` and follow the caller's locale (`en_US.UTF-8` puts `features/x.md` before `GLOSSARY.md`);
+# the ports sort by bytes in every locale, as the spec decides ("sorting is byte order"). In the C
+# locale both orders are the same, so the recorded order proves the rest of the call; the locale's
+# order is a difference of the ports that tests/parity/intended.tsv does not count.
+#
 # Intended differences are in tests/parity/intended.tsv (port `ts`, or `*` for both ports), each
 # with its reason. Node 22.18 or later is needed, as for tests/next-ts.t.sh: without it these fail.
 # shellcheck shell=bash
@@ -88,6 +94,8 @@ EOF
     unset JIG_RECORD JIG_RECORD_DIR JIG_RECORD_TEST JIG_RECORD_ROOT JIG_RECORD_BASE_ENV \
       JIG_RECORDING JIG_RECORDER
     cd "$JIG_HOME" || exit 1
+    # The C locale, where bash's sorts and the port's agree (see the header).
+    export LC_ALL=C
     JIG_TEST_JOBS=1 JIG_RECORD="$rec" "$JIG_HOME/tests/run.sh" "${args[@]}"
   ) > "$JIG_TEST_TMP/record.log" 2>&1 || true
   # A recorded test that fails is the bash suite's own business, not the port's: its calls up to

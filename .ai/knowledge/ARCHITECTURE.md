@@ -207,6 +207,8 @@ cut-over it is a separate implementation: no bash command calls it, and it calls
   `tests/parity-context-ts.t.sh` replays every recorded `jig context` call on the port in shares;
   it runs the port from the checkout (`$ROOT/scripts/jig-next-ts`), because the release copy has no
   `node_modules`, and installs them through `tests/lib/next-ts.sh`, shared with `tests/next-ts.t.sh`.
+  It records in the C locale: several of bash's sorts in `context.sh` follow the caller's locale,
+  the port sorts by bytes in every locale (the spec's "sorting is byte order").
 
 ## Adapter contract
 
