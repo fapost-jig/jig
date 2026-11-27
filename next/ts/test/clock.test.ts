@@ -54,8 +54,11 @@ test("today and nowUtc agree with bash's jig_today and jig_now_utc in any time z
   const saved = process.env["TZ"];
   try {
     for (const tz of ["UTC", "Pacific/Kiritimati", "America/Los_Angeles"]) {
-      const bash = bashLib(process.cwd(), 'printf "%s\\n%s\\n" "$(jig_today)" "$(jig_now_utc)"', [], { JIG_NOW: "1790000000", TZ: tz });
+      const bash = bashLib(process.cwd(), 'printf "%s\\n%s\\n%s\\n" "$(jig_today)" "$(jig_now_utc)" "$(date +%z)"', [], { JIG_NOW: "1790000000", TZ: tz });
       assert.equal(bash.code, 0, bash.stderr);
+      // Git for Windows' `date` has no zone database: a named zone it cannot read is UTC to it,
+      // so bash's answer there says nothing about the zone and the zone is not compared.
+      if (tz !== "UTC" && bash.stdout.split("\n")[2] === "+0000") continue;
       const [day, utc] = bash.stdout.split("\n");
       process.env["TZ"] = tz;
       assert.equal(utc, nowUtc(fixedClock(1790000000)), tz);

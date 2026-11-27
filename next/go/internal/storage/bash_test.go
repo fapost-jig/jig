@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -187,4 +188,39 @@ func runBash(t *testing.T, script string, env []string, stdin string, args ...st
 		t.Fatalf("bash: %v\n%s", err, errb.String())
 	}
 	return out.Bytes()
+}
+
+// bashKeepsCR reports whether this platform's bash keeps a carriage return
+// that `read` reads at the end of a line. Bash on Linux and macOS does; Git for
+// Windows' (MSYS) bash drops it, so there the bash writers cannot be the oracle
+// of what happens to a CRLF state file.
+func bashKeepsCR(t *testing.T) bool {
+	t.Helper()
+	return string(runBash(t, `IFS= read -r l; printf '%s' "$l"`, nil, "a\r\n")) == "a\r"
+}
+
+// bashPath is a path bash printed in the form Go gives: on Windows Git Bash
+// prints /c/Users/... (or mixes / into a Windows path), which cygpath -w turns
+// into C:\Users\...; elsewhere the path is returned as it is.
+func bashPath(t *testing.T, p string) string {
+	t.Helper()
+	if runtime.GOOS != "windows" {
+		return p
+	}
+	out, err := exec.Command("cygpath", "-w", p).Output()
+	if err != nil {
+		t.Fatalf("cygpath -w %s: %v", p, err)
+	}
+	return strings.TrimRight(string(out), "\r\n")
+}
+
+// longTempDir is t.TempDir() by its real path: on Windows TEMP may name the
+// user's directory by its 8.3 short name (RUNNER~1), which git and bash do not.
+func longTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }

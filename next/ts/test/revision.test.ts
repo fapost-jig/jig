@@ -11,7 +11,7 @@ import type { Ctx } from "../src/core/context.ts";
 import { exec } from "../src/core/exec.ts";
 import { revisionBump, revisionDir, revisionRead } from "../src/core/storage/revision.ts";
 import { createTaskState, stateFile, writeTaskState } from "../src/core/storage/state.ts";
-import { bashJig, bashLib, makeProject, tmpDir } from "./helpers.ts";
+import { bashJig, bashLib, makeProject, nativePath, tmpDir } from "./helpers.ts";
 
 const PINNED = 1790000000;
 const clock = fixedClock(PINNED);
@@ -106,7 +106,7 @@ test("a linked worktree raises its main checkout's counter, where bash finds it"
   const want = path.join(main, ".ai", "runtime", "revision");
   assert.equal(revisionDir(main), want);
   assert.equal(revisionDir(wt), want);
-  assert.equal(bash(wt, "jig_revision_dir"), want);
+  assert.equal(nativePath(bash(wt, "jig_revision_dir")), want);
   assert.equal(revisionBump(wt, clock).raised, true);
   assert.equal(revisionRead(main), PINNED);
   assert.equal(revisionRead(wt), PINNED);
@@ -122,7 +122,7 @@ test("a git directory not named .git keeps the counter under it, where bash keep
   fs.writeFileSync(path.join(work, ".git"), `gitdir: ${gitdir}\n`);
   const want = path.join(gitdir, "jig", "revision");
   assert.equal(revisionDir(work), want);
-  assert.equal(bash(work, "jig_revision_dir"), want);
+  assert.equal(nativePath(bash(work, "jig_revision_dir")), want);
   assert.equal(revisionBump(work, clock).raised, true);
   assert.equal(bash(work, "jig_revision_read"), String(PINNED));
 
@@ -135,7 +135,7 @@ test("a git directory not named .git keeps the counter under it, where bash keep
   fs.mkdirSync(linked);
   fs.writeFileSync(path.join(linked, ".git"), `gitdir: ${path.join(bare, "worktrees", "linked")}\n`);
   assert.equal(revisionDir(linked), path.join(bare, "jig", "revision"));
-  assert.equal(bash(linked, "jig_revision_dir"), path.join(bare, "jig", "revision"));
+  assert.equal(nativePath(bash(linked, "jig_revision_dir")), path.join(bare, "jig", "revision"));
 });
 
 test("a state write raises the revision by one, created or rewritten", (t) => {

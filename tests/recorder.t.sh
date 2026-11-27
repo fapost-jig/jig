@@ -132,10 +132,13 @@ EOF
     assert_contains "$(_rec_list "$d/tree.after")" "$(printf 'f\t%s\t%s\t%s' "$mode" "$id" "<T>/link")"
   fi
   assert_contains "$(_rec_list "$d/tree.after")" "$(printf 'd\t-\t-\t%s' "<T>/sub")"
-  # a name with a newline in it is stored and listed too
-  id=$(git --git-dir="$REC/store.git" hash-object --no-filters "$JIG_TEST_TMP/name with
-newline.txt")
-  assert_contains "$(tr '\000' '|' < "$d/tree.after")" "f"$'\t'"644"$'\t'"$id"$'\t'"<T>/name with"$'\n'"newline.txt|"
+  # a name with a newline in it is stored and listed too, where the file system can hold one: NTFS
+  # cannot, and Git Bash stores it under a substitute character that git cannot open (the tree
+  # then lists the name with no blob id, which says nothing about the recorder)
+  if id=$(git --git-dir="$REC/store.git" hash-object --no-filters "$JIG_TEST_TMP/name with
+newline.txt" 2>/dev/null); then
+    assert_contains "$(tr '\000' '|' < "$d/tree.after")" "f"$'\t'"644"$'\t'"$id"$'\t'"<T>/name with"$'\n'"newline.txt|"
+  fi
   # the file has a NUL: its normalised view is `binary <id>`
   id=$(git hash-object --no-filters "$JIG_TEST_TMP/data.bin")
   assert_eq "binary $id" "$(cat "$d/norm/files/_T_/data.bin")"

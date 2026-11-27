@@ -1,6 +1,7 @@
 // Shared by the tests. The tests may start processes themselves (bash, git, node): the rule that only
 // core/exec.ts imports node:child_process holds for src/, not for the checks of it.
 
+import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -50,6 +51,17 @@ export function proc(cmd: string, args: readonly string[], opts: { cwd?: string;
   });
   if (r.error) throw r.error;
   return { code: r.status ?? 128, stdout: r.stdout, stderr: r.stderr };
+}
+
+/**
+ * A path bash printed, in the form Node gives: on Windows Git Bash prints `/c/Users/...`, which
+ * `cygpath -w` turns into `C:\\Users\\...`; elsewhere it is returned as it is.
+ */
+export function nativePath(p: string): string {
+  if (process.platform !== "win32") return p;
+  const r = proc("cygpath", ["-w", p]);
+  assert.equal(r.code, 0, r.stderr);
+  return r.stdout.replace(/\r?\n$/, "");
 }
 
 /** A temporary directory removed with the test; its real path (macOS /var is a link). */

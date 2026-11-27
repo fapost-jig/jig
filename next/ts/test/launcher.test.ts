@@ -7,7 +7,13 @@ import { cleanEnv, proc, repoRoot, tmpDir } from "./helpers.ts";
 const launcher = path.join(repoRoot, "scripts", "jig-next-ts");
 
 test("the launcher is executable, starts with a node shebang, and has a Windows companion with LF endings", () => {
-  assert.ok(fs.statSync(launcher).mode & 0o100, "executable bit");
+  if (process.platform === "win32") {
+    // NTFS keeps no execute bit; what a checkout gets is the mode git records.
+    const r = proc("git", ["ls-files", "-s", "--", "scripts/jig-next-ts"], { cwd: repoRoot });
+    assert.match(r.stdout, /^100755 /, "executable bit in git");
+  } else {
+    assert.ok(fs.statSync(launcher).mode & 0o100, "executable bit");
+  }
   assert.equal(fs.readFileSync(launcher, "utf8").split("\n")[0], "#!/usr/bin/env node");
   const cmd = fs.readFileSync(`${launcher}.cmd`, "utf8");
   assert.equal(cmd, '@node "%~dp0jig-next-ts" %*\n');

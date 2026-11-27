@@ -109,7 +109,7 @@ func TestAStateWriteRaisesTheRevision(t *testing.T) {
 // checkout's. Bash, which reads git's own files the same way, is the oracle of
 // where that is.
 func TestAWorktreeFindsTheCounterBashFinds(t *testing.T) {
-	base := t.TempDir()
+	base := longTempDir(t)
 	main := filepath.Join(base, "main")
 	wt := filepath.Join(base, "wt")
 	runBash(t, `set -e
@@ -122,7 +122,7 @@ git -C "$1" worktree add -q "$2" -b wt`, nil, "", main, wt)
 	}
 	for _, root := range []string{main, wt} {
 		got := RevisionDir(root)
-		bashDir := strings.TrimSpace(string(runBash(t, bashRevisionDir, []string{"JIG_PROJECT=" + root}, "")))
+		bashDir := bashPath(t, strings.TrimSpace(string(runBash(t, bashRevisionDir, []string{"JIG_PROJECT=" + root}, ""))))
 		if got != bashDir {
 			t.Errorf("%s: go %s, bash %s", root, got, bashDir)
 		}
@@ -135,11 +135,11 @@ git -C "$1" worktree add -q "$2" -b wt`, nil, "", main, wt)
 // A clone whose git directory is not named .git keeps the counter under it,
 // where bash keeps it (jig_config_odd_common).
 func TestASeparateGitDirKeepsTheCounterWhereBashDoes(t *testing.T) {
-	base := t.TempDir()
+	base := longTempDir(t)
 	work := filepath.Join(base, "work")
 	runBash(t, `set -e; git init -q --separate-git-dir "$2" "$1"`, nil, "", work, filepath.Join(base, "repo.git"))
 	got := RevisionDir(work)
-	bashDir := strings.TrimSpace(string(runBash(t, bashRevisionDir, []string{"JIG_PROJECT=" + work}, "")))
+	bashDir := bashPath(t, strings.TrimSpace(string(runBash(t, bashRevisionDir, []string{"JIG_PROJECT=" + work}, ""))))
 	if got != bashDir {
 		t.Fatalf("go %s, bash %s", got, bashDir)
 	}
