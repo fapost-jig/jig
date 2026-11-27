@@ -29,6 +29,7 @@ new code passes against its recordings, locally and on the manual Windows run.
 - [x] `ts-skeleton-revision` — TypeScript skeleton level with Go — storage raises the clone revision, test install under a lock, real revision in --json errors, stricter boundary scan (findings of `ts-skeleton`)
 - [x] `oracle-at-baseline` — Invariant oracle at 0.51.2 — both skeletons check against the bash libraries of the pinned baseline, not the epic checkout (findings of `go-skeleton`)
 - [x] `pilot-ci-runtimes` — Pinned runtimes in CI — Node and Go versions fixed for the next/ tests before the manual Windows run (finding of `ts-skeleton`)
+- [ ] `trivial-port` — A trivial command on both skeletons — `jig --version` in `jig-next-ts` and `jig-next-go` passes its recordings through `tests/lib/parity.sh`, checked by a test in `jig verify`, not only a demonstration (after: `parity-check`, both skeletons)
 
 ## Phase 2 — Pilot and the language
 
