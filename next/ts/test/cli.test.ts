@@ -1,17 +1,18 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { run } from "../src/cli/run.ts";
 import { JsonEnvelope } from "../src/schemas/index.ts";
-import { bashJig, cleanEnv, packageRoot, proc, repoRoot } from "./helpers.ts";
+import { bashJig, cleanEnv, makeProject, packageRoot, proc, repoRoot, tmpDir } from "./helpers.ts";
 
-async function cli(argv: string[], env: Record<string, string> = {}, extra: { baked?: string; entryDir?: string } = {}) {
+async function cli(argv: string[], env: Record<string, string> = {}, extra: { baked?: string; entryDir?: string; cwd?: string } = {}) {
   let out = "";
   let err = "";
   const code = await run({
     argv,
     env,
-    cwd: repoRoot,
+    cwd: extra.cwd ?? repoRoot,
     entryDir: extra.entryDir ?? path.join(packageRoot, "src", "cli"),
     bakedVersion: extra.baked,
     io: { out: (s) => (out += s), err: (s) => (err += s) },
@@ -70,8 +71,9 @@ test("a malformed JIG_NOW is refused before any command, help included, as bash 
   }
 });
 
-test("--json answers with one envelope line: the refusal, with its code", async () => {
-  const r = await cli(["bogus", "--json"], { JIG_NOW: "1790000000" });
+test("--json answers with one envelope line: the refusal, with its code", async (t) => {
+  // Outside a repository: nothing has been written there, revision 0.
+  const r = await cli(["bogus", "--json"], { JIG_NOW: "1790000000" }, { cwd: tmpDir(t) });
   assert.equal(r.code, 1);
   assert.equal(r.err, "");
   assert.equal(r.out.split("\n").length, 2, "one line and its newline");
@@ -82,6 +84,26 @@ test("--json answers with one envelope line: the refusal, with its code", async 
     generated_at: "2026-09-21T14:13:20Z",
     error: { code: "usage", message: "bogus: not available in the TypeScript skeleton" },
   });
+});
+
+test("the --json envelope reports the revision of the repository the command runs in, as json_run does", async (t) => {
+  const root = makeProject(tmpDir(t));
+  const sub = path.join(root, "a", "b");
+  fs.mkdirSync(sub, { recursive: true });
+  const dir = path.join(root, ".ai", "runtime", "revision");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "41"), "");
+  fs.writeFileSync(path.join(dir, "1234"), "");
+  const sh = bashJig(sub, ["task", "list", "--json"], { JIG_NOW: "1790000000" });
+  assert.equal((JSON.parse(sh.stdout) as { revision: number }).revision, 1234, "bash reads the same counter from the subdirectory");
+  for (const cwd of [root, sub]) {
+    const r = await cli(["bogus", "--json"], { JIG_NOW: "1790000000" }, { cwd });
+    const env = JsonEnvelope.parse(JSON.parse(r.out));
+    assert.equal(env.revision, 1234, cwd);
+  }
+  // Not in a repository, 0.
+  const outside = await cli(["bogus", "--json"], { JIG_NOW: "1790000000" }, { cwd: tmpDir(t) });
+  assert.equal(JsonEnvelope.parse(JSON.parse(outside.out)).revision, 0);
 });
 
 test("--json with a bad JIG_NOW refuses inside its envelope, as bash's json_run does", async () => {

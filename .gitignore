@@ -24,3 +24,6 @@ CLAUDE.local.md
 # The TypeScript skeleton (next/ts): installed dependencies and the bundle.
 next/ts/node_modules
 next/ts/dist
+# The lock and the staging directories of the install (tests/next-ts.t.sh).
+next/ts/.check.lock
+next/ts/.deps.*

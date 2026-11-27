@@ -9,6 +9,7 @@ import { JigError } from "../core/errors.ts";
 import { exec } from "../core/exec.ts";
 import { jigVersion } from "../core/version.ts";
 import { findScriptsLib } from "../core/storage/framework.ts";
+import { revisionAt } from "../core/storage/project.ts";
 
 export interface Io {
   out(text: string): void;
@@ -51,10 +52,9 @@ async function versionLine(opts: RunOpts, args: readonly string[]): Promise<stri
   return `jig ${v}\n`;
 }
 
-function envelopeError(env: Env, err: JigError): string {
+function envelopeError(env: Env, revision: number, err: JigError): string {
   const clock = systemClock(env);
-  // `revision` is the clone's write counter (schemas/json.md); it is not read yet, so 0.
-  return `${JSON.stringify({ schema: 1, revision: 0, generated_at: nowUtc(clock), error: { code: err.code, message: err.message } })}\n`;
+  return `${JSON.stringify({ schema: 1, revision, generated_at: nowUtc(clock), error: { code: err.code, message: err.message } })}\n`;
 }
 
 /** Runs one command line; returns the exit status. */
@@ -63,6 +63,9 @@ export async function run(opts: RunOpts): Promise<number> {
   const [first, ...rest] = opts.argv;
   const cmd = first ?? "help";
   const json = opts.argv.includes("--json");
+  // `revision` is the clone's write counter (schemas/json.md). Like json_run, read it before the
+  // command runs, never after; 0 when `cwd` is not in a repository (or git cannot say).
+  const revision = json ? await revisionAt({ exec }, opts.cwd) : 0;
   try {
     // A malformed JIG_NOW is refused once, before any command; a `--json` command refuses it in its envelope.
     checkJigNow(opts.env);
@@ -86,9 +89,9 @@ export async function run(opts: RunOpts): Promise<number> {
     const err = e instanceof JigError ? e : new JigError("failed", e instanceof Error ? e.message : String(e));
     if (json) {
       try {
-        io.out(envelopeError(opts.env, err));
+        io.out(envelopeError(opts.env, revision, err));
       } catch {
-        io.out(envelopeError({}, err));
+        io.out(envelopeError({}, revision, err));
       }
     } else {
       io.err(`jig: error: ${err.message}\n`);
