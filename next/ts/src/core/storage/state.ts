@@ -13,6 +13,8 @@ import { JigError } from "../errors.ts";
 import { TaskState, TASK_STATE_KEYS, isTaskStateKey } from "../../schemas/task-state.ts";
 import type { TaskStateKey } from "../../schemas/task-state.ts";
 import { lines, stateValue, trimStart } from "./flat.ts";
+import { revisionBump } from "./revision.ts";
+import type { RevisionRaise } from "./revision.ts";
 
 /** `jig_valid_id`: the rule every path built from a task id follows. */
 export function validTaskId(id: string): boolean {
@@ -130,10 +132,28 @@ function writeAtomic(file: string, content: string): void {
 }
 
 /**
+ * What a state write answers. The write has landed whatever this says: `revisionRaised: false` (with
+ * bash's warning) means only that the clone's revision could not be raised, so a `--json` reader may
+ * miss the change. Like bash's `_task_rewrite_state`, which calls jig_record_changed after the write,
+ * a failed raise is a warning and never a failed write. bash's jig_task_state_forget (an in-process
+ * cache of the state read) has no counterpart here, and neither has the status-page redraw of
+ * jig_record_changed: neither skeleton has a status page (go-skeleton did the same).
+ */
+export interface StateWrite {
+  readonly revisionRaised: boolean;
+  readonly warning?: string;
+}
+
+function written(r: RevisionRaise): StateWrite {
+  return r.warning === undefined ? { revisionRaised: r.raised } : { revisionRaised: r.raised, warning: r.warning };
+}
+
+/**
  * Set keys of an existing task's state, in order, as one write. Each key is written as bash's
  * `jig task set` would write it alone (so `updated_at` is refreshed to today's local date).
+ * The clone's revision is raised right after the write lands.
  */
-export function writeTaskState(ctx: Ctx, id: string, updates: Partial<Record<TaskStateKey, string>>): void {
+export function writeTaskState(ctx: Pick<Ctx, "root" | "clock">, id: string, updates: Partial<Record<TaskStateKey, string>>): StateWrite {
   const file = stateFile(ctx, id);
   const entries = Object.entries(updates).filter((e): e is [string, string] => e[1] !== undefined);
   for (const [k, v] of entries) checkEntry(k, v);
@@ -142,14 +162,19 @@ export function writeTaskState(ctx: Ctx, id: string, updates: Partial<Record<Tas
   const day = today(ctx.clock);
   for (const [k, v] of entries) text = setStateLine(text, k, v, day);
   writeAtomic(file, text);
+  return written(revisionBump(ctx.root, ctx.clock));
 }
 
-/** File a task's state from scratch, keys in the given order. Refuses to replace an existing one. */
-export function createTaskState(ctx: Pick<Ctx, "root">, id: string, entries: ReadonlyArray<readonly [TaskStateKey, string]>): void {
+/**
+ * File a task's state from scratch, keys in the given order. Refuses to replace an existing one.
+ * The clone's revision is raised right after the write lands.
+ */
+export function createTaskState(ctx: Pick<Ctx, "root" | "clock">, id: string, entries: ReadonlyArray<readonly [TaskStateKey, string]>): StateWrite {
   const dir = taskDir(ctx, id);
   const file = path.join(dir, "state");
   for (const [k, v] of entries) checkEntry(k, v);
   if (readText(file) !== undefined) throw new JigError("already-exists", `state: task already exists: ${id}`);
   fs.mkdirSync(dir, { recursive: true });
   writeAtomic(file, entries.map(([k, v]) => `${k}: ${v}\n`).join(""));
+  return written(revisionBump(ctx.root, ctx.clock));
 }
