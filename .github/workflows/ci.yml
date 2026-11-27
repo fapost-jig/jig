@@ -395,6 +395,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # The Go and TS storage oracles read scripts/lib at the pinned rollback baseline
+      # (adr-20261126-jig-1-0-is-rewritten-off-bash-and-the-pilot-picks-the-language).
+      - name: Fetch the rollback baseline
+        run: git fetch --no-tags --depth=1 origin +refs/tags/v0.51.2:refs/tags/v0.51.2
+
       # next/ts needs Node 22.18 or later (`engines.node` in next/ts/package.json;
       # tests/next-ts.t.sh fails without it), and the floor is what is pinned, so
       # the run tests what engines promises. next/go's version is read from its
@@ -549,6 +554,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+
+      # The Go and TS storage oracles read scripts/lib at the pinned rollback baseline
+      # (adr-20261126-jig-1-0-is-rewritten-off-bash-and-the-pilot-picks-the-language).
+      - name: Fetch the rollback baseline
+        run: git fetch --no-tags --depth=1 origin +refs/tags/v0.51.2:refs/tags/v0.51.2
 
       # Node and Go are pinned as for `test`.
       - uses: actions/setup-node@v7

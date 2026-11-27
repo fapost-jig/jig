@@ -3,7 +3,6 @@ package storage
 import (
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -169,6 +168,14 @@ func RevisionRead(root string) uint64 {
 	return n
 }
 
+// claimRevisionFile and removeRevisionFile are what RevisionBump claims and
+// withdraws a name with; they are variables only so a test can stage a failure
+// that a real directory does not produce on demand.
+var (
+	claimRevisionFile  = claimFile
+	removeRevisionFile = os.Remove
+)
+
 // claimFile creates path, empty, only if nothing is there (jig_claim_file):
 // true when this process created it.
 func claimFile(path string) bool {
@@ -223,7 +230,7 @@ func RevisionBump(root string, clk clock.Clock) error {
 			others = append(others, strconv.FormatUint(seen, 10))
 		}
 		name := filepath.Join(dir, strconv.FormatUint(next, 10))
-		if !claimFile(name) {
+		if !claimRevisionFile(name) {
 			continue
 		}
 		high, _, _ := scanRevision(dir)
@@ -233,9 +240,11 @@ func RevisionBump(root string, clk clock.Clock) error {
 			}
 			return nil
 		}
-		if err := os.Remove(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			break
-		}
+		// Stale: the name had been claimed and cleared before. Withdraw it; a
+		// failure (gone already, or not ours to remove) is ignored, as
+		// jig_revision_bump's `rm -f ... || true` does: the loop reads again
+		// either way.
+		_ = removeRevisionFile(name)
 	}
 	return fmt.Errorf("%w in %s; a reader may miss this change", ErrRevisionNotRaised, dir)
 }

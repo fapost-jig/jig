@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -144,5 +145,49 @@ func TestASeparateGitDirKeepsTheCounterWhereBashDoes(t *testing.T) {
 	}
 	if filepath.Base(filepath.Dir(got)) != "jig" {
 		t.Fatalf("the counter is %s, not under the git directory", got)
+	}
+}
+
+// A stale claim that cannot be withdrawn does not end the raise: bash ignores
+// the failed rm and reads again, and so does Go.
+func TestAStaleClaimThatCannotBeWithdrawnIsReadAgain(t *testing.T) {
+	root := t.TempDir()
+	dir := RevisionDir(root)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "100"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	far := uint64(100 + 1 + revisionKeep + 5)
+	claims, removals := 0, 0
+	claim, remove := claimRevisionFile, removeRevisionFile
+	t.Cleanup(func() { claimRevisionFile, removeRevisionFile = claim, remove })
+	claimRevisionFile = func(path string) bool {
+		claims++
+		ok := claim(path)
+		if claims == 1 {
+			// Another writer got far ahead while this one stalled.
+			if err := os.WriteFile(filepath.Join(dir, strconv.FormatUint(far, 10)), nil, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return ok
+	}
+	removeRevisionFile = func(path string) error {
+		removals++
+		if removals == 1 {
+			return fs.ErrPermission
+		}
+		return remove(path)
+	}
+	if err := RevisionBump(root, pinnedClock(t)); err != nil {
+		t.Fatalf("RevisionBump: %v", err)
+	}
+	if removals != 1 || claims != 2 {
+		t.Fatalf("claims=%d removals=%d, want 2 and 1", claims, removals)
+	}
+	if got := RevisionRead(root); got != far+1 {
+		t.Fatalf("revision %d, want %d", got, far+1)
 	}
 }
