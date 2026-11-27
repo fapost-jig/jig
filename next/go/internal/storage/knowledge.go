@@ -96,5 +96,5 @@ func KnowledgeReadPath(root, src string) bool {
 	if err != nil {
 		return false
 	}
-	return strings.HasPrefix(physDir+"/", strings.TrimSuffix(physRoot, "/")+"/")
+	return strings.HasPrefix(Slash(physDir)+"/", strings.TrimSuffix(Slash(physRoot), "/")+"/")
 }
