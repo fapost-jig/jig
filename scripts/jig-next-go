@@ -4,7 +4,8 @@
 #   scripts/jig-next-go [--version | --help]
 #
 # Builds next/go/cmd/jig-next into .ai/runtime/jig-next-go/, which git already
-# ignores (Go's build cache makes a repeat nearly free), and runs it with the
+# ignores, unless the binary there is newer than every Go source, go.mod and go.sum
+# of the module (a repeat run then starts no build at all), and runs it with the
 # arguments given. The program has no commands yet beyond --version and --help;
 # it grows beside the bash implementation and calls nothing of it.
 #
@@ -32,7 +33,21 @@ module="$root/next/go"
 out="${JIG_NEXT_BUILD_DIR:-$root/.ai/runtime/jig-next-go}"
 mkdir -p "$out" || die "cannot make $out"
 
-(cd "$module" && CGO_ENABLED=0 go build -o "$out/jig-next" ./cmd/jig-next) || die "go build failed"
+# Built only when it is out of date: the binary is missing, or anything of the module is newer
+# than it — a source, go.mod, go.sum, a file `//go:embed` takes in, or a directory, whose time
+# moves when a file in it is deleted or renamed. The build directory a test may keep inside the
+# module is not the module. One find that stops at its first hit (`-quit`, BSD and GNU alike;
+# never a pipe into `head`, whose early exit pipefail would turn into "nothing is newer"); a find
+# that fails builds, since a stale binary is the one wrong answer.
+bin="$out/jig-next"
+rebuild=1
+if [ -x "$bin" ]; then
+  newer=$(cd "$module" && find . -path ./.build -prune -o -newer "$bin" -print -quit 2>/dev/null) || newer="?"
+  [ -z "$newer" ] && rebuild=0
+fi
+if [ "$rebuild" -eq 1 ]; then
+  (cd "$module" && CGO_ENABLED=0 go build -o "$bin" ./cmd/jig-next) || die "go build failed"
+fi
 
 JIG_NEXT_ROOT="$root"
 export JIG_NEXT_ROOT

@@ -35,15 +35,27 @@ func ValidID(id string) bool {
 	return true
 }
 
-// taskStatePath is where task id's state file is, under project root. The one
-// place a task's path is built, so the id is checked here (RULES.md: no path
-// from an unvalidated name): an invalid id builds no path.
-func taskStatePath(root, id string) (string, error) {
+// TaskDirPath is where task id's workspace directory is, under project root.
+// The one place a task's path is built, so the id is checked here (RULES.md: no
+// path from an unvalidated name): an invalid id builds no path.
+func TaskDirPath(root, id string) (string, error) {
 	if !ValidID(id) {
 		return "", fmt.Errorf("%w: %s", ErrInvalidID, id)
 	}
-	return filepath.Join(root, ".ai", "workspace", "tasks", id, "state"), nil
+	return Slash(filepath.Join(root, ".ai", "workspace", "tasks", id)), nil
 }
+
+// TaskStatePath is where task id's state file is, built through TaskDirPath.
+func TaskStatePath(root, id string) (string, error) {
+	dir, err := TaskDirPath(root, id)
+	if err != nil {
+		return "", err
+	}
+	return dir + "/state", nil
+}
+
+// taskStatePath is TaskStatePath for the readers and writers of this file.
+func taskStatePath(root, id string) (string, error) { return TaskStatePath(root, id) }
 
 // splitLines splits text the way awk and `read -r` see a file: at each newline,
 // the last line needing no newline of its own. An empty text has no lines.

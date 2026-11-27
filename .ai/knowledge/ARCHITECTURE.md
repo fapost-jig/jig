@@ -174,6 +174,21 @@ cut-over it is a separate implementation: no bash command calls it, and it calls
   committed under `next/ts/schemas/`. Core never imports cli. `test/architecture.test.ts` enforces
   these boundaries over the imports, and `tools/check-deps.ts` the dependency rules (exact pins,
   lockfile, licences, no native module in what is bundled into `dist/jig.mjs`).
+- **Layers (Go).** `next/go/` is module `github.com/fapost-jig/jig/next/go`, built by
+  `scripts/jig-next-go` into `.ai/runtime/jig-next-go/` (only when a file of the module is newer than
+  the binary). `internal/cli` parses and prints the ordered output core returns; `internal/core` is
+  functions of a `Ctx` (root, exec, clock, the file clock, env, cwd, stdin); `internal/proc` is the
+  only package that starts a process (`os/exec`; `git -c core.fsmonitor=false -C <dir>`; `proc.Fake`
+  in tests); `internal/storage` is the only one that touches the file system or YAML, builds every
+  path from a validated id, and hands core paths with `/` on every OS. `internal/archtest` enforces
+  these over the sources. The first ported command is `jig context` (task pilot-context-go), which
+  hashes blobs in-process unless the repository is sha256.
+- **A port is proven by replaying the bash recordings** (`conventions/parity.md`). For `jig
+  context` in Go that is `tests/parity-context-go.t.sh`: five shares of `tests/context.t.sh` plus the
+  other files' tests that call it, each recorded and replayed under `jig verify`; the bash sources
+  those recordings come from are mapped to it in `.ai/verify/shell.map`. A port reads a file 0.51.2
+  reads exactly as 0.51.2 does, never refusing it on read (adr-20261126, Schemas, amendment of
+  2026-11-27).
 - **Reading today's files.** `state`, `config.yaml`, `config.local.yaml` and `profile.yaml` are read
   line by line exactly as bash reads them; only knowledge frontmatter goes through the YAML parser,
   its differences from `fm_get`/`fm_list` listed in `next/ts/test/fixtures/frontmatter-differences.md`.

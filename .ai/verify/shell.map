@@ -34,7 +34,7 @@ scripts/jig-next-ts*            next-ts:: parity-ports::
 # suites. The intended list is read by the check alone (task parity-check).
 tests/lib/recorder.sh           recorder:: parity:: parity-ports::
 tests/lib/parity.sh             parity:: parity-ports::
-tests/parity/**                 parity:: parity-ports::
+tests/parity/**                 parity:: parity-ports:: parity-context-go::
 tests/parity.t.sh               parity::
 
 # `jig version` of both ports against its bash recordings (tests/parity-ports.t.sh). The first matching
@@ -63,8 +63,21 @@ scripts/lib/prgitlab.sh         pr:: gh::
 # profile `go` is not on in .ai/config.yaml, so this line is what makes `jig verify`
 # run them when anything under next/go changes. The launcher is also a file
 # under scripts/, which the guards of dispatcher:: and gh:: scan.
-next/go/**                      next-go:: parity-ports::
-scripts/jig-next-go*            next-go:: dispatcher:: gh:: parity-ports::
+next/go/**                      next-go:: parity-ports:: parity-context-go::
+scripts/jig-next-go*            next-go:: dispatcher:: gh:: parity-ports:: parity-context-go::
+# The Go port of `jig context` is held to the bash recordings of the tests that call it
+# (task pilot-context-go); its own file is mapped here.
+tests/parity-context-go.t.sh    parity-context-go::
+# And so is any change to what those recordings are taken from: the bash command, its tests, and
+# the libraries a recorded call runs that are named after a test file of their own. common.sh has
+# none: the built-in rule runs the tests of the scripts that call a changed function of it, and
+# context.sh, mapped here, is one.
+scripts/lib/context.sh          context:: parity-context-go::
+tests/context.t.sh              context:: parity-context-go::
+scripts/lib/checkout.sh         checkout:: parity-context-go::
+scripts/lib/frontmatter.sh      frontmatter:: parity-context-go::
+scripts/lib/task.sh             task:: parity-context-go::
+scripts/lib/queue.sh            queue:: parity-context-go::
 
 adapters/**                     adapters::
 profiles/**                     profiles:: verify::

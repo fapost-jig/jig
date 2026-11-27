@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fapost-jig/jig/next/go/internal/core"
 	"github.com/fapost-jig/jig/next/go/internal/proc"
 )
 
@@ -12,7 +13,7 @@ func do(t *testing.T, env map[string]string, args ...string) (code int, out, err
 	t.Helper()
 	var o, e bytes.Buffer
 	x, _ := proc.Fake(nil)
-	code = run(args, func(k string) string { return env[k] }, x, &o, &e)
+	code = run(args, func(k string) string { return env[k] }, strings.NewReader(""), x, &o, &e)
 	return code, o.String(), e.String()
 }
 
@@ -64,5 +65,20 @@ func TestBadJigNowIsRefusedBeforeAnyCommand(t *testing.T) {
 		if code != 1 || out != "" || errOut != want {
 			t.Errorf("%v: %d %q %q", args, code, out, errOut)
 		}
+	}
+}
+
+func TestContextOutsideARepositoryIsRefused(t *testing.T) {
+	code, out, errOut := do(t, nil, "context")
+	if code != 1 || out != "" || errOut != "jig: error: not inside a git repository\n" {
+		t.Errorf("%d %q %q", code, out, errOut)
+	}
+}
+
+func TestContextWritesItsChunksInOrder(t *testing.T) {
+	var o, e bytes.Buffer
+	n := write(core.Output{Chunks: []core.Chunk{{Text: "a"}, {Stderr: true, Text: "b"}, {Text: "c"}}, Code: 3}, &o, &e)
+	if n != 3 || o.String() != "ac" || e.String() != "b" {
+		t.Errorf("%d %q %q", n, o.String(), e.String())
 	}
 }

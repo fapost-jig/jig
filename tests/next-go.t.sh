@@ -98,6 +98,63 @@ test_next_go_launcher_prints_the_version_jig_prints() {
   assert_eq "$want" "$OUT"
 }
 
+# The launcher builds only when it must: a second run leaves the binary as it is, and a newer
+# Go source makes it build again.
+_ng_mtime() {
+  # Decided by the value, as jig_file_mtime does: GNU `stat -f` prints a file system block and
+  # fails, so an `||` fallback would answer with that block and the time together.
+  local out
+  out=$(stat -f %m "$1" 2>/dev/null) || out=""
+  case "$out" in
+    '' | *[!0-9]*) out=$(stat -c %Y "$1") ;;
+  esac
+  printf '%s\n' "$out"
+}
+
+test_next_go_launcher_builds_only_when_a_source_is_newer() {
+  _ng_go
+  # A copy of the framework's launcher and module of its own: dating a source ahead in the release
+  # copy would make every other test's launcher rebuild.
+  local fw="$JIG_TEST_TMP/fw" bin first second third src
+  mkdir -p "$fw/scripts" "$fw/next"
+  cp "$JIG_HOME/scripts/jig-next-go" "$fw/scripts/"
+  cp -R "$JIG_HOME/next/go" "$fw/next/"
+  rm -rf "$fw/next/go/.build"
+  bin="$JIG_TEST_TMP/build/jig-next"
+  src="$fw/next/go/cmd/jig-next/main.go"
+  run env JIG_NEXT_BUILD_DIR="$JIG_TEST_TMP/build" "$fw/scripts/jig-next-go" --help
+  _ng_ok "first run"
+  # Dated ahead of every source, so that nothing is newer than it and a rebuild shows in the time.
+  touch -t 203001010000 "$bin"
+  first=$(_ng_mtime "$bin")
+  run env JIG_NEXT_BUILD_DIR="$JIG_TEST_TMP/build" "$fw/scripts/jig-next-go" --help
+  _ng_ok "second run"
+  second=$(_ng_mtime "$bin")
+  assert_eq "$first" "$second"
+  touch -t 203101010000 "$src"
+  run env JIG_NEXT_BUILD_DIR="$JIG_TEST_TMP/build" "$fw/scripts/jig-next-go" --help
+  _ng_ok "run after a source changed"
+  third=$(_ng_mtime "$bin")
+  [ "$third" != "$first" ] || fail "a newer Go source did not rebuild the binary"
+  # A file go:embed takes in is the binary's too, and so is a source deleted: its directory's time
+  # moves.
+  touch -t 203001010000 "$bin"
+  first=$(_ng_mtime "$bin")
+  touch -t 203101010000 "$fw/next/go/schemas/frontmatter.schema.json"
+  run env JIG_NEXT_BUILD_DIR="$JIG_TEST_TMP/build" "$fw/scripts/jig-next-go" --help
+  _ng_ok "run after an embedded file changed"
+  [ "$(_ng_mtime "$bin")" != "$first" ] || fail "a newer embedded file did not rebuild the binary"
+  # Everything dated in the past, the binary after it, then a source deleted now.
+  printf 'package main\n' > "$fw/next/go/cmd/jig-next/extra.go"
+  find "$fw/next/go" -exec touch -t 201901010000 {} +
+  touch -t 202001010000 "$bin"
+  first=$(_ng_mtime "$bin")
+  rm "$fw/next/go/cmd/jig-next/extra.go"
+  run env JIG_NEXT_BUILD_DIR="$JIG_TEST_TMP/build" "$fw/scripts/jig-next-go" --help
+  _ng_ok "run after a source was deleted"
+  [ "$(_ng_mtime "$bin")" != "$first" ] || fail "deleting a Go source did not rebuild the binary"
+}
+
 test_next_go_launcher_prints_help() {
   _ng_go
   run env JIG_NEXT_BUILD_DIR="$JIG_TEST_TMP/build" "$JIG_HOME/scripts/jig-next-go" --help
