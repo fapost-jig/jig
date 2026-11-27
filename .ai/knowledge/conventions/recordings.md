@@ -54,7 +54,8 @@ and the path is always the last field, so it may hold TAB and newline. Names are
 of the stubs are files in these trees: a line a stub logged during the call is in `changes` and
 `norm/files/`. To replay, restore `tree.before` from the store, set the recorded environment exactly
 (`env -i` plus `env`), and run with the recorded `PATH`, whose stub directories are in the tree; git
-itself runs for real.
+itself runs for real. `tests/lib/parity.sh check` does exactly this for a port
+(`conventions/parity.md`).
 
 A stream the caller sent to a regular file inside the trees is in them too: jig writes it during the
 call, so the file is in `changes` and `norm/files/` besides `stdout`/`stderr`; a replay must redirect

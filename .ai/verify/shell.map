@@ -29,6 +29,14 @@ scripts/jig.cmd                 init:: install::
 next/ts/**                      next-ts::
 scripts/jig-next-ts*            next-ts::
 
+# The recorder and the parity check are test tooling: nothing in scripts/ calls them,
+# but the check replays calls through the recorder, so a change to either is tested by both
+# suites. The intended list is read by the check alone (task parity-check).
+tests/lib/recorder.sh           recorder:: parity::
+tests/lib/parity.sh             parity::
+tests/parity/**                 parity::
+tests/parity.t.sh               parity::
+
 # The JSON layer and the housekeeping log reader are libraries with more than
 # one reader: json.sh writes every `--json` envelope (task list, spec list,
 # status), hklog.sh decides which housekeeping flags still stand for the status
