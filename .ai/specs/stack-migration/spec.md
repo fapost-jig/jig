@@ -178,6 +178,12 @@ The owner's colleagues, 2026-11-23:
   written list of intended differences, each with its reason; sorting is byte order; non-UTF-8
   names go through `Buffer`. A command's bash tests are deleted only once its port passes, so a
   doubtful recording can be taken again.
+- Which tests run where: the bash tests are the oracle for development — a port records the bash
+  tests of its own command, replays them and gets its own tests on the new stack that cover the same
+  behaviour. CI on the epic runs the new stack's tests and the parity check of the ported commands,
+  recording only those commands' bash tests; it never reruns the whole bash suite, since bash does
+  not change on the epic. The whole bash suite runs on `main` and once before the epic lands
+  (owner, 2026-11-27).
 - No mixed code: the new implementation grows beside the bash one and calls only itself; ports go
   from the leaves of the call graph to `task`, shared code moving with the first command that needs
   it; a separate `jig-next` lets the owner and agents use ported commands on this repository early,
