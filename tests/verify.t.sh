@@ -2216,7 +2216,7 @@ test_verify_map_apply_unmatched_path_gets_question_mark() {
   map=$(_run_out .map)
   printf 'docs/** -\n' > "$map"
   out=$(_map_apply "$map" "scripts/lib/task.sh")
-  assert_eq "$(printf 'scripts/lib/task.sh\t?')" "$out"
+  assert_eq "$(printf 'scripts/lib/spec.sh\t?')" "$out"
   rm -f "$map"
 }
 
@@ -2288,7 +2288,7 @@ test_verify_own_shell_map_decides_known_paths() {
     "skills/jig-task/references/priority.md" \
     "docs/concepts.mdx" \
     ".ai/manifest" \
-    "scripts/lib/task.sh")
+    "scripts/lib/spec.sh")
   assert_contains "$out" "$(printf 'scripts/jig-session-hook\thousekeeping::')"
   assert_contains "$out" "$(printf 'adapters/claude/adapter.sh\tadapters::')"
   assert_contains "$out" "$(printf 'profiles/shell/verify.sh\tprofiles:: verify::')"
@@ -2309,7 +2309,7 @@ test_verify_own_shell_map_decides_known_paths() {
   assert_contains "$out" "$(printf 'docs/concepts.mdx\t-')"
   assert_contains "$out" "$(printf 'AGENTS.md\t-')"
   assert_contains "$out" "$(printf '.ai/manifest\t-')"
-  assert_contains "$out" "$(printf 'scripts/lib/task.sh\t?')"
+  assert_contains "$out" "$(printf 'scripts/lib/spec.sh\t?')"
 }
 
 # --- shell profile: map-driven and unmatched-filter narrowing --------------
