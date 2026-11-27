@@ -221,3 +221,58 @@ func HasConfig(root string) bool { return isFile(filepath.Join(root, AiDir, "con
 
 // TaskWorkspaceRel is the project-relative directory of task id's workspace.
 func TaskWorkspaceRel(id string) string { return AiDir + "/workspace/tasks/" + id }
+
+// WriteFileTmp writes body to `<path>.tmp.<pid>` and renames it over path, the
+// way the shell writers do (`tmp` then `mv`), with the file mode a redirect
+// gives. It reports whether the file was written.
+func WriteFileTmp(path, body string) bool {
+	tmp := path + ".tmp." + strconv.Itoa(os.Getpid())
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o666)
+	if err != nil {
+		return false
+	}
+	if _, err := f.WriteString(body); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmp)
+		return false
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return false
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return false
+	}
+	return true
+}
+
+// IsSymlink reports whether path is itself a symbolic link.
+func IsSymlink(path string) bool {
+	info, err := os.Lstat(path)
+	return err == nil && info.Mode()&os.ModeSymlink != 0
+}
+
+// TaskDirPath is where task id's workspace directory is.
+func TaskDirPath(root, id string) string {
+	return filepath.Join(root, AiDir, "workspace", "tasks", id)
+}
+
+// TasksDirPath is the directory that holds every task workspace of root.
+func TasksDirPath(root string) string {
+	return filepath.Join(root, AiDir, "workspace", "tasks")
+}
+
+// DirEntryNames are the names in dir, sorted; none when it cannot be read.
+func DirEntryNames(dir string) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	sort.Strings(names)
+	return names
+}

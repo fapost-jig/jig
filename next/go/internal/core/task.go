@@ -87,3 +87,60 @@ func taskCurrent(ctx Ctx, p Project) (currentTask, error) {
 	}
 	return currentTask{Status: 2, Stderr: b.String()}, nil
 }
+
+// guardWrite is _task_guard_write: the check every writer of a task's workspace
+// passes. The tasks directory must physically be the one of a checkout of this
+// repository, and the task's directory the entry named after it, or a link to
+// its workspace in a worktree of this repository. The error is what the shell
+// dies with, naming cmd.
+func guardWrite(ctx Ctx, p Project, id, cmd string) error {
+	dir := storage.TaskDirPath(p.Root, id)
+	if !storage.IsFile(dir + "/state") {
+		return errs.New(errs.NotFound, "%s: unknown task: %s", cmd, id)
+	}
+	tasksRel := strings.TrimSuffix(storage.TaskWorkspaceRel(""), "/")
+	tasksRoot := storage.PhysicalDir(storage.TasksDirPath(p.Root))
+	if tasksRoot == "" {
+		return errs.New(errs.Failed, "%s: cannot inspect %s", cmd, tasksRel)
+	}
+	if !worktreeHolds(ctx, p, tasksRoot, tasksRel) {
+		return errs.New(errs.Failed, "%s: %s leads to %s, which is no checkout of this repository", cmd, tasksRel, tasksRoot)
+	}
+	if storage.IsSymlink(dir) {
+		real := storage.PhysicalDir(dir)
+		if real == "" || !worktreeHolds(ctx, p, real, tasksRel+"/"+id) {
+			return errs.New(errs.Failed, "%s: linked task workspace is unsupported unless it is this task's workspace in another worktree", cmd)
+		}
+		return nil
+	}
+	real := storage.PhysicalDir(dir)
+	if real == "" {
+		return errs.New(errs.Failed, "%s: cannot inspect workspace", cmd)
+	}
+	if real != tasksRoot+"/"+id {
+		return errs.New(errs.Failed, "%s: workspace outside task root", cmd)
+	}
+	return nil
+}
+
+// worktreeHolds is _task_worktree_holds: want is <W>/<rel> for this checkout or
+// for any worktree git lists for this repository.
+func worktreeHolds(ctx Ctx, p Project, want, rel string) bool {
+	if phys := storage.PhysicalDir(p.Root); phys != "" && want == phys+"/"+rel {
+		return true
+	}
+	r, err := ctx.Exec.Git(p.Root, "worktree", "list", "--porcelain")
+	if err != nil || r.Code != 0 {
+		return false
+	}
+	for _, line := range strings.Split(r.Stdout, "\n") {
+		path, ok := strings.CutPrefix(line, "worktree ")
+		if !ok {
+			continue
+		}
+		if phys := storage.PhysicalDir(path); phys != "" && want == phys+"/"+rel {
+			return true
+		}
+	}
+	return false
+}

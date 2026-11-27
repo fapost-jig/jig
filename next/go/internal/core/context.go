@@ -39,7 +39,13 @@ func runContext(ctx Ctx, args []string, out *Output) error {
 	}
 	if len(args) > 0 {
 		switch w := args[0]; {
-		case w == "resolve" || w == "pending" || w == "guard" || w == "acknowledge":
+		case w == "resolve":
+			return ctxResolve(ctx, p, args[1:], out)
+		case w == "pending":
+			return ctxPending(ctx, p, args[1:], out)
+		case w == "guard":
+			return ctxGuard(ctx, p, args[1:], out)
+		case w == "acknowledge":
 			return errs.New(errs.Failed, "context %s: not ported yet", w)
 		case w != "" && !strings.HasPrefix(w, "-"):
 			return errs.New(errs.Failed, "%s", ctxUsage)

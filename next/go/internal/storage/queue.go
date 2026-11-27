@@ -1,9 +1,14 @@
 package storage
 
 import (
+	"errors"
+	"fmt"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/fapost-jig/jig/next/go/internal/clock"
 )
 
 // QueuePlace is what jig_queue_place answers for a task that is in the queue.
@@ -160,4 +165,138 @@ func PauseRequest(root, id string) (at, reason string, ok bool) {
 		return at, reason, true
 	}
 	return "", "", false
+}
+
+// ErrNoRequest says the queue holds no such request.
+var ErrNoRequest = errors.New("no such request")
+
+// QueueCancelRequest is `jig queue cancel <ref> <kind>`: the queue rewritten in
+// canonical order (_queue_apply) without the request, and landed through the
+// clone's revision, which is raised before the file moves and after it. A
+// queue of another format version, or one with no such request, is an error.
+func QueueCancelRequest(root, ref, kind string, clk clock.Clock) error {
+	path := filepath.Join(cloneRoot(root), AiDir, "runtime", "queue")
+	text, _ := ReadText(path)
+	out, err := queueCanonical(splitLines(text), ref, kind)
+	if err != nil {
+		return err
+	}
+	if err := RevisionBump(root, clk); err != nil && !errors.Is(err, ErrRevisionNotRaised) {
+		return err
+	}
+	if !WriteFileTmp(path, out) {
+		return fmt.Errorf("queue: cannot write %s", path)
+	}
+	_ = RevisionBump(root, clk)
+	return nil
+}
+
+type queueItem struct {
+	ref, level, pos, pri string
+}
+
+// queueCanonical is the awk of _queue_apply for op `cancel`.
+func queueCanonical(lines []string, ref, kind string) (string, error) {
+	var items []queueItem
+	itemIdx := map[string]bool{}
+	type dep struct{ sub, on, reason string }
+	var deps []dep
+	depIdx := map[[2]string]bool{}
+	type req struct {
+		sub, kind, at, reason string
+		alive                 bool
+	}
+	var reqs []*req
+	reqIdx := map[[2]string]*req{}
+	var other []string
+	for i, line := range lines {
+		if i == 0 && strings.HasPrefix(line, "# jig queue ") {
+			f := strings.Fields(line)
+			if len(f) < 4 || f[3] != "1" {
+				return "", errors.New("queue: another format than this jig writes")
+			}
+			continue
+		}
+		if strings.HasPrefix(line, "#") || strings.Trim(line, " \t") == "" {
+			continue
+		}
+		f := strings.Split(line, "\t")
+		field := func(n int) string {
+			if n < len(f) {
+				return f[n]
+			}
+			return ""
+		}
+		switch {
+		case f[0] == "item" && len(f) >= 5:
+			if !itemIdx[f[1]] {
+				itemIdx[f[1]] = true
+				items = append(items, queueItem{f[1], f[2], f[3], f[4]})
+			}
+		case f[0] == "dep" && len(f) >= 4:
+			if k := [2]string{f[1], f[2]}; !depIdx[k] {
+				depIdx[k] = true
+				deps = append(deps, dep{f[1], f[2], f[3]})
+			}
+		case f[0] == "request" && len(f) >= 4:
+			if k := [2]string{f[1], f[2]}; reqIdx[k] == nil {
+				r := &req{f[1], f[2], f[3], field(4), true}
+				reqIdx[k] = r
+				reqs = append(reqs, r)
+			}
+		default:
+			other = append(other, line)
+		}
+	}
+	r := reqIdx[[2]string{ref, kind}]
+	if r == nil {
+		return "", ErrNoRequest
+	}
+	r.alive = false
+
+	sort.SliceStable(items, func(a, b int) bool {
+		x, y := items[a], items[b]
+		if x.level != y.level {
+			if x.level == "-" {
+				return true
+			}
+			if y.level == "-" {
+				return false
+			}
+			return x.level < y.level
+		}
+		if px, py := awkNumber(x.pos), awkNumber(y.pos); px != py {
+			return px < py
+		}
+		return x.ref < y.ref
+	})
+	sort.SliceStable(deps, func(a, b int) bool {
+		if deps[a].sub != deps[b].sub {
+			return deps[a].sub < deps[b].sub
+		}
+		return deps[a].on < deps[b].on
+	})
+	sort.SliceStable(reqs, func(a, b int) bool {
+		if reqs[a].sub != reqs[b].sub {
+			return reqs[a].sub < reqs[b].sub
+		}
+		return reqs[a].kind < reqs[b].kind
+	})
+	var b strings.Builder
+	b.WriteString("# jig queue 1 — written by `jig queue` only; do not edit by hand\n")
+	for _, it := range items {
+		fmt.Fprintf(&b, "item\t%s\t%s\t%.0f\t%s\n", it.ref, it.level, awkNumber(it.pos), it.pri)
+	}
+	for _, d := range deps {
+		fmt.Fprintf(&b, "dep\t%s\t%s\t%s\n", d.sub, d.on, d.reason)
+	}
+	for _, q := range reqs {
+		if q.alive {
+			fmt.Fprintf(&b, "request\t%s\t%s\t%s\t%s\n", q.sub, q.kind, q.at, q.reason)
+		}
+	}
+	for _, o := range other {
+		b.WriteString(o + "\n")
+	}
+	return b.String(), nil
 }
