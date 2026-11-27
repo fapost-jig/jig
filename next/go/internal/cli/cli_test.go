@@ -27,21 +27,32 @@ func TestNoArgumentsIsHelp(t *testing.T) {
 
 func TestUnknownCommandIsAUsageError(t *testing.T) {
 	code, out, errOut := do(t, nil, "task", "list")
-	if code != 1 || out != "" || errOut != "jig-next: error: unknown command: task\n" {
+	if code != 1 || out != "" || errOut != "jig: error: unknown command: task\n" {
 		t.Errorf("%d %q %q", code, out, errOut)
 	}
 }
 
 func TestVersionNeedsItsRoot(t *testing.T) {
 	code, _, errOut := do(t, nil, "--version")
-	if code != 1 || !strings.HasPrefix(errOut, "jig-next: error: ") || !strings.Contains(errOut, "JIG_NEXT_ROOT") {
+	if code != 1 || !strings.HasPrefix(errOut, "jig: error: ") || !strings.Contains(errOut, "JIG_NEXT_ROOT") {
+		t.Errorf("%d %q", code, errOut)
+	}
+}
+
+func TestVersionIsAlsoASubcommand(t *testing.T) {
+	code, out, errOut := do(t, nil, "version")
+	if code != 1 || out != "" || !strings.HasPrefix(errOut, "jig: error: ") || !strings.Contains(errOut, "JIG_NEXT_ROOT") {
+		t.Errorf("%d %q %q", code, out, errOut)
+	}
+	code, _, errOut = do(t, nil, "version", "--json")
+	if code != 1 || errOut != "jig: error: version: unknown option: --json\n" {
 		t.Errorf("%d %q", code, errOut)
 	}
 }
 
 func TestVersionRefusesAnArgument(t *testing.T) {
 	code, _, errOut := do(t, nil, "--version", "--json")
-	if code != 1 || errOut != "jig-next: error: version: unknown option: --json\n" {
+	if code != 1 || errOut != "jig: error: version: unknown option: --json\n" {
 		t.Errorf("%d %q", code, errOut)
 	}
 }
@@ -49,7 +60,7 @@ func TestVersionRefusesAnArgument(t *testing.T) {
 func TestBadJigNowIsRefusedBeforeAnyCommand(t *testing.T) {
 	for _, args := range [][]string{nil, {"--help"}, {"--version"}, {"nonsense"}} {
 		code, out, errOut := do(t, map[string]string{"JIG_NOW": "soon"}, args...)
-		want := "jig-next: error: JIG_NOW must be seconds since the epoch, got 'soon'\n"
+		want := "jig: error: JIG_NOW must be seconds since the epoch, got 'soon'\n"
 		if code != 1 || out != "" || errOut != want {
 			t.Errorf("%v: %d %q %q", args, code, out, errOut)
 		}

@@ -14,9 +14,10 @@ import (
 
 const usage = `jig-next — the next implementation of Jig (a skeleton: it has no commands yet)
 
-Usage: jig-next [--version | --help]
+Usage: jig-next [version | --version | --help]
 
-  --version       print the version, as jig --version does
+  version         print the version, as jig version does
+  --version       the same
   -h, --help      print this help
 
 Environment:
@@ -46,7 +47,7 @@ func run(args []string, env func(string) string, exec proc.Exec, stdout, stderr 
 	case "help", "-h", "--help":
 		fmt.Fprint(stdout, usage)
 		return 0
-	case "--version":
+	case "version", "--version":
 		if len(args) > 0 {
 			return fail(stderr, errs.New(errs.Usage, "version: unknown option: %s", args[0]))
 		}
@@ -61,8 +62,8 @@ func run(args []string, env func(string) string, exec proc.Exec, stdout, stderr 
 	}
 }
 
-// fail prints what went wrong, as `jig: error:` does, and gives the exit status.
+// fail prints what went wrong, as `jig: error:` does, which the next implementation must keep, and gives the exit status.
 func fail(stderr io.Writer, err error) int {
-	fmt.Fprintf(stderr, "jig-next: error: %s\n", err.Error())
+	fmt.Fprintf(stderr, "jig: error: %s\n", err.Error())
 	return 1
 }
