@@ -26,16 +26,21 @@ scripts/jig.cmd                 init:: install::
 # The TypeScript skeleton (spec stack-migration). Its checks are written in TypeScript and run by
 # Node; tests/next-ts.t.sh runs them (`npm run check`) and holds the launcher to `jig --version`.
 # Nothing in bash calls the skeleton, so no other suite reads these paths.
-next/ts/**                      next-ts::
-scripts/jig-next-ts*            next-ts::
+next/ts/**                      next-ts:: parity-ports::
+scripts/jig-next-ts*            next-ts:: parity-ports::
 
 # The recorder and the parity check are test tooling: nothing in scripts/ calls them,
 # but the check replays calls through the recorder, so a change to either is tested by both
 # suites. The intended list is read by the check alone (task parity-check).
-tests/lib/recorder.sh           recorder:: parity::
-tests/lib/parity.sh             parity::
-tests/parity/**                 parity::
+tests/lib/recorder.sh           recorder:: parity:: parity-ports::
+tests/lib/parity.sh             parity:: parity-ports::
+tests/parity/**                 parity:: parity-ports::
 tests/parity.t.sh               parity::
+
+# `jig version` of both ports against its bash recordings (tests/parity-ports.t.sh). The first matching
+# line decides a path, so the paths this suite shares with another (the skeletons, the recorder, the
+# parity tool) carry `parity-ports::` on their own lines; the suite's own file is mapped here.
+tests/parity-ports.t.sh         parity-ports::
 
 # The JSON layer and the housekeeping log reader are libraries with more than
 # one reader: json.sh writes every `--json` envelope (task list, spec list,
@@ -58,8 +63,8 @@ scripts/lib/prgitlab.sh         pr:: gh::
 # profile `go` is not on in .ai/config.yaml, so this line is what makes `jig verify`
 # run them when anything under next/go changes. The launcher is also a file
 # under scripts/, which the guards of dispatcher:: and gh:: scan.
-next/go/**                      next-go::
-scripts/jig-next-go*            next-go:: dispatcher:: gh::
+next/go/**                      next-go:: parity-ports::
+scripts/jig-next-go*            next-go:: dispatcher:: gh:: parity-ports::
 
 adapters/**                     adapters::
 profiles/**                     profiles:: verify::

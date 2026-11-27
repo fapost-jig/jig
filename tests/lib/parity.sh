@@ -19,7 +19,9 @@
 #                 path of the working checkout would differ in its build suffix
 #   --name        the port's name in the intended list (default: basename of --port)
 #   --port-env    a variable the port needs and the recording lacks (JIG_NEXT_ROOT
-#                 for the Go binary); repeatable
+#                 for the Go binary); repeatable. A value that begins with the literal
+#                 `<JIG_HOME>` is taken in the world's JIG_HOME of each call, as --port
+#                 is: `--port-env 'JIG_NEXT_ROOT=<JIG_HOME>'`
 #   --intended    the list of intended differences (default: tests/parity/intended.tsv
 #                 beside this tool): five TAB-separated fields, see that file
 #   --report      keep, per call with a difference or an error, <dir>/<file>/<test>/<NNNN>/
@@ -758,17 +760,18 @@ _files_list() {
   fi
 }
 
-# _write_shim <port> — the program the recorder runs: the port's own variables,
-# then the port.
+# _write_shim <port> [NAME=VALUE]... — the program the recorder runs: the port's own
+# variables (already resolved), then the port.
 _write_shim() {
-  local envs shimenv
+  local envs shimenv port=$1
+  shift
   {
     printf '#!/usr/bin/env bash\n'
-    for envs in ${PORT_ENVS[@]+"${PORT_ENVS[@]}"}; do
+    for envs in "$@"; do
       shimenv=${envs%%=*}
       printf 'export %s=%q\n' "$shimenv" "${envs#*=}"
     done
-    printf 'exec %q "$@"\n' "$1"
+    printf 'exec %q "$@"\n' "$port"
   } > "$SHIM"
 }
 
@@ -826,7 +829,7 @@ _process_call() {
   local key=$1 call file rest test seq concurrent rerr stdin clock streams
   local T JH PATHV ROOTV CACHEV rtest rcall cwd rc rec stdin_src p unc ints i v
   local rexit pexit enc rout rerrf rawtarget
-  local envarr argva extra
+  local envarr argva extra penvs envs
   call="$REC/calls/$key"
   file=${key%%/*}
   rest=${key#*/}
@@ -981,7 +984,21 @@ _process_call() {
       p="$JH${p#"<JIG_HOME>"}"
       ;;
   esac
-  _write_shim "$p"
+  penvs=()
+  for envs in ${PORT_ENVS[@]+"${PORT_ENVS[@]}"}; do
+    case "${envs#*=}" in
+      "<JIG_HOME>"*)
+        if [ -z "$JH" ]; then
+          R_STATUS=ERROR
+          R_DETAIL="replay: --port-env ${envs%%=*} is in <JIG_HOME> and the recording has none"
+          return 0
+        fi
+        envs="${envs%%=*}=$JH${envs#*=<JIG_HOME>}"
+        ;;
+    esac
+    penvs[${#penvs[@]}]=$envs
+  done
+  _write_shim "$p" ${penvs[@]+"${penvs[@]}"}
   rtest="$test.$seq"
   rcall="$REPLAY/calls/$file/$rtest/0001"
   # Where the streams go: the file of the world the recorded call wrote to when one

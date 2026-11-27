@@ -19,4 +19,4 @@
 # compared call in a run but which covers no difference is stale and fails the run.
 # A wrong field count or an empty reason is a usage error (exit 2) that names file:line.
 #
-# No entry yet: no port has been compared.
+# No entry yet: `jig version` of the TypeScript and the Go port is compared by tests/parity-ports.t.sh and is equal to the bash jig, so nothing is intended to differ.

@@ -7,6 +7,7 @@ paths:
   - tests/lib/parity.sh
   - tests/parity.t.sh
   - "tests/parity/**"
+  - tests/parity-ports.t.sh
 summary: "How to check a port against the recordings with tests/lib/parity.sh: recording first, the <JIG_HOME>/ port form, what is compared, the report, exit codes, and the intended-differences list."
 reviewed_at: 2026-11-27
 ---
@@ -33,7 +34,9 @@ tests/lib/parity.sh check --recordings <dir> --port '<JIG_HOME>/scripts/jig-next
   that is the form to use for anything that names its own checkout (`--version`), and
   `--port '<JIG_HOME>/scripts/jig'` is the self-check of the harness: it must give no difference.
 - A program that needs something the recording lacks gets it with `--port-env NAME=VALUE` (the built
-  Go binary needs `JIG_NEXT_ROOT`). Build a compiled port before the check, never inside a replay: the
+  Go binary needs `JIG_NEXT_ROOT`). A value that begins with the literal `<JIG_HOME>` is taken inside each
+  call's world `JIG_HOME` like `--port`: `--port-env 'JIG_NEXT_ROOT=<JIG_HOME>'` for the Go binary, whose
+  version is that of the release copy the recording ran from, not of the working checkout. Build a compiled port before the check, never inside a replay: the
   replay's `HOME` is the test's directory, and a build cache there would be a change of the call.
 - Select with `--command <word>` (the call's first argument) and `<file>::<test>` / `<file>::` filters.
 - Calls replay one at a time, at the paths they were recorded on; a path that exists is an `ERROR`, never

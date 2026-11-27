@@ -111,14 +111,14 @@ test_next_go_launcher_refuses_an_unknown_command() {
   env JIG_NEXT_BUILD_DIR="$JIG_TEST_TMP/build" "$JIG_HOME/scripts/jig-next-go" task list >"$out" 2>"$err" || rc=$?
   assert_eq 1 "$rc"
   assert_eq "" "$(cat "$out")" "stdout"
-  assert_eq "jig-next: error: unknown command: task" "$(cat "$err")"
+  assert_eq "jig: error: unknown command: task" "$(cat "$err")"
 }
 
 test_next_go_launcher_refuses_a_bad_jig_now() {
   _ng_go
   run env JIG_NOW=soon JIG_NEXT_BUILD_DIR="$JIG_TEST_TMP/build" "$JIG_HOME/scripts/jig-next-go" --version
   assert_eq 1 "$RC"
-  assert_eq "jig-next: error: JIG_NOW must be seconds since the epoch, got 'soon'" "$OUT"
+  assert_eq "jig: error: JIG_NOW must be seconds since the epoch, got 'soon'" "$OUT"
 }
 
 test_next_go_launcher_says_when_go_is_missing() {
